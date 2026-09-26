@@ -90,7 +90,7 @@ Implement the reviewed Phase A/B contracts in logical, frequently committed slic
 4. validator/compiler and Workflow Machine;
 5. Inference Machine and evidence-selected first backend;
 6. registered adapters and transport surfaces;
-7. journal/replay and later optimizations after baseline acceptance.
+7. bounded in-memory committed-event inspection and observation-only replay before baseline acceptance (including A32); durable journal persistence, recovery design and later optimizations follow only under separate reviewed contracts.
 
 Exact dependency order is a Phase B deliverable. A slice must not advertise a capability until its code and tests exist. Use offline deterministic lifecycle tests before GPU/provider-dependent integration tests. Keep PRs reviewable and do not auto-merge.
 
