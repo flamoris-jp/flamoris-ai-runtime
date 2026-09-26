@@ -17,6 +17,7 @@ The workflow IR should be:
 - independent of GUI layout;
 - portable across MCP, CLI, Studio, tests, and AI planners;
 - provider-neutral at the public boundary;
+- able to compose algorithmic processing, future Vem capabilities, external AI/API calls, external MCP capabilities, and FLAMORIS services through one explicit capability model;
 - explicit about dependencies and side effects;
 - bounded enough to reject unsafe or unreasonably expensive graphs before execution.
 
@@ -104,6 +105,49 @@ Example:
 Node IDs must be unique inside the workflow.
 
 Node types must come from the runtime capability registry. Unknown node types are validation errors, not dynamic imports.
+
+## Capability classes
+
+The IR is intentionally broader than an LLM workflow format.
+
+A workflow may eventually contain nodes from several classes:
+
+- `algorithm.*` — ordinary bounded algorithmic processing;
+- `vem.*` — future Vem-backed capabilities once Vem has a stable callable contract;
+- `intelligence.*` / `generation.*` — FLAMORIS-owned service capabilities;
+- `external_ai.*` — configured local or remote AI services, including API-backed providers;
+- `mcp.*` — configured external MCP tools/capabilities;
+- later explicitly registered product/service capabilities.
+
+These prefixes are conceptual and not frozen schema.
+
+The important contract is that every executable node type is registered with machine-readable input/output, side-effect, permission, and resource metadata before a workflow may reference it.
+
+### Algorithmic processing
+
+Algorithm nodes are first-class workflow operations, not merely glue around AI calls.
+
+They may perform deterministic transforms, analysis, filtering, scoring, conversion, geometry, signal/image processing, or other bounded operations.
+
+Where reproducibility matters, the capability registry should identify the implementation/version whose semantics produced the result.
+
+### Future Vem integration
+
+Vem should integrate through the same capability registry rather than requiring a Vem-specific workflow language.
+
+Until Vem has a stable callable contract, the IR should reserve only an integration boundary and avoid inventing Vem inputs, outputs, lifecycle, or state semantics.
+
+### External AI / API calls
+
+External AI services may be represented as registered capabilities.
+
+The portable workflow should describe the logical capability and its inputs. It should not contain raw API keys, private endpoints, or unrestricted provider configuration.
+
+### External MCP calls
+
+External MCP tools may also become registered workflow capabilities.
+
+The runtime must know the configured MCP connection and tool schema before validation succeeds. A workflow must not be allowed to supply an arbitrary MCP endpoint and invoke whatever tool name it wants.
 
 ## Edges
 
@@ -265,6 +309,8 @@ Prefer:
 over encoding a machine name, private endpoint, or provider-specific invocation directly into the portable graph.
 
 Provider selection can be added only where it is an intentional public choice.
+
+The same rule applies to external MCP. Prefer a registered logical capability over embedding an MCP server URL, transport secret, or deployment-specific tool routing detail directly in the workflow.
 
 ## Example
 
