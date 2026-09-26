@@ -143,6 +143,48 @@ MCP / API / CLI adapters
 
 The execution core should not know whether the workflow arrived over MCP, CLI, or tests.
 
+## Capability classes
+
+A single workflow may intentionally mix different execution styles:
+
+```text
+algorithmic processing ─┐
+future Vem capability ──┤
+external AI / API ──────┼─► one validated workflow graph
+external MCP tool ──────┤
+FLAMORIS service ───────┘
+```
+
+This mixing is one of the reasons to keep the workflow IR generic.
+
+The runtime should see all of them through one explicit capability model while preserving their different security and ownership properties:
+
+- pure/local algorithms may be deterministic and side-effect free;
+- Vem remains a future adapter boundary until its callable contract is stable;
+- external AI/API calls may incur cost, latency, rate limits, and provider-specific failure;
+- external MCP capabilities may perform arbitrary domain actions and therefore require explicit connection/tool authorization;
+- FLAMORIS services retain their own domain authority.
+
+## MCP in two directions
+
+MCP can appear on both sides of the runtime, but these are different roles.
+
+```text
+AI / Agent
+   │
+   │ MCP control plane
+   ▼
+AI Runtime
+   │
+   │ registered workflow capability
+   ▼
+external MCP server/tool
+```
+
+The inbound Runtime MCP surface controls workflow admission and observation.
+
+An outbound MCP capability is simply one registered executable capability inside a workflow. Its connection details, tool schema, authorization, and limits belong to runtime/deployment configuration, not to arbitrary workflow JSON.
+
 ## Capability registry
 
 The runtime should expose a machine-readable capability registry.
@@ -181,15 +223,43 @@ Candidates:
 
 These should be deterministic and side-effect free.
 
-### Service capability nodes
+### Algorithmic capability nodes
+
+The runtime is also intended to execute ordinary algorithmic processing that does not require a model call.
+
+Conceptual examples use a family such as:
+
+- `algorithm.*`
+
+These capabilities may cover deterministic transforms, analysis, filtering, scoring, conversion, geometry, signal/image operations, or other bounded library/runtime work.
+
+Algorithm implementations should be versioned where output semantics matter. They remain subject to the same input/output, timeout, memory, and concurrency bounds as every other node.
+
+### Vem capability nodes
+
+Future Vem functionality should be connectable as registered capabilities once Vem exposes a stable callable contract.
+
+Conceptually:
+
+- `vem.*`
+
+The workflow IR should not hard-code Vem internals or guess its eventual API. Vem-specific lifecycle, state, and implementation details should remain behind its adapter/contract.
+
+### Service and external capability nodes
 
 Candidates:
 
 - `intelligence.request`
 - `generation.submit`
-- later explicitly registered product/service commands
+- `external_ai.*` for explicitly registered local/remote AI services, including API-backed providers;
+- `mcp.*` for explicitly registered external MCP capabilities;
+- later explicitly registered product/service commands.
 
-These are adapters to owning services.
+These are adapters to owning services or configured external capabilities.
+
+External AI/API nodes must not carry raw credentials or private endpoints in the portable workflow. Provider configuration belongs in runtime/deployment configuration or the owning adapter.
+
+External MCP calls must be backed by configured connections and registered tool schemas. A workflow must not be able to invent an arbitrary MCP endpoint or tool and gain access merely by naming it.
 
 The runtime should not invent hidden semantics around an upstream service.
 
