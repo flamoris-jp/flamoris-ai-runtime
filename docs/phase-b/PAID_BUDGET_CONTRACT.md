@@ -23,7 +23,8 @@ live Run or cleanup observation. The adapter cannot schedule provider work.
 | `AttemptId` | Unique attempt under the same Job and operation; a retry uses its own reservation and never resets cumulative limits |
 | `DurableReservationId` | Authority-issued durable identity bound to scope and concrete operation/attempt or unbound FundingSlotId, maximum liability and current record revision |
 | `PaidReservationReceipt` | Bounded reference to the durable record; current reserved/armed/settled state and authority revision; not a bearer permission |
-| `HandoffTicket` | Authority-issued, attempt-bound marker for one locally committed handoff; armed liability survives lost response/crash |
+| `DeliveryGateId` | Fresh incarnation-scoped one-shot identity allocated before arm, permanently bound to concrete tenant/operation/attempt/reservation/digest; never recycled or used for another retry |
+| `HandoffTicket` | Authority-issued marker bound to that attempt and DeliveryGateId before local dispatch; armed liability survives lost response/crash |
 | `BudgetScopeCertificate` | Current inventory/reconciliation status and conservative remaining balance for the scope; a stale balance snapshot cannot authorize spending |
 | `RaceFundingPreparation` | Run-owned bounded bookkeeping for one closed race group: all participant/operation/attempt slots, maxima, receipts and funding gate; no independent scheduling identity |
 | `FundingSlotId` | Stable durable group/participant/operation-slot/attempt-ordinal identity bound to a finite envelope and maximum; an unbound slot is not a live Job or Attempt |
@@ -58,7 +59,7 @@ not model-supplied data. All calls run outside the Runtime control executor.
 | `reserve` | Atomically compare aggregate charged + held liability with the limit, create one durable concrete-attempt reservation before acknowledgement, or reject without a new charge |
 | `reserve_envelope` | Same atomic budget check for one identified race funding slot under a pinned finite envelope; no live attempt or permission to arm |
 | `bind_attempt` | Once only, bind a funded slot to concrete OperationId/AttemptId/capability/input digest within its immutable envelope and maximum; no release/re-reserve gap, new liability or widening |
-| `arm_handoff` | Atomically move that reservation to durable handoff-possible state and return its one attempt-bound ticket; repeat returns the same ticket/status |
+| `arm_handoff` | Atomically bind DeliveryGateId and move that reservation to durable handoff-possible state; repeat the same binding returns its ticket/current status; a closed tombstone or changed gate binding cannot arm |
 | `cancel_before_handoff` | Release only with matching proof that the delivery gate closed before any handoff and cannot reopen; compete atomically with arm/settle |
 | `settle` | Apply confirmed bounded cost/effect evidence once; retain unresolved cost components; never treat missing evidence as zero |
 | `reconcile` | Read/status-only provider evidence or conservative maximum-liability accounting; certify safe remaining balance independently of Runtime lifecycle |
@@ -138,17 +139,21 @@ comes from durable conservative liability before any possible provider send:
    Paid races must first complete the full funding barrier above; selecting one of
    those slots consumes its existing reservation without charging twice. No paid
    provider request is sent at this point.
-2. Persist `arm_handoff` before the provider can receive a request. An acknowledgement
+2. Create and retain the one-shot DeliveryGate in `prepared` state, with bounded
+   completion/cleanup storage, before submitting `arm_handoff` with its identity.
+   Persist arming before the provider can receive a request. An acknowledgement
    returns the ticket bound to the operation/attempt/digest. Unknown reserve or arm
    response is queried by the same identity; it never causes a new reservation or send.
 3. On the control executor, revalidate all current policy, concrete-input scope, deadline,
    capability pins, resource grants, budgets and ticket. In one dispatch turn commit
-   the attempt/event group and enqueue at most one bounded outbound work item. Only
-   this item can spend the armed ticket. A revoked/expired local gate prevents send;
+   the attempt/event group, change the gate to `dispatch_committed`, and prepare at
+   most one bounded outbound work item for delivery after commit. Only the winner
+   of that gate's send claim can spend the armed ticket. A closed gate prevents send;
    it cannot authorize another attempt or silently substitute new inputs.
-4. The configured adapter crosses the provider boundary once. Its delivery gate records
-   whether send was impossible, attempted/unknown, or acknowledged. Cancellation before
-   send may close this gate; cancellation racing an attempted send is uncertain. An
+4. The configured adapter validates the ticket/binding/expiry and atomically claims
+   the gate before crossing the provider boundary. A failed claim sends nothing.
+   A successful claim conservatively makes send possible, even before socket I/O;
+   later cancellation cannot establish no-send. An
    `attempt.dispatch_committed` event is intent, not provider receipt or success.
 5. Settle from authoritative provider/billing evidence. Run terminalization, output
    rejection, timeout, cancellation, race loss and Runtime destruction are not settlement.
@@ -167,6 +172,78 @@ it cannot dispatch a cancelled Job. Superseded callbacks remain relevant to dura
 liability even when their lifecycle mutation is stale. No new physical attempt overlaps
 an unresolved earlier attempt. Provider-deduplicated status/retrieval is allowed only
 under a verified contract proving it cannot start duplicate work.
+
+## One-shot DeliveryGate ownership and arbitration
+
+`DeliveryGate` is a bounded control block, not a Job or authority to spend by
+itself. The Runtime delivery registry owns it from preparation, linked to the
+concrete AttemptRecord/pending dispatch. On cancellation, failed dispatch or
+terminal cleanup the registry transfers its ownership obligation to a matched
+CleanupRecord before retiring the attempt linkage. This preserves the gate and
+its immutable binding independently of Run observation retention. Adapter work
+items hold strong references only to this gate, immutable ticket/input and a
+bounded completion endpoint; they never capture Job/controller pointers.
+
+This is a narrow exception to the usual immutable-only shared ownership rule:
+a `shared_ptr<DeliveryGate>` protects lifetime while a single atomic state
+arbitrates close/send. Identity/binding fields are immutable; no shared mutable
+lifecycle fields or borrowed data live here. Control-side preparation/dispatch/
+cleanup remains serialized by the executor. No lock is held across I/O and no
+worker needs a control-thread round trip to close or claim the gate.
+
+| State | Permitted transition and owner | Evidence |
+| --- | --- | --- |
+| `prepared` | Control executor changes to `dispatch_committed` in the final dispatch commit, only after a matching armed receipt; control may instead close it | Arm may be pending/unknown; worker cannot send |
+| `dispatch_committed` | Adapter worker atomically claims `send_claimed`, or control/adapter atomically closes it | Exactly one compare-exchange wins; duplicate work items cannot claim twice |
+| `send_claimed` | Winning worker records `sent_or_unknown` after transport attempt or failure | Already handoff-possible; never eligible for local no-send proof, including pre-I/O crash/failure |
+| `sent_or_unknown` | No reopening or local no-send transition | Outcome/cost settle separately through authoritative evidence |
+| `closed_without_send` | Absorbing; cannot dispatch, claim, rearm or reopen | Immutable identity-bound no-send proof may be issued |
+
+Close is a compare-exchange from `prepared` or `dispatch_committed` to
+`closed_without_send`, retried only while one of those states remains. Release/
+acquire publication makes the immutable binding and state available to workers.
+Control stop/revocation handling attempts closure before publishing its stop
+commit; an adapter observing expiry/invalid delivery likewise closes before
+returning no-send. The close/send compare-exchange is their linearization point,
+not queue removal, an atomic stop hint, or the time a caller requested cancel.
+If send wins first, stop still applies to lifecycle but liability remains held.
+If close wins first, every queued or duplicated sender fails its claim. Once
+claimed, the adapter must not transparently resend/retry the provider request;
+a new physical attempt requires the normal reconciled retry protocol.
+
+The authority validates a bounded `NoSendProof` from the configured trusted
+adapter/Runtime identity, never from client/model input: DeliveryGateId,
+incarnation, tenant/operation/attempt/reservation/digest binding and closure
+state. The implementation can construct this proof only from the absorbing
+closed state of the still-live registry/cleanup-owned gate. An armed record also
+checks its stored gate binding. `cancel_before_handoff` durably closes/tombstones
+that same binding so a delayed arm cannot recreate handoff permission. Revision
+conflicts query the current record and repeat the same identity-bound closure;
+they do not allocate a new gate or reservation. Unbound race-slot release instead
+uses the funding owner's irrevocable future-dispatch closure proof; it cannot
+fabricate an Attempt or claim that an unknown bound gate never sent.
+
+Required failure paths:
+
+- Arm succeeds but local policy/deadline/resource/event preparation denies
+  dispatch: close `prepared`, issue no-send cancellation, send zero provider calls.
+- Arm acknowledgement is lost, then cancel: close `prepared`; reconcile/close
+  the original binding. Delayed arm success cannot advance the closed gate.
+  Authority outage keeps liability held until the durable closure is acknowledged.
+- Dispatch commits but enqueue fails or cancel wins before send claim: close
+  `dispatch_committed`; queued duplicates cannot send and release is proof-backed.
+- Send claim wins before cancel (even before I/O): no local refund; retain maximum
+  until provider evidence or conservative authority reconciliation settles it.
+- Runtime crashes or loses the gate without a durably accepted closure: local
+  proof is lost; inventory retains unknown liability. No reconstruction from the
+  absence of events. A closure already accepted durably remains closed on restart.
+
+The registry/cleanup owner releases its gate only after all arm/delivery callbacks
+and worker references are quiescent and accounting has acknowledged closure/
+settlement or explicitly transferred unresolved debt to the durable authority.
+Queue emptiness, destructor invocation or Run terminalization are insufficient.
+Gate count/storage is charged before arm against finite attempt and cleanup
+budgets; capacity exhaustion prevents arm. Destruction never sends or refunds.
 
 ## Durable record transitions
 

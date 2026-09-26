@@ -28,7 +28,8 @@ The control thread releases the inbox mutex before processing. Worker queues
 use the same simple pattern; no callbacks execute while a queue mutex is held.
 `std::jthread`/stop requests express cooperative thread shutdown, not evidence
 that native inference has stopped. No coroutine framework, lock-free queue, or
-mutable singleton is required. The [ownership map](CPP_OWNERSHIP.md) specifies
+mutable domain singleton is required. A DeliveryGate uses one narrow atomic
+state for worker send versus control/worker close; its registry owns lifetime. The [ownership map](CPP_OWNERSHIP.md) specifies
 destruction responsibility; [backend contracts](BACKEND_CONTRACT.md) specify
 actual quiescence.
 
@@ -73,6 +74,7 @@ No controller waits holding a mutex across an external operation. See
 | Run admission | Resolve the pending submission (and optional keyed claim) with one Run/root and all finite bookkeeping budgets | No runnable partial Run; notify keyed duplicate waiters before releasing failed claim |
 | Resource reservation | All-or-none incremental vector in ResourceManager, advance ledger revision | No partial local grant; uncertain external receipts remain accounted |
 | Dispatch/retry/resume | Final eligibility turn consumes prepared grants and budgets, commits running/attempt intent and a fenced outbound action | No useful work on a partially valid grant; retain queued resume payload or fail/clean up |
+| Paid delivery close/send | DeliveryGate compare-exchange chooses absorbing no-send closure or one send claim after dispatch commit | Close wins: no provider call; send wins: retain liability, no local no-send proof |
 | Yield | Safe-point evidence accepted; commit Continuation and waiting/paused state together | No resumable state fabricated from an unfinished native call |
 | Wake | Consume owner/suspension generation into same Job's PendingResume and queue | Duplicate wake cannot consume again |
 | Run pause | Validate every target, close both gates, assign barrier generation and capture target set together | Unsupported target rejects without changing flags/gates |
@@ -148,6 +150,16 @@ action still queued, but it does not undo an earlier dispatch commit or prove
 that a raced external send did not happen. Record `not_dispatched` only from
 adapter proof; otherwise retain unknown outcome/liability. Adapter handoff and
 provider acceptance are not falsely folded into the local commit.
+
+Paid actions require the [one-shot DeliveryGate protocol](PAID_BUDGET_CONTRACT.md).
+Allocate its stable identity and storage before arm; a matching durable receipt
+alone cannot send. Commit `prepared -> dispatch_committed` with dispatch intent
+before exposing the work item. A worker claims `dispatch_committed -> send_claimed`
+once; cancel/revocation attempts absorbing closure before publishing stop. This
+compare-exchange is the handoff race arbiter; the stop hint is not a no-send proof.
+Arm loss/dispatch denial/enqueue failure close the same gate where possible and
+route proof/unknown liability to accounting. Transfer gate ownership to cleanup
+before destroying attempt/Run records. Late arm replies never reopen a gate.
 
 ## Pause barrier and pending results
 
@@ -315,8 +327,10 @@ Orderly shutdown is:
    the configured drain deadline. Continue control/cleanup processing.
 2. Drain eligible admitted work only within that deadline, then issue stop to
    remaining Jobs; invalidate resume paths and stop new segments.
-3. Keep delivery endpoints, resource/paid adapters and executor alive while
-   workers acknowledge quiescence, release/containment, and ledger reconciliation.
+3. Close all still-unclaimed delivery gates and retain registry/cleanup-owned
+   gates, endpoints, resource/paid adapters and executor while workers acknowledge
+   quiescence, release/containment, and ledger reconciliation. Claimed/unknown
+   gates never become no-send proofs during shutdown.
 4. When no callbacks/native accesses can remain, stop/join workers outside the
    control thread, drain their final observations, and close their endpoints.
 5. Publish remaining bounded closure records, close observers and timer sources,

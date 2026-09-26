@@ -711,6 +711,28 @@ not replacements for Phase A behavior:
 | B-SER01 | Duplicate JSON keys, unsupported versions, oversized nesting/counts/strings and invalid encoding/non-finite numbers reject deterministically before side effects; canonicalization preserves distinct semantic fields and normalizes only specified non-semantic variation; sensitive nested causes are redacted before storage. |
 | B-DRAIN01 | Graceful shutdown closes new admission, fixes drain and cleanup deadlines, cancels remaining work, joins genuinely stopped workers before releasing their owners, and exposes unresolved containment without pretending destructors prove deallocation. |
 
+### B-PAID02 — delivery gate, no-send proof and accounting lifetime
+
+- **Boundary / active doubles:** actual DeliveryGate/registry and control dispatch,
+  with C/X/A/R/P/D/O; manually step worker claim separately from provider receipt.
+- **Injection:** arm success then deny local dispatch (cancel, deadline, revocation
+  or event-capacity failure); lose arm acknowledgement then cancel; fail enqueue;
+  race cancel versus worker claim in both orders after dispatch. Duplicate queued
+  sends, late arm replies, wrong gate/attempt/digest proof and authority revision
+  conflicts must be included. Crash immediately before/after claim and durable
+  closure; expire Run observation while accounting acknowledgement is delayed.
+- **State / events:** only final successful dispatch commits attempt intent;
+  denied dispatch/closed gate produces zero sends. Close-first makes every worker
+  claim fail; claim-first permits at most one invocation and cannot issue local
+  no-send proof even before I/O. Late observations never revive a Job. Inspect
+  complete event groups and the independent A send transcript at each boundary.
+- **Resources / liability:** release only after matching durable closure or
+  settlement; outage/unknown claim retains full maximum. Tombstoned closure rejects
+  delayed arm; repeated proof never refunds twice. Gate survives lifecycle expiry
+  until worker/callback quiescence and accounting acknowledgement/transfer. Fake
+  crashes discard local proof but preserve D state. Exhausted gate storage rejects
+  before arm; wrong identity proof changes no balance. No network/GPU/money needed.
+
 Activation/startup cases B-ACT01–B-ACT12 are defined by the
 [activation contract](ACTIVATION_CONTRACT.md) and
 must be implemented with the same C/X/R/H/P/D fixture, not a live service manager.

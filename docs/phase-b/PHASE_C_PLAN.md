@@ -118,7 +118,9 @@ test does not close an acceptance case.
   same-digest waiters; admitted-claim retention; external
   PaidBudgetPort adapter contract, proof-of-no-handoff release, settlement,
   full paid-race `reserve_envelope`/`bind_attempt` funding gates with nested
-  subset ownership, durable `arm_handoff`/ticket protocol, inventory/reconciliation and fail-closed
+  subset ownership, durable `arm_handoff`/ticket protocol, bounded DeliveryGate
+  registry/cleanup ownership and atomic close/send with identity-bound no-send
+  proof, inventory/reconciliation and fail-closed
   behavior. Async preparation receipts
   never become independently spendable grants; final local dispatch checks commit
   together under the control executor.
@@ -131,7 +133,7 @@ test does not close an acceptance case.
   aggregate paid-race funding before any participant handoff, including failure
   of the last reservation; current handle/trace access. Close policy/port cases
   in A04–A05, A24–A27, A33,
-  A35, A41–A42 and B-RETRY01; retain integrated retests in C07/C08/C11.
+  A35, A41–A42, B-PAID02 and B-RETRY01; retain integrated retests in C07/C08/C11.
 - **Commit units:** policy/scope and budget values; submission claim/waiters;
   durable paid protocol/fake; eligibility/handoff guards; retry/uncertainty tests.
 - **Excluded:** concrete durable budget database/service, automatic refunds,
@@ -288,7 +290,7 @@ test does not close an acceptance case.
 - **Prerequisites:** C01–C11. If a component is deliberately not delivered, narrow
   the milestone label; do not call the complete baseline accepted.
 - **Tests / acceptance:** every A01–A42 case in [test map](ACCEPTANCE_TEST_MAP.md),
-  B-LIFE/B-CALL/B-EVENT/B-RETRY/B-INPUT/B-SER/B-DRAIN, B-ACT01–B-ACT12, clean
+  B-LIFE/B-CALL/B-EVENT/B-RETRY/B-INPUT/B-SER/B-DRAIN, B-PAID02, B-ACT01–B-ACT12, clean
   configure/build and required compiler/static/sanitizer gates. Run optional real
   CPU qualification with explicitly available fixture; report an absent fixture as
   not run, not pass. Inspect final diff and public/private boundaries.
