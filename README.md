@@ -141,31 +141,35 @@ Not every job/backend must support pause, resume, rewind, or cancellation. These
 
 ## Continuations
 
-A **Continuation** is the Runtime-owned description of work that can be resumed later.
+A **Continuation** is Runtime-owned resume state attached to exactly one suspended Job.
 
 Keep the distinction explicit:
 
 ```text
 Job
-  = work that is runnable, running, waiting, or terminal now
+  = the only scheduler-visible unit of work and lifecycle authority
 
 Continuation
-  = the resumable execution state and resume contract for a future step
+  = resume state owned by a waiting/paused Job
 ```
+
+The Scheduler schedules Jobs, not Continuations. A yield does not create a second scheduler identity. When the waiting condition is satisfied, the owning Job keeps its identity and transitions back toward `queued`/runnable execution using its Continuation.
+
+Cancellation, timeout, parent/child provenance, metrics, and terminal status remain properties of the Job/run lifecycle.
 
 A continuation may include:
 
-- the owning execution machine;
+- the owning Job and execution machine;
 - resume point;
 - backend/model state reference where supported;
 - what result or event it is waiting for;
 - input/result bindings required on resume;
 - resource requirements and affinity hints;
-- deadline/cancellation linkage.
+- deadline/cancellation linkage inherited from the owning Job.
 
-A paused continuation should not normally hold a physical GPU lease indefinitely. The scheduler reacquires resources when the continuation becomes runnable again, while using model/device affinity as an optimization hint.
+A paused Job should not normally hold an **execution lease** indefinitely. However, releasing an execution lease does not imply that retained KV/cache/backend state has left VRAM or RAM. The Resource Manager must continue accounting for any **retained state footprint** until that state is offloaded, snapshotted elsewhere, or evicted.
 
-Inference is not the only possible continuation source. The design should allow both the Inference Machine and Workflow Machine to yield resumable work through the same continuation contract.
+Inference is not the only possible source of resumable state. Both the Inference Machine and Workflow Machine may suspend their scheduler-visible Job through the same Continuation contract.
 
 ## Parallel, join, and race
 
@@ -348,9 +352,21 @@ Jobs / Continuations
 Scheduler
 ```
 
-The compiler resolves registered capabilities, validates bindings and limits, derives resource requirements and effects, identifies side-effect boundaries and continuation points, and produces a bounded execution plan.
+The compiler resolves registered capabilities, validates bindings and limits, derives resource requirements and effects, identifies side-effect boundaries, and records statically known suspension sites/continuation policy.
+
+Actual Continuation instances are created only at runtime. Inference may also yield at runtime-defined control points that were not enumerated as concrete Continuations during compilation.
+
+Compilation is not an authorization grant. The Runtime must revalidate current capability availability, caller authorization, budgets, and policy when admitting execution, and again immediately before dispatching side-effecting work where policy requires it. A cached/reused Execution Plan must not carry stale permission as executable authority.
 
 This keeps AI-authored or externally supplied Workflow IR separate from the Runtime's executable scheduling contract.
+
+Effect sets are validated rather than treated as arbitrary labels:
+
+- `pure` is exclusive with `read`, `write`, `external`, `destructive`, and `paid`;
+- `read` means reading ambient or mutable state beyond declared immutable inputs;
+- `destructive` requires `write`;
+- `external` and `paid` are orthogonal attributes that may combine with reads/writes;
+- unknown, empty, or contradictory effect metadata fails closed rather than defaulting to `pure`.
 
 ## Security model
 

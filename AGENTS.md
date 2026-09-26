@@ -57,13 +57,17 @@ Keep these concepts distinct:
 - **Workflow** - dependency/data/control description.
 - **Job** - scheduler-visible unit of active work.
 - **InferenceJob** - a stateful job that may preserve model execution state.
-- **Continuation** - resumable execution state plus the contract describing where, why, and with what bindings execution may resume.
-- **Execution Plan** - validated, compiled Runtime contract derived from Workflow IR before scheduling.
+- **Continuation** - resumable execution state owned by exactly one waiting/paused Job; it has no independent scheduler identity.
+- **Execution Plan** - validated, compiled Runtime contract derived from Workflow IR before scheduling; it records static execution structure and potential suspension policy, not live Continuation instances or authorization grants.
 - **Capability** - registered callable functionality.
 - **Effect set** - machine-readable effects such as `pure`, `read`, `write`, `external`, `destructive`, and `paid`; effects are composable, not a single enum.
+
+Effect metadata must obey these initial invariants: `pure` is exclusive with every observable/ambient effect, `read` means ambient or mutable-state read beyond declared immutable inputs, `destructive` requires `write`, and `external`/`paid` are orthogonal attributes. Reject unknown, empty, or contradictory effect sets rather than assuming purity.
 - **Event** - structured observable state transition or progress record.
 
 Do not collapse Workflow and Job into one abstraction.
+
+The Scheduler schedules **Jobs only**. Continuations are owned resume state for suspended Jobs. Yield/resume must preserve the owning Job identity so cancellation, timeout, provenance, metrics, and terminal status have one authority.
 
 ## Jobs and scheduling
 
@@ -79,6 +83,8 @@ The scheduler may serialize jobs when constrained by:
 - CPU capacity;
 - remote rate limits;
 - side-effect policy.
+
+Distinguish an active **execution lease** from a suspended Job's **retained state footprint**. Releasing a GPU/device lease does not mean KV cache or backend state has left VRAM/RAM. Resource accounting must include retained resident state until it is offloaded, snapshotted, or evicted.
 
 Conceptual control operations include:
 
@@ -135,9 +141,11 @@ Validate at least:
 - capability availability;
 - permissions;
 - resource budgets;
-- side-effect policy;
+- effect/side-effect policy;
 - concurrency/fan-out bounds;
 - timeout/cancellation rules.
+
+Compilation may perform static policy analysis, but it is not durable authorization. Revalidate current capability availability, caller authorization, budgets, and policy at execution admission, and revalidate side-effecting dispatch when required by policy. Cached Execution Plans must never act as permission tokens.
 
 Do not add arbitrary shell, unrestricted Python, ambient filesystem/network access, or credential injection as shortcuts.
 

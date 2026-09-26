@@ -103,35 +103,40 @@ The intended internal shape is:
           ▼                          ▼
    Inference Machine          Workflow Machine
           │                          │
-          └────── Continuation ──────┘
+          └──────────┬───────────────┘
+                     ▼
+              Job (scheduler-visible)
                      │
-                    Jobs
+        waiting/paused owns optional
+                     ▼
+               Continuation
                      │
-                  Scheduler
-                     │
-              Resource Manager
+               resume state only
 
-All state transitions emit structured Events.
+Scheduler schedules Jobs; Resource Manager accounts execution leases
+and retained state footprints. All state transitions emit Events.
 ```
 
 The **Inference Machine** owns model-adjacent lifecycle and backend state transitions.
 
 The **Workflow Machine** owns compiled workflow control, dependency progression, joins/races, bindings, and plan state.
 
-A **Continuation** is the explicit bridge for resumable execution. It describes how execution may continue after a yield/wait without forcing Inference Machine and Workflow Machine into one implementation.
+A **Continuation** is the explicit resume-state bridge for a scheduler-visible Job. It describes how that same Job may continue after a yield/wait without forcing Inference Machine and Workflow Machine into one implementation.
+
+A Continuation is owned by exactly one waiting/paused Job and has no independent scheduler identity. The Job remains authoritative for cancellation, timeout, parent/child provenance, metrics, and terminal status.
 
 A continuation may contain:
 
-- execution-machine identity;
+- owning Job and execution-machine identity;
 - resume point;
 - backend/state reference where supported;
 - waiting condition or child-job set;
 - result/input bindings;
 - resource requirements;
 - model/device/resource affinity hints;
-- deadline/cancellation linkage.
+- deadline/cancellation linkage inherited from the Job.
 
-A continuation should not normally retain a physical GPU lease while waiting. Resource leases belong to active scheduling; affinity survives as a hint so resumption can prefer a warm model/device when beneficial.
+A suspended Job should not normally retain a physical **execution lease** while waiting. However, a backend/state reference may still keep KV cache or other state resident in VRAM/RAM. That **retained state footprint** remains allocated and must be accounted by the Resource Manager until offload, snapshot/migration, or eviction actually frees the resource. Lease release alone is never evidence that memory was freed.
 
 ## Workflow compilation
 
@@ -142,7 +147,7 @@ Workflow IR
     ↓
 Schema / graph / reference validation
     ↓
-Capability resolution and authorization checks
+Capability resolution and static policy/requirement analysis
     ↓
 Execution Plan Compiler
     ↓
@@ -154,14 +159,18 @@ Execution Plan
     ├─ effect sets
     ├─ side-effect boundaries
     ├─ limits
-    └─ continuation points
+    └─ potential suspension sites / continuation policy
     ↓
 Workflow Machine / Jobs / Scheduler
 ```
 
 The scheduler must not directly interpret arbitrary Workflow JSON.
 
-The compiled plan is the Runtime-owned executable contract. This separates AI-authored or externally supplied declarative intent from the bounded structures used for execution.
+The compiled plan is the Runtime-owned normalized execution contract. This separates AI-authored or externally supplied declarative intent from the bounded structures used for execution.
+
+Compilation may determine what permissions/effects/resources would be required, but it does **not** grant durable authorization. Current capability availability, caller authorization, budgets, and policy must be revalidated when a run is admitted for execution. Side-effecting dispatch must also be revalidated immediately before execution when required by policy. Reusing or caching an Execution Plan must never preserve stale permission.
+
+The plan records statically known suspension sites and continuation policy. Concrete Continuation instances are live Runtime state and are created when a Job actually yields, including runtime-defined inference yields that could not be enumerated as concrete instances during compilation.
 
 ## Model/backend layer
 
@@ -259,7 +268,7 @@ May include:
 
 May include:
 
-- continuation ID and owning run/job;
+- continuation ID and exactly one owning Job/run;
 - owning execution machine;
 - resume point;
 - waiting condition;
@@ -267,9 +276,9 @@ May include:
 - bounded resume bindings;
 - resource requirements and affinity hints;
 - deadline/cancellation linkage;
-- lifecycle status.
+- validity/resume status derived from the owning Job lifecycle.
 
-Continuation state is active Runtime state, not durable Agent memory.
+Continuation state is active Runtime state, not durable Agent memory. It is not independently queued, cancelled, timed out, or completed by the Scheduler.
 
 ### Workflow run state
 
@@ -330,15 +339,17 @@ An Execution Plan is produced by the compiler after Workflow IR validation and c
 
 It is distinct from both Workflow IR and live Job state.
 
-The plan should contain only Runtime-approved, bounded execution semantics. It may include resolved capability versions, dependencies, bindings, effect sets, resource requirements, limits, side-effect boundaries, and identified continuation points.
+The plan should contain only Runtime-approved, bounded execution semantics. It may include resolved capability versions, dependencies, bindings, effect sets, resource requirements, limits, side-effect boundaries, and statically known potential suspension sites/continuation policy.
+
+The plan does not contain live Continuation instances and does not carry an authorization grant.
 
 ### Continuation
 
-A Continuation is resumable execution state, not a Job subtype.
+A Continuation is resumable execution state owned by a Job, not a Job subtype and not a scheduler-visible work item.
 
-A Job may yield and create/update a Continuation; when its waiting condition is satisfied, the scheduler may turn the continuation back into runnable work.
+A Job may yield and create/update its Continuation. When the waiting condition is satisfied, the Runtime/Scheduler transitions the **same owning Job** from `waiting`/`paused` back toward `queued`/runnable state; the Job resumes using the Continuation. The Job ID and lifecycle authority do not change across this suspension.
 
-This allows an InferenceJob to wait for Vision, algorithm, MCP, or other child work without treating every pause as an ad-hoc special case inside the inference implementation.
+This allows an InferenceJob to wait for Vision, algorithm, MCP, or other child work without treating every pause as an ad-hoc special case inside the inference implementation or creating a second lifecycle authority.
 
 ## Job lifecycle
 
@@ -629,12 +640,22 @@ Capability effects should be represented as a composable set rather than one boo
 
 Initial conceptual effects:
 
-- `pure` - no externally observable mutation;
-- `read` - reads data/state;
-- `write` - mutates state;
-- `external` - crosses an external service/network authority boundary;
-- `destructive` - deletion or similarly destructive mutation;
-- `paid` - may incur external cost.
+- `pure` - depends only on declared immutable inputs and produces declared outputs, with no ambient state access, external authority crossing, mutation, destructive behavior, or cost;
+- `read` - reads ambient or mutable state beyond declared immutable inputs;
+- `write` - mutates persistent or externally observable state;
+- `external` - crosses an external process/service/network authority boundary;
+- `destructive` - deletes or irreversibly/restrictively mutates state;
+- `paid` - may incur monetary, billed-token, quota, or similarly policy-relevant external cost.
+
+Initial effect-set validation rules:
+
+- every capability declares a non-empty known effect set;
+- `pure` is exclusive with all other effects;
+- `read` and `write` may coexist;
+- `destructive` requires `write`;
+- `external` is orthogonal to `read`, `write`, `destructive`, and `paid`;
+- `paid` is orthogonal to `read`, `write`, `destructive`, and `external`;
+- unknown or contradictory combinations fail closed rather than being coerced to `pure`.
 
 Examples:
 
@@ -667,7 +688,9 @@ The Runtime should eventually reason about:
 
 The first implementation may use a simple scheduler, but the contracts should not assume unlimited physical parallelism.
 
-Model residency is a first-class scheduling input. The Resource Manager may track which logical model/backend is resident or warm, estimated memory pressure, and approximate eviction/reload cost. The scheduler may reorder otherwise-ready jobs when doing so preserves semantics and materially reduces model switching cost.
+Model residency is a first-class scheduling input. The Resource Manager may track which logical model/backend is resident or warm, estimated memory pressure, approximate eviction/reload cost, and retained per-Job/Continuation state footprints.
+
+An **execution lease** represents permission/capacity for active execution. A **retained state footprint** represents memory/state still resident while a Job is suspended. Releasing a lease does not release a footprint. The Scheduler must consider both before admitting another GPU/RAM-heavy Job. The scheduler may reorder otherwise-ready jobs when doing so preserves semantics and materially reduces model switching cost.
 
 Residency optimization must never override dependency order, effect ordering, fairness/budget limits, cancellation, or explicit priority policy.
 

@@ -30,13 +30,17 @@ This decision does not require every capability or FLAMORIS service to be implem
         ▼                ▼                ▼
 Inference Machine   Workflow Machine   Event Journal
         │                │
-        └────── Continuation ──────┐
-                                   ▼
-                                  Jobs
-                                   │
-                                Scheduler
-                                   │
-                            Resource Manager
+        └──────────┬─────┘
+                   ▼
+           Job (scheduler-visible)
+                   │
+      waiting/paused owns optional
+                   ▼
+             Continuation
+              resume state
+
+Scheduler schedules Jobs only.
+Resource Manager accounts execution leases and retained state footprints.
                                    │
                ┌───────────────────┼───────────────────┐
                ▼                   ▼                   ▼
@@ -119,9 +123,9 @@ The exact smart-pointer/handle strategy is not frozen yet.
 
 ## Continuation and resource ownership
 
-A Continuation represents resumable computation.
+A Continuation represents resumable state owned by exactly one waiting/paused Job. It has no independent scheduler identity; the Job remains the sole authority for cancellation, timeout, provenance, metrics, and terminal state.
 
-It may retain an approved reference to model/backend state where the backend supports preservation, but it should not normally retain a physical resource lease while waiting.
+It may retain an approved reference to model/backend state where the backend supports preservation, but it should not normally retain a physical **execution lease** while waiting. Releasing that lease does not imply that backend state was freed.
 
 ```text
 yield
@@ -131,16 +135,19 @@ Continuation
   ├─ state reference
   ├─ waiting condition
   ├─ bindings
-  └─ resource affinity
+  ├─ resource affinity
+  └─ retained state footprint
   ↓
-wait without pinning the device lease
+wait without pinning the execution lease
   ↓
-scheduler reacquires resources
+Resource Manager still accounts resident VRAM/RAM state
   ↓
-resume
+scheduler reacquires execution capacity
+  ↓
+same owning Job resumes
 ```
 
-This allows LIME and future nodes to use scarce GPU/VRAM resources across different jobs without losing useful warm-model affinity.
+This allows LIME and future nodes to use scarce GPU/VRAM resources across different jobs without losing useful warm-model affinity. A retained footprint remains allocated until state is actually offloaded, snapshotted/migrated, or evicted; lease release alone is not treated as free memory.
 
 ## Workflow compilation boundary
 
@@ -160,7 +167,11 @@ Workflow Machine / Jobs / Continuations
 Scheduler
 ```
 
-The compiler is the security and execution-normalization boundary between declarative composition and executable runtime state.
+The compiler is the execution-normalization and static-analysis boundary between declarative composition and executable runtime state. It may calculate required permissions/effects/resources, but it does not grant durable authorization.
+
+Current capability availability, caller authorization, budgets, and policy are revalidated at run admission. Side-effecting dispatch is revalidated immediately before execution when required by policy. Cached/reused plans never act as permission tokens.
+
+The plan contains only statically known potential suspension sites and continuation policy. Concrete Continuation instances are created at runtime when the owning Job actually yields.
 
 ## Effects
 
@@ -174,6 +185,16 @@ Initial conceptual effects:
 - `external`
 - `destructive`
 - `paid`
+
+Initial invariants:
+
+- every effect set is non-empty and contains only known values;
+- `pure` is exclusive with every other effect;
+- `read` means ambient/mutable-state read beyond declared immutable inputs;
+- `read` and `write` may coexist;
+- `destructive` requires `write`;
+- `external` and `paid` are orthogonal attributes that may combine with non-pure effects;
+- invalid/unknown combinations fail closed.
 
 The compiler derives effect summaries and side-effect boundaries before execution.
 
@@ -200,9 +221,11 @@ Useful state may include:
 
 - logical model/backend identity;
 - current device;
-- approximate resident memory;
+- approximate resident model memory;
+- retained per-Job/Continuation state footprint;
+- active execution leases;
 - warm/cold state;
-- estimated eviction/reload cost.
+- estimated eviction/reload/offload cost.
 
 A scheduler may reorder otherwise-ready work to reduce switching cost only when doing so preserves dependency, effect, fairness, budget, cancellation, and priority semantics.
 

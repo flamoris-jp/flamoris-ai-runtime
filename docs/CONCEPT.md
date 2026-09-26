@@ -129,17 +129,19 @@ This is intended to reduce avoidable re-tokenization, model re-entry, request se
 
 ## Continuations are first-class resumable state
 
-A **Continuation** represents computation that is not running now but can resume later.
+A **Continuation** represents resume state owned by exactly one scheduler-visible Job that is currently waiting or paused.
 
 ```text
 Job
-  = scheduler-visible work in its current lifecycle
+  = scheduler-visible lifecycle authority
 
 Continuation
-  = resume state + resume point + waiting contract
+  = resume state + resume point + waiting contract owned by that Job
 ```
 
-This prevents every yield from becoming an inference-specific special case.
+The Scheduler schedules Jobs only. Yield/resume preserves the Job identity; cancellation, timeout, provenance, metrics, and terminal state never migrate into a second Continuation lifecycle.
+
+This prevents every yield from becoming an inference-specific special case without creating two scheduling authorities.
 
 For example:
 
@@ -157,7 +159,7 @@ Inference Machine resumes
 
 The same mechanism can connect Workflow Machine and Inference Machine without making them the same implementation.
 
-A continuation may retain a backend/model state reference where safe, but should not normally pin a physical GPU lease while waiting. Resource affinity may be retained so the scheduler can prefer a warm model/device on resume.
+A continuation may retain a backend/model state reference where safe, but should not normally pin a physical **execution lease** while waiting. If that state remains resident in VRAM/RAM, its **retained state footprint** is still allocated and must remain visible to Resource Manager accounting. Resource affinity may be retained so the scheduler can prefer a warm model/device on resume.
 
 ## Jobs are first-class runtime work
 
@@ -305,9 +307,13 @@ Jobs / Continuations
 Scheduler
 ```
 
-The compiler resolves registered capabilities, schemas, bindings, effects, limits, resource requirements, and side-effect boundaries before execution.
+The compiler resolves registered capabilities, schemas, bindings, effects, limits, resource requirements, side-effect boundaries, and statically known suspension policy before execution.
 
-This is particularly important when an AI generates Workflow IR: the AI may propose composition, while only the Runtime may turn validated composition into executable work.
+Concrete Continuation instances remain live Runtime state and are created only when a Job actually yields. Inference may yield at runtime-defined control points that are not concrete Continuation instances in the compiled plan.
+
+Compilation can describe required authorization and policy constraints but cannot grant durable permission. The Runtime revalidates current capability availability, caller authorization, budget, and policy at execution admission, and revalidates side-effecting dispatch when policy requires it.
+
+This is particularly important when an AI generates Workflow IR: the AI may propose composition, while only the Runtime may turn validated composition into executable work, and only current Runtime policy may authorize execution.
 
 ## Workflow is inside the execution runtime
 

@@ -109,7 +109,9 @@ This tool is conceptual and may be merged into capability discovery later.
 
 Admit work into the Runtime.
 
-Submission must be revalidated at execution time.
+Submission must be revalidated at execution time. A compiled or cached Execution Plan is not an authorization grant and must not preserve stale permission.
+
+At execution admission, revalidate current capability availability, caller authorization, budgets, and policy. Before dispatching side-effecting work, revalidate again when the applicable policy requires it, especially for external, write, destructive, or paid effects.
 
 Potential inputs may include:
 
@@ -272,7 +274,7 @@ The MCP surface must not pretend every remote provider has state-preserving paus
 
 ## Continuation visibility
 
-Continuation is an internal Runtime concept, not a requirement that every client manage resumable state manually.
+Continuation is internal resume state owned by exactly one waiting/paused Job, not a second scheduler-visible object and not a requirement that every client manage resumable state manually.
 
 Status/event surfaces may expose bounded continuation metadata when useful for inspection, such as:
 
@@ -287,6 +289,8 @@ Status/event surfaces may expose bounded continuation metadata when useful for i
 Do not expose raw backend pointers, KV cache contents, credentials, or unrestricted process state.
 
 A normal caller should be able to submit a run and let the Runtime manage continuations automatically.
+
+Job identity remains stable across yield/resume. Cancellation, timeout, provenance, metrics, and terminal state remain Job/run authority.
 
 ## Result handling
 
