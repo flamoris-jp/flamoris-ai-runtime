@@ -123,7 +123,7 @@ bounded telemetry summary. Control records are never silently treated as dropped
 When normal capacity is exhausted, stop admitting new work; retain reserved cleanup
 capacity and authoritative current state. Exact sizing and overflow tests belong to Phase B.
 
-The retained history is bounded by count/bytes/time. Post-terminal observation
+Post-terminal observation
 remains available only within the advertised Run retention/window; before it closes,
 the stream records final known reconciliation or an explicit still-unknown closure.
 After that bound, late authoritative release/settlement still updates its resource or
