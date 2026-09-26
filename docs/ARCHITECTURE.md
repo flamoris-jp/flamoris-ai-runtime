@@ -661,9 +661,10 @@ Examples:
 
 ```text
 algorithm.resize          -> { pure }
-vision.describe           -> { read }
+filesystem.metadata.read  -> { read }
+mcp.github.issue.get      -> { external, read }
 mcp.github.create_issue   -> { external, write }
-generation.image          -> { external, paid }
+external_ai.infer         -> { external, paid }
 file.delete               -> { write, destructive }
 ```
 

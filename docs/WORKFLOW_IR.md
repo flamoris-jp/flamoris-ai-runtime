@@ -414,15 +414,15 @@ Conceptual metadata:
 
 ```json
 {
-  "type": "vision.describe",
+  "type": "mcp.github.issue.get",
   "version": "1",
   "input_schema": {},
   "output_schema": {},
-  "effects": ["read", "external"],
+  "effects": ["external", "read"],
   "idempotent": true,
   "cancellable": true,
   "pausable": false,
-  "resource_class": "gpu"
+  "resource_class": "network"
 }
 ```
 
