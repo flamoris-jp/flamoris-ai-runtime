@@ -1,84 +1,243 @@
-# FLAMORIS Repository Template
+# FLAMORIS AI Runtime
 
-Standard repository template for FLAMORIS projects.
+**A runtime for workflows written by AI.**
 
-Use this repository as the starting point for new FLAMORIS repositories. After creating a repository from this template, replace the placeholders in this README with project-specific information and add only the language, runtime, build, and deployment files the project actually needs.
+FLAMORIS AI Runtime is a planned provider-neutral execution runtime for AI-authored workflow graphs.
 
-## Project
+The core idea is simple: a human or AI describes an intent, an AI composes a bounded workflow through MCP, and the runtime validates, compiles, and executes that graph without requiring a human to build a visual node graph first.
 
-**Name:** `<PROJECT_NAME>`
+> **Status: design only. No production runtime is implemented yet.**
+>
+> The documents in this repository define the initial responsibility boundary and draft contracts. They are intentionally explicit about what is planned versus what already exists.
 
-**Description:** `<PROJECT_DESCRIPTION>`
-
-**Status:** `<planned | development | stable | meta>`
-
-For repositories in `flamoris-jp`, keep this wording aligned with the organization `development_status` custom property. State implemented behavior separately from planned work. Do not leave a repository looking like a future design after its runtime or product slice has already shipped.
+Part of the [FLAMORIS AI ecosystem](https://github.com/flamoris-jp/flamoris-ai/blob/main/docs/ai-ecosystem.md).
 
 ## 🧭 Repository identity / このRepositoryは何者？
 
-Replace the placeholders below with short, project-specific statements. Keep them near the top so a human or AI assistant can understand the repository before digging through Issues or source code.
-
 ### What it is / 何者か
 
-`<ONE_OR_TWO_SENTENCE_PROJECT_IDENTITY>`
+A headless execution runtime for declarative AI workflows, designed so an AI can discover available capabilities, submit a workflow graph through MCP, inspect execution results, and adapt the graph when needed.
+
+It is inspired by the usefulness of node-based systems such as ComfyUI, but it is **not a ComfyUI compatibility project**. The workflow format is intended to be a portable execution IR for FLAMORIS rather than a UI serialization format.
 
 ### What it owns / 主な責任範囲
 
-- `<PRIMARY_RESPONSIBILITY_OR_AUTHORITY>`
-- `<SECONDARY_RESPONSIBILITY_IF_NEEDED>`
+FLAMORIS AI Runtime is intended to own:
+
+- the runtime workflow IR and schema versioning;
+- workflow validation and compilation;
+- bounded execution of workflow nodes and control-flow primitives;
+- per-run execution state, limits, cancellation, and result assembly;
+- runtime capability discovery;
+- a narrow MCP surface for AI-authored workflow submission;
+- later, safe graph patching for adaptive workflows.
 
 ### What it does not own / 持たない責任
 
-- `<IMPORTANT_NEIGHBORING_RESPONSIBILITY_OWNED_ELSEWHERE>`
+It does **not** own:
 
-Delete this subsection only when there is genuinely no likely ownership confusion.
+- persistent Agent identity, conversations, memory, or personality - owned by [flamoris-ai-agent](https://github.com/flamoris-jp/flamoris-ai-agent);
+- raw language/reasoning/coding provider authority - owned by [flamoris-intelligence-mcp](https://github.com/flamoris-jp/flamoris-intelligence-mcp);
+- generative-media workflow/job/asset authority - owned by [flamoris-generation-mcp](https://github.com/flamoris-jp/flamoris-generation-mcp);
+- local GPU/runtime lifecycle transitions - owned by [flamoris-gpu-node-manager](https://github.com/flamoris-jp/flamoris-gpu-node-manager);
+- Studio account/session/UI state;
+- FLAMORIS desktop product documents or editing history;
+- arbitrary shell, Python, filesystem, network, or credential authority.
+
+The runtime may call other FLAMORIS services through explicit adapters, but it must not become a second authority for their state.
 
 ### Current status / 現在の状態
 
-`<WHAT_IS_IMPLEMENTED_NOW_AND_WHAT_IS_STILL_PLANNED_OR_UNACCEPTED>`
+This repository currently contains **design documentation only**.
 
-Do not describe planned behavior as shipped, or implemented behavior as merely future design.
+The first implementation should begin with a small schema, validator, deterministic reference executor, and mock/service adapters. MCP execution, durable run state, adaptive graph patching, and Studio visualization should be added only after the core execution contract is proven.
 
 ### Where it fits / FLAMORISのどこに属する？
 
-Start from the [FLAMORIS organization map](https://github.com/flamoris-jp/.github).
+Conceptually:
 
-When relevant, also link the appropriate family map:
+```text
+Human / AI / Agent / Studio
+            │
+            │ intent
+            ▼
+        AI planner
+            │
+            │ MCP: workflow IR
+            ▼
+   FLAMORIS AI Runtime
+    ├─ validate
+    ├─ compile
+    ├─ execute
+    ├─ observe
+    └─ cancel / later patch
+            │
+            ├────────► Intelligence MCP
+            ├────────► Generation MCP
+            └────────► other explicit capabilities
+```
 
-- 🎨 Windows / Desktop: [FLAMORIS Desktop Ecosystem](https://github.com/flamoris-jp/flamoris-commons/blob/main/docs/desktop-ecosystem.md)
-- 🤖 AI / MCP services: [FLAMORIS AI Ecosystem](https://github.com/flamoris-jp/flamoris-ai/blob/main/docs/ai-ecosystem.md)
+The runtime is an **execution substrate**, not a new umbrella authority over the AI ecosystem.
 
-The shared repository documentation policy lives in [FLAMORIS Commons](https://github.com/flamoris-jp/flamoris-commons/blob/main/docs/repository-policy.md).
+## The core loop
 
-## 🏷️ GitHub metadata checklist / GitHub表示設定
+The intended interaction is:
 
-After creating a repository from this template, configure the GitHub repository metadata as well as the files.
+```text
+1. Discover capabilities
+2. Compose workflow
+3. Validate
+4. Optionally dry-run / compile
+5. Execute
+6. Inspect result
+7. Later: patch and continue when adaptation is needed
+```
 
-- **Description:** one concise sentence describing the repository's current role.
-- **Topics:** include `flamoris`, then add a small set of useful project/domain/technology topics. Prefer roughly 4–7 intentional topics over filling every slot.
-- **Development status:** set the organization `development_status` custom property and keep it aligned with this README.
-- **Visibility:** choose intentionally; do not expose deployment secrets, private topology, credentials, or private assets by making a repository public.
+The important rule is:
 
-Do not use obsolete or speculative Topics to advertise responsibilities the repository does not actually own.
+> **The AI may author the workflow, but the runtime never trusts the workflow.**
 
-> GitHub repository metadata is not repository file content. When creating from a template, verify these settings explicitly rather than assuming every template setting was inherited. 🐾
+Every submitted graph must pass schema checks, capability checks, resource limits, permission checks, and execution policy before any side effect occurs.
 
-## Getting started
+## Example draft workflow
 
-Document the real setup, build, test, and run commands for this repository here.
+This example is illustrative. The schema is not yet frozen.
 
-Do not copy commands from another FLAMORIS project unless they have been verified against the current implementation.
+```json
+{
+  "schema_version": "0.1-draft",
+  "workflow": {
+    "id": "analyze-and-answer",
+    "name": "Analyze input and produce an answer"
+  },
+  "inputs": {
+    "text": {
+      "type": "string"
+    }
+  },
+  "nodes": [
+    {
+      "id": "analyze",
+      "type": "intelligence.request",
+      "with": {
+        "task": "analyze",
+        "input": "${inputs.text}"
+      }
+    },
+    {
+      "id": "answer",
+      "type": "intelligence.request",
+      "with": {
+        "task": "answer",
+        "input": "${nodes.analyze.output}"
+      }
+    }
+  ],
+  "edges": [
+    ["analyze", "answer"]
+  ],
+  "outputs": {
+    "result": "${nodes.answer.output}"
+  }
+}
+```
+
+The runtime should care about execution semantics, not canvas coordinates, visual layout, or editor-only metadata.
+
+## Why this exists
+
+Visual node systems are useful when a human wants to inspect and edit a graph.
+
+FLAMORIS also needs the inverse:
+
+```text
+human intent
+    ↓
+AI composes graph
+    ↓
+runtime executes graph
+    ↓
+human sees result
+```
+
+A GUI may visualize or edit the graph later, but the graph must remain valid without a GUI.
+
+This makes the same execution contract usable from:
+
+- MCP;
+- CLI;
+- Studio;
+- AI Agent;
+- tests;
+- future visual editors.
+
+## Initial safety model
+
+The first runtime should prefer a small allowlisted node set over an open-ended plugin free-for-all.
+
+Initial design rules:
+
+- capability discovery before composition;
+- schema-versioned workflows;
+- explicit allowlisted node types;
+- no arbitrary code execution by default;
+- no ambient filesystem or network access;
+- no credential values embedded in workflow JSON;
+- bounded node count, graph depth, fan-out, output size, concurrency, and duration;
+- explicit cancellation;
+- deterministic validation errors;
+- side-effecting nodes clearly distinguished from pure nodes;
+- service ownership preserved across repository boundaries.
+
+See [Architecture](docs/ARCHITECTURE.md), [Workflow IR](docs/WORKFLOW_IR.md), and [MCP Contract](docs/MCP_CONTRACT.md).
+
+## Proposed implementation phases
+
+### Phase 0 - Contract spike
+
+- workflow IR draft;
+- JSON Schema;
+- validator;
+- deterministic in-process reference executor;
+- pure control/data nodes;
+- mock capability nodes;
+- offline tests.
+
+### Phase 1 - Runtime service
+
+- bounded run lifecycle;
+- capability registry;
+- structured errors;
+- cancellation;
+- execution budgets;
+- MCP surface;
+- service adapters to existing FLAMORIS authorities.
+
+### Phase 2 - Adaptive workflows
+
+- safe graph patch operations;
+- pause/resume boundaries;
+- partial re-execution where semantics are explicit;
+- provenance for graph revisions and outputs.
+
+### Phase 3 - Human inspection
+
+- Studio visualization;
+- optional graph editor;
+- execution trace inspection;
+- export/import of portable workflow IR.
+
+These phases are proposals, not implemented features.
 
 ## Repository principles
 
-- Keep the repository focused on one clear responsibility.
-- Treat current code, tests, documentation, and repository configuration as the source of truth.
-- Keep public documentation portable: describe product/runtime contracts without publishing private hostnames, credentials, deployment topology, or machine-specific paths.
-- Prefer explicit boundaries over speculative abstractions.
-- Keep secrets, credentials, tokens, and private data out of source control and logs.
-- Add tests where practical and document externally visible behavior.
-- Inspect existing FLAMORIS shared packages before introducing duplicate infrastructure.
-- AI-assisted development is welcome; submitted changes still require human review and responsibility.
+- **AI-authored, runtime-validated.**
+- **Headless first.** GUI metadata must not define execution semantics.
+- **Portable IR.** Provider and deployment details stay behind explicit capabilities.
+- **One authority per domain.** Runtime execution must not absorb Agent, Generation, Intelligence, GPU, or product state ownership.
+- **Bounded behavior.** Resource use, side effects, retries, and permissions are explicit.
+- **No speculative compatibility promises.** ComfyUI, LangGraph, n8n, or other workflow formats are not automatically supported.
+- **Human-authoritative.** AI may propose and submit graphs; humans define the capabilities and permissions the runtime is allowed to expose.
 
 ## FLAMORIS
 
@@ -98,24 +257,62 @@ If FLAMORIS helps you or you find it interesting, your support helps fund develo
 
 ---
 
-## FLAMORISについて
+## 日本語
 
-FLAMORISは、クリエイティブ制作とAIネイティブな制作環境のためのオープンソースソフトウェアです。
+FLAMORIS AI Runtimeは、**AI自身が組み立てたWorkflowを実行するためのheadless runtime**です。
 
-勝手に使ってください。改造しても、組み込んでも、面白いものや変なものを作ってもOKです。
+人間が毎回Node graphを手で組むのではなく、AIが利用可能なcapabilityを確認し、MCP経由でWorkflow IRを組み立ててRuntimeへ渡します。
 
-商用作品や製品で使う場合も許可は不要です。もしよければ「こんなのに使ったよ」と教えてもらえるとうれしいです。もちろん強制ではありません。
+Runtime側は、そのJSONを信用しません。
 
-FLAMORISのソフトウェアは現状のまま提供されます。個別サポートや動作保証はありません。
+```text
+capabilities
+    ↓
+validate
+    ↓
+compile
+    ↓
+execute
+    ↓
+result
+    ↓
+将来: patch / continue
+```
 
-困ったときは、README、ドキュメント、Issue、テスト、ログ、ソースコードをあなたのAIに読ませて、自己サポートしてもらってください。
+という境界を通して、schema、permission、resource limit、side effectを検証してから実行します。
 
-もしお役に立てたり、面白いと思っていただけたなら、開発費用をご支援いただけるとうれしいです。FLAMORISは元気になって育ちます。🌱
+ComfyUIのようなnode graphの便利さを参考にしますが、ComfyUI互換runtimeを目標にはしません。Canvas座標やGUI状態ではなく、**AIやCLIやStudioから共通利用できるportableな実行IR**を目指します。
 
-<sub>主にGPU代とか。</sub>
+現在は設計段階です。実装済みRuntimeやMCP serviceがあるという意味ではありません。
+
+### 責任範囲
+
+AI Runtimeが将来担当するもの:
+
+- Workflow IR / schema version
+- validate / compile
+- bounded execution
+- run state / cancel / result
+- capability discovery
+- AIがWorkflowを差し込むためのMCP surface
+- 将来のsafe graph patch
+
+担当しないもの:
+
+- AgentのIdentity / Conversation / Memory / Personality
+- Intelligence providerのauthority
+- Generationのdomain workflow / job / asset authority
+- GPU runtime切替
+- Studioのaccount / UI state
+- Desktop productのDocument / Project state
+- 任意shell / Python / filesystem / networkへの無制限アクセス
+
+**AIがWorkflowを書く。でもRuntimeはAIを信用しない。**
+
+ここを最初の設計原則にします。🐈⚙️
 
 ## License
 
-Code in this repository is licensed under the [Apache License 2.0](LICENSE), unless otherwise noted.
+Code and documentation in this repository are licensed under the [Apache License 2.0](LICENSE), unless otherwise noted.
 
 AI models, model weights, datasets, media, and other non-code assets may use separate licenses. State their applicable licenses alongside those assets.
