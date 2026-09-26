@@ -33,6 +33,28 @@ A directly connected MCP server may use shorter local tool names.
 
 Exact naming should be finalized with implementation and ecosystem integration.
 
+## MCP has two roles
+
+This repository may use MCP in two different directions:
+
+```text
+AI / Agent
+   │
+   │ MCP control plane
+   ▼
+FLAMORIS AI Runtime
+   │
+   │ registered workflow capability
+   ▼
+external MCP server/tool
+```
+
+The first role is the Runtime's own MCP surface, used to discover, validate, submit, observe, and cancel workflows.
+
+The second role is optional outbound execution: a configured external MCP tool may be exposed to a workflow as a registered capability.
+
+These roles must not be confused. A workflow must not gain the ability to choose arbitrary MCP endpoints, credentials, or unrestricted tools. Connection configuration and authorization live outside portable workflow JSON.
+
 ## Initial tool surface
 
 Conceptual tools:
@@ -73,7 +95,8 @@ It may include:
 - idempotency;
 - cancellation support;
 - permission/availability state;
-- bounded resource hints.
+- bounded resource hints;
+- conceptual capability class such as algorithmic, future Vem, external AI/API, external MCP, or FLAMORIS service, when useful for planning.
 
 It must not expose:
 
@@ -287,6 +310,22 @@ Agent remains authoritative for:
 - Agent policy.
 
 Runtime output may be referenced by Agent state, but Runtime must not become the Agent's memory store.
+
+## Relationship to external AI/API and MCP capabilities
+
+External AI/API services may be exposed through configured adapters.
+
+External MCP tools may be exposed through configured MCP connections and registered tool schemas.
+
+For both:
+
+- workflow JSON selects a registered logical capability rather than carrying secrets or arbitrary endpoint configuration;
+- capability discovery reflects caller-specific availability;
+- timeout, cancellation, side-effect, cost/resource, and retry policy remain explicit;
+- raw upstream errors are not automatically returned to callers;
+- registration does not transfer ownership of remote state into the Runtime.
+
+Future Vem capabilities should follow the same model once Vem has a stable callable contract.
 
 ## Relationship to Intelligence and Generation
 
