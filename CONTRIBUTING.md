@@ -9,7 +9,9 @@ This repository is currently in the design stage.
 Please read:
 
 - [README.md](README.md)
+- [Design phases and review gates](docs/DESIGN_PHASES.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Design acceptance scenarios](docs/DESIGN_ACCEPTANCE.md)
 - [Workflow IR](docs/WORKFLOW_IR.md)
 - [MCP Contract](docs/MCP_CONTRACT.md)
 - [AGENTS.md](AGENTS.md)
@@ -61,3 +63,4 @@ Avoid:
 Do not open a public Issue containing credentials, private infrastructure details, or an exploitable vulnerability with sensitive reproduction data.
 
 See [SECURITY.md](SECURITY.md).
+

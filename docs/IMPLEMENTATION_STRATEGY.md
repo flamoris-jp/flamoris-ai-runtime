@@ -2,290 +2,98 @@
 
 ## Status
 
-**Design decision. Runtime implementation has not started yet.**
+**Phase A design proposal. Runtime implementation has not started.**
 
-This document records the intended implementation boundary for FLAMORIS AI Runtime.
+[Design Phases](DESIGN_PHASES.md) defines the three review gates and supersedes the old Phase 0–3 implementation sequence. This document records the C++ boundary and the questions Phase B must resolve, not final C++ interfaces.
 
 ## Core decision
 
-The intended implementation language for the **Runtime Kernel is C++**.
+The Runtime Kernel implementation language is **C++**. Its model-adjacent control, explicit state ownership, resource accounting, scheduling and event contracts remain headless and transport-independent.
 
-The Runtime is model-adjacent rather than only an orchestration service. It is expected to own or closely coordinate inference lifecycle control, backend/model state, cache lifetime, continuation state, scheduling, resource decisions, interrupts, and structured events.
+MCP/API/CLI and future bindings adapt those contracts. External AI, Generation and product services retain their own process and domain authority; this decision does not require rewriting them in C++.
 
-C++ is therefore the default language for the execution kernel.
+| Concern | Kernel contract | Outside the kernel |
+| --- | --- | --- |
+| Execution | Run/Job lifecycle, control ordering and budgets | Transport and caller UI |
+| Inference | Capability-honest control and state lifetime | Backend-specific compute implementation |
+| Workflow | Validation, compiled plan and bounded composition | AI authoring and visual editing |
+| Resources | Runtime allocations, reservations and cleanup | Host-wide authority in GPU Node Manager |
+| Data | Active state and bounded result bindings | Agent memory and Generation asset ownership |
+| Observation | Structured events and replay semantics | Rendering, optional journal sinks and clients |
 
-This decision does not require every capability or FLAMORIS service to be implemented in C++.
+## Semantics before types
 
-## Intended process boundary
-
-```text
-       Agent / ChatGPT / Studio / other callers
-                         │
-                MCP / API / CLI
-                 optional bindings
-                         │
-                         ▼
-                C++ Runtime Kernel
-        ┌────────────────┼────────────────┐
-        ▼                ▼                ▼
-Inference Machine   Workflow Machine   Event Journal
-        │                │
-        └──────────┬─────┘
-                   ▼
-           Job (scheduler-visible)
-                   │
-      waiting/paused owns optional
-                   ▼
-             Continuation
-              resume state
-
-Scheduler schedules Jobs only.
-Resource Manager accounts execution leases and retained state footprints.
-                                   │
-               ┌───────────────────┼───────────────────┐
-               ▼                   ▼                   ▼
-          native model        local capability    external capability
-          backend/runtime                         MCP/API/service
-```
-
-The Runtime Kernel remains headless and transport-independent.
-
-MCP, HTTP/API, CLI, and future language bindings are adapters over Runtime contracts. They must not become the place where inference/workflow semantics live.
-
-## Why C++
-
-The design requires unusually direct execution control compared with a normal workflow service.
-
-Expected needs include:
-
-- explicit prefill/decode/sampling control where supported;
-- ownership or close coordination of model/backend state;
-- cache/state lifetime management;
-- low-latency interrupt points;
-- predictable Job and Continuation lifecycle;
-- resource-aware scheduling;
-- model residency and switching-cost decisions;
-- native integration with low-level model runtimes and compute backends;
-- deterministic offline lifecycle tests;
-- embeddability without requiring a Python interpreter or another orchestration runtime.
-
-C++ fits this kernel role while keeping external capabilities free to use the implementation language appropriate to their own domain.
-
-## C++ is not an in-process mandate
-
-External services retain their existing authority.
-
-Examples:
-
-- Generation remains a registered external capability/service;
-- MCP tools remain external authority boundaries;
-- remote AI/API providers remain external;
-- GPU Node Manager retains host-wide GPU/runtime lifecycle authority;
-- Agent identity and durable memory remain outside this Runtime.
-
-The C++ kernel coordinates execution. It does not absorb unrelated systems.
-
-## Internal architectural boundaries
-
-The first implementation should preserve explicit modules/contracts for:
+The normative contracts are [Execution Model](EXECUTION_MODEL.md), [State Machines](STATE_MACHINES.md), [Resource Model](RESOURCE_MODEL.md), [Authorization Model](AUTHORIZATION_MODEL.md), [Event Model](EVENT_MODEL.md), and [Failure Model](FAILURE_MODEL.md).
 
-- `runtime` - run lifecycle and top-level coordination;
-- `inference` - Inference Machine and backend-facing lifecycle;
-- `workflow` - Workflow IR validation, Execution Plan Compiler, Workflow Machine;
-- `continuation` - resumable state and resume conditions;
-- `jobs` - scheduler-visible work lifecycle;
-- `scheduler` - readiness, priority, resource-aware placement;
-- `resources` - CPU/RAM/GPU/VRAM/model-residency view;
-- `capabilities` - registered callable operations and effect metadata;
-- `events` - structured event schema, journal, trace replay;
-- `adapters` - MCP/API/CLI and optional language bindings;
-- `backends` - model/runtime-specific integration.
+An implementation must preserve:
 
-These are conceptual boundaries, not frozen directory names.
+- Job as the only scheduler-visible lifecycle identity;
+- Continuation owned by a waiting/paused Job, consumed atomically on enqueue into a Job-owned pending resume payload;
+- backend state lifetime across queue waits, independently accounted from execution leases;
+- immutable Execution Plans without live state, credentials or authorization grants;
+- current admission/dispatch/resume authorization and bounded dynamic child envelopes;
+- cleanup/finalizing distinct from successful calculation;
+- ordered committed events without making subscriber delivery part of execution correctness;
+- inspection-only trace replay and no implicit restart recovery.
 
-## Ownership and lifetime
+The initial concurrency architecture is one logical state-transition authority per Run; this is not a decision to run backend compute on one thread. Worker callbacks submit observations to that authority and cannot independently mutate terminal state. Phase B chooses the synchronization/threading mechanism and proves its lifetime rules.
 
-C++ implementation should make ownership explicit.
+## Concept-to-implementation mapping required in Phase B
 
-Long-lived objects such as model/backend handles, run state, Continuations, and event journals must have clear lifetime authority.
+Names below describe required responsibilities, not declarations or a frozen ABI.
 
-Do not rely on ambient global mutable state for:
+| Architecture concept | Implementation design must identify |
+| --- | --- |
+| Run | Identity, owner scope, limits, cancellation tree and terminal aggregation |
+| Job | Identity, state record, controller, attempt generation and finalizing intent |
+| Continuation | Exclusive owner, resume point, wait condition, validity and pending-resume transfer |
+| Execution Plan | Immutable versioned representation, pinned contracts, dependencies and bindings |
+| Machines | Inference/backend control versus workflow/dependency control |
+| Resource Manager | Allocation/lease/reservation handles, generations and cleanup debt |
+| Capability | Registry snapshot, effect set, current availability and adapter dispatch |
+| Authorization | Current policy decision, scoped execution input, atomic submission claim and Run identity, and process-local limits |
+| Paid Budget Authority | External durable reservation before paid handoff, scoped attempt liability, reconciliation/settlement, restart inventory and fail-closed availability |
+| Event | Envelope, sequence, bounded payload and journal/subscriber boundary |
+| Failure | Typed code, external outcome certainty, retry and cleanup disposition |
 
-- active runs;
-- backend/model ownership;
-- GPU leases;
-- Continuations;
-- capability registry;
-- event subscribers;
-- credentials/configuration.
+No ambient mutable singleton may own active Runs, model state, GPU leases, Continuations, registry, credentials or event subscribers. Ownership transfer and callbacks after cancellation require explicit lifetime proofs.
 
-The exact smart-pointer/handle strategy is not frozen yet.
+## Required research
 
-## Continuation and resource ownership
+Before freezing long-lived backend/inference interfaces, inspect current `flamoris-net/flamoris-LLM` through the connected GitHub integration. Evaluate model/runtime, generation loop, cache, tokenizer/model, compute, CPU reference, OpenCL and deterministic-test boundaries. Reuse deliberately; do not copy model internals into Workflow/Scheduler layers. Public conclusions must not include private code or environment details.
 
-A Continuation represents resumable state owned by exactly one waiting/paused Job. It has no independent scheduler identity; the Job remains the sole authority for cancellation, timeout, provenance, metrics, and terminal state.
+Compare current primary sources for `llama.cpp`, Hugging Face Transformers, vLLM and TensorRT-LLM. Record revisions and sources in an ADR. The comparison must answer what FLAMORIS must own directly:
 
-It may retain an approved reference to model/backend state where the backend supports preservation, but it should not normally retain a physical **execution lease** while waiting. Releasing that lease does not imply that backend state was freed.
+- tokenize, prefill, decode and sampler control;
+- cache/state ownership, context compatibility and release acknowledgements;
+- streaming and cancellation safe points;
+- whether pause/resume preserves sampling and backend state;
+- offload/snapshot/rewind capabilities and their restrictions;
+- batching/scheduling interaction and memory ownership;
+- observability and limitations of opaque server APIs.
 
-```text
-yield
-  ↓
-Continuation
-  ├─ resume point
-  ├─ state reference
-  ├─ waiting condition
-  ├─ bindings
-  ├─ resource affinity
-  └─ retained state footprint
-  ↓
-wait without pinning the execution lease
-  ↓
-Resource Manager still accounts resident VRAM/RAM state
-  ↓
-scheduler reacquires execution capacity
-  ↓
-same owning Job resumes
-```
+Phase A does not claim this research has been completed or select a backend. Architecture requirements are not evidence that any particular backend supports them. Deployment constraints used in Phase B must be verified from current authorized sources; old setup notes are historical context.
 
-This allows LIME and future nodes to use scarce GPU/VRAM resources across different jobs without losing useful warm-model affinity. A retained footprint remains allocated until state is actually offloaded, snapshotted/migrated, or evicted; lease release alone is not treated as free memory.
+## Decisions reserved for Phase B
 
-## Workflow compilation boundary
+Choose only what the first implementation needs:
 
-Portable Workflow IR is not executed directly.
+- minimum C++ standard and supported toolchain/platform matrix;
+- CMake/build/package and source/test layout;
+- namespace/module and dependency boundaries;
+- result/error versus exception strategy across backend/adapter boundaries;
+- RAII/handle/smart-pointer ownership and destruction thread requirements;
+- worker model, synchronization, clocks, timers and cancellation tokens;
+- event/ID/schema representation and parser/resource bounds, including bounded post-terminal Run observation;
+- atomic process-local submission claim/Run admission and duplicate-waiter arbitration;
+- external durable paid-budget integration contract: atomic tenant/attempt reservation, stable IDs, finite provider-enforced liability, settlement/reconciliation after crash, unavailable/partial-inventory fail-closed behavior and deterministic fake seams;
+- backend adapter and host coordination protocol;
+- deterministic fake clocks, backend callbacks and allocation test seams.
 
-```text
-Workflow IR
-  ↓
-Validator
-  ↓
-Execution Plan Compiler
-  ↓
-Execution Plan
-  ↓
-Workflow Machine / Jobs / Continuations
-  ↓
-Scheduler
-```
+Do not prematurely promise a stable public ABI, plugin ABI, language binding, allocator framework, distributed scheduler or coroutine framework. These choices need an implementation requirement and evidence.
 
-The compiler is the execution-normalization and static-analysis boundary between declarative composition and executable runtime state. It may calculate required permissions/effects/resources, but it does not grant durable authorization.
+## Implementation gate
 
-Current capability availability, caller authorization, budgets, and policy are revalidated at run admission. Side-effecting dispatch is revalidated immediately before execution when required by policy. Cached/reused plans never act as permission tokens.
+Phase B produces design documents/ADRs and an acceptance-to-test map, then receives review. Phase C adds build support and production code in meaningful, frequently committed units. See [Design Phases](DESIGN_PHASES.md) for the delivery order and [Design Acceptance](DESIGN_ACCEPTANCE.md) for the behavioral obligations.
 
-The plan contains only statically known potential suspension sites and continuation policy. Concrete Continuation instances are created at runtime when the owning Job actually yields.
-
-## Effects
-
-Capability effects are represented as a set rather than one boolean.
-
-Initial conceptual effects:
-
-- `pure`
-- `read`
-- `write`
-- `external`
-- `destructive`
-- `paid`
-
-Initial invariants:
-
-- every effect set is non-empty and contains only known values;
-- `pure` is exclusive with every other effect;
-- `read` means ambient/mutable-state read beyond declared immutable inputs;
-- `read` and `write` may coexist;
-- `destructive` requires `write`;
-- `external` and `paid` are orthogonal attributes that may combine with non-pure effects;
-- invalid/unknown combinations fail closed.
-
-The compiler derives effect summaries and side-effect boundaries before execution.
-
-This supports authorization, confirmation, retry/idempotency rules, race restrictions, provenance, and budgets.
-
-## Event journal and replay
-
-Structured events are the observable source of truth.
-
-The Runtime may persist a bounded event journal for inspection and regression testing.
-
-Keep these operations distinct:
-
-- trace replay: replay recorded events only;
-- retry/re-execution: execute work again under current authorization/effect rules.
-
-Trace replay must never perform side effects.
-
-## Model residency
-
-Resource management should eventually treat model residency as a first-class scheduling input.
-
-Useful state may include:
-
-- logical model/backend identity;
-- current device;
-- approximate resident model memory;
-- retained per-Job/Continuation state footprint;
-- active execution leases;
-- warm/cold state;
-- estimated eviction/reload/offload cost.
-
-A scheduler may reorder otherwise-ready work to reduce switching cost only when doing so preserves dependency, effect, fairness, budget, cancellation, and priority semantics.
-
-## Race and speculative execution
-
-The first race implementation should stay deterministic and small:
-
-- explicit participants;
-- explicit acceptance rule;
-- timeout/failure semantics;
-- explicit loser policy.
-
-Later speculative execution may allow provisional results followed by stronger final results.
-
-That later feature requires explicit result/event states such as:
-
-- `provisional`;
-- `final`;
-- `superseded`.
-
-Do not overload ordinary race semantics with UI replacement behavior in the first implementation.
-
-## Decisions intentionally deferred to Phase 0
-
-Do not freeze these from design conversation alone:
-
-- minimum C++ language standard;
-- supported compilers/platform matrix;
-- exact CMake/build/package layout;
-- exception versus result/error strategy;
-- coroutine/threading model;
-- allocator strategy;
-- stable C ABI;
-- Python/C#/other bindings;
-- plugin ABI;
-- exact backend interface;
-- exact GPU backend support.
-
-Choose them after reviewing:
-
-- current `flamoris-net/flamoris-LLM`;
-- `llama.cpp`;
-- Hugging Face Transformers runtime/cache behavior;
-- vLLM;
-- TensorRT-LLM;
-- the actual LIME deployment constraints.
-
-## Initial implementation order
-
-1. runtime/backend research and decision records;
-2. inspect and extract reusable `flamoris-LLM` model/inference pieces;
-3. establish the C++ Runtime Kernel skeleton and structured Event contract;
-4. implement Inference Machine lifecycle;
-5. implement Continuation lifecycle;
-6. implement Job lifecycle and simple Scheduler;
-7. implement Workflow IR Validator and Execution Plan Compiler;
-8. implement Workflow Machine over compiled plans;
-9. implement interrupt/cancel and supported pause/resume;
-10. add MCP/API/CLI adapters;
-11. add real capabilities;
-12. optimize event replay, residency-aware scheduling, and speculative execution after measured need.
-
-The first milestone should prove execution semantics, not maximize features.
+Neither merging this proposal nor a successful documentation check means inference, pause/resume, a scheduler or an MCP server exists.

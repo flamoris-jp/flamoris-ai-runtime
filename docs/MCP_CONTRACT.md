@@ -2,7 +2,9 @@
 
 ## Status
 
-**Draft design. No MCP server is implemented in this repository yet.**
+**Phase A semantic design. No MCP server is implemented; exact wire schemas and tool names remain Phase B decisions.**
+
+This surface projects [Execution Model](EXECUTION_MODEL.md), [State Machines](STATE_MACHINES.md), [Authorization Model](AUTHORIZATION_MODEL.md), [Event Model](EVENT_MODEL.md) and [Failure Model](FAILURE_MODEL.md); it must not invent transport-specific lifecycle semantics.
 
 MCP may be one control and observation surface for FLAMORIS AI Runtime, but the runtime kernel must remain transport-independent.
 
@@ -69,7 +71,7 @@ Do not require the external caller to pre-author every internal job if the Runti
 
 Likewise, do not let model output become ambient permission to run arbitrary work.
 
-Every dispatched capability remains subject to registration, authorization, resource, and side-effect policy.
+Every dispatched capability remains subject to registration, authorization, resource, and side-effect policy. A direct inference request is normalized before admission to a minimal single-root Execution Plan with pinned model/backend contracts, effects, finite resource/cost/trace limits and an explicit bounded child-work envelope. It follows the same fingerprint, stale-plan, admission and dispatch rules as workflow submission; no direct-dispatch bypass exists.
 
 ## capabilities.list
 
@@ -111,7 +113,7 @@ Admit work into the Runtime.
 
 Submission must be revalidated at execution time. A compiled or cached Execution Plan is not an authorization grant and must not preserve stale permission.
 
-At execution admission, revalidate current capability availability, caller authorization, budgets, and policy. Before dispatching side-effecting work, revalidate again when the applicable policy requires it, especially for external, write, destructive, or paid effects.
+At admission and every dispatch, retry and resume, check current capability pins/availability, caller authorization, concrete input scope, deadlines, budgets and policy. Effect-specific policy applies immediately before external/write/destructive/paid handoff. Validation success is not admission or proof of provider execution.
 
 Potential inputs may include:
 
@@ -128,18 +130,11 @@ The server assigns a `run_id`.
 
 Return bounded high-level execution state.
 
-Potential states:
+Run states and activity projection follow [State Machines](STATE_MACHINES.md): `created`, `queued`, `running`, `waiting`, `paused`, `cancelling`, `finalizing`, `succeeded`, `failed`, `cancelled`. The Run is an aggregate, never another scheduled Job.
 
-- queued;
-- running;
-- waiting;
-- paused;
-- cancelling;
-- succeeded;
-- failed;
-- cancelled.
+Status includes bounded owner-visible metadata, sequence watermark, requested/applied controls, terminal result/error, external outcome certainty and cleanup/quarantine summary. A parent waiting for a running child does not make the Run paused. `finalizing` means useful work has ended while descendants/resource ownership is settled. Terminal is distinct from all physical resources having been confirmed free.
 
-Status should include stable metadata, not unrestricted raw logs.
+Unknown/expired instance IDs and incomplete retained histories are explicit; a new process must not pretend to have resumed a Run from a trace.
 
 ## run.interrupt
 
@@ -161,7 +156,9 @@ The response should distinguish:
 - unsupported action;
 - run already terminal.
 
-Interrupt application should also be observable as an event.
+Interrupt application is observable as an event. Accepted/requested is not applied; duplicate commands are bounded and cannot repeat injection or dispatch. Job/Run version or equivalent commit-order arbitration prevents stale controls from reopening terminal work.
+
+A graceful inference `stop` succeeds only if the backend/output contract supports bounded partial output. Otherwise reject it; `cancel` remains termination without a success result. Input injection must target an admitted bounded slot and pass current scope/schema checks.
 
 ## Jobs
 
@@ -223,7 +220,7 @@ Potential families include:
 
 Event streaming must be optional for correctness.
 
-A reconnecting client should be able to inspect bounded retained event history or current state without requiring an uninterrupted stream.
+A reconnecting client inspects a current snapshot with sequence watermark and bounded retained history. Preserve atomic event-group boundaries; expired cursors and slow-subscriber overflow return explicit gaps. Optional telemetry loss cannot change execution. Replay remains an isolated read-only projection; no observation call can execute pending work.
 
 ## Trace levels
 
@@ -270,7 +267,7 @@ Pause/resume is capability-specific.
 
 A backend that cannot safely preserve model state must report pause/resume as unsupported.
 
-The MCP surface must not pretend every remote provider has state-preserving pause.
+The MCP surface must not pretend every remote provider has state-preserving pause. Run pause is a subtree barrier: report requested until all workload execution quiesces, reject unsupported in-flight operations, and bound the request wait. Targeted Job pause does not pause children. Resume clears only the applicable pause cause and does not reset deadlines or grant old permissions. Accounted cleanup may continue while workload is paused.
 
 ## Continuation visibility
 
@@ -294,7 +291,9 @@ Job identity remains stable across yield/resume. Cancellation, timeout, provenan
 
 ## Result handling
 
-Final results should contain declared outputs and stable metadata.
+Final results contain validated declared outputs, stable metadata and known effect/cleanup evidence. A not-yet-terminal result request returns explicit pending state. After `race.winner_selected`, the winner is a committed, immutable intermediate result, while the Run terminal result remains pending through loser cleanup and finalization. Token streams may be provisional observations; they cannot replace the committed race winner. Speculative replacement is a deferred extension.
+
+Timeout or response loss after an external handoff may return `outcome_unknown` or a timeout with unknown-outcome metadata. Do not expose a success/cancelled claim merely because the HTTP/MCP request ended.
 
 Large media normally remains as references owned by the producing service.
 
@@ -317,14 +316,9 @@ Model output or workflow JSON never grants permission by itself.
 
 ## Retry and idempotency
 
-Retries are dangerous around side effects.
+Submission deduplication is scoped by authenticated subject/tenant, request kind, key and canonical input digest. The scoped key claim and one Run identity are atomic before dispatch. Concurrent same-digest submissions share the pending owner's decision and admitted Run; a different digest conflicts while pending. A pre-Run admission rejection is shared with current waiters before releasing the claim for a later attempt. Same key/digest returns the same admitted Run within advertised retention; changed digest is a conflict. Expiry or non-durable restart does not prove non-execution and cannot promise exactly-once submission.
 
-The contract should:
-
-- define idempotency for submission;
-- distinguish transport uncertainty from known rejection;
-- avoid replaying non-idempotent side effects;
-- define race participant retry behavior explicitly.
+Provider operation idempotency is a separate adapter contract. A transport request ID alone is insufficient. Unknown handoff outcomes require bounded reconciliation or verified deduplication, never blind re-execution. Retry has fresh current checks, a bounded attempt identity and cumulative original Run budgets/deadline. Re-execution after terminal is a new Run with provenance. See [Authorization Model](AUTHORIZATION_MODEL.md) and [Failure Model](FAILURE_MODEL.md).
 
 ## Relationship to Agent
 
@@ -374,4 +368,5 @@ Prefer stable error codes such as:
 - `upstream_failure`
 - `internal_error`
 
-Callers should not need to parse prose to determine error class.
+[Failure Model](FAILURE_MODEL.md) owns the full taxonomy/envelope, including `plan_stale`, `state_unavailable`, timeout, invalid/oversized result and `outcome_unknown`. Callers must not parse prose to identify error class. Raw provider bodies, credentials, private endpoints and host topology are never public errors. Current authorization applies separately to status, result, trace export and replay.
+
