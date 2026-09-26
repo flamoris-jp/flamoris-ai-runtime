@@ -4,344 +4,335 @@
 
 **Draft design. No MCP server is implemented in this repository yet.**
 
-MCP is intended to be the primary AI-facing control surface for FLAMORIS AI Runtime, but the execution core must remain transport-independent.
+MCP may be one control and observation surface for FLAMORIS AI Runtime, but the runtime kernel must remain transport-independent.
 
-## Design goal
+The Runtime is not only a remote workflow executor. It may own active model inference, jobs, workflow execution, interrupts, and real-time events.
 
-An AI should be able to:
+## Design goals
 
-1. discover what the runtime can do;
-2. construct a workflow without guessing node types;
-3. validate it;
-4. submit it;
-5. observe status;
-6. retrieve results;
-7. cancel it;
-8. later, safely patch an eligible running/paused workflow.
+An authorized caller should eventually be able to:
 
-The runtime must not infer permission merely because an AI requested an operation.
+1. discover runtime/model/capability availability;
+2. start bounded inference or a workflow-backed run;
+3. observe execution in real time;
+4. inspect active jobs;
+5. request stop/cancel;
+6. request pause/resume where supported;
+7. interrupt a running inference at a defined control point;
+8. retrieve results/provenance;
+9. later, patch eligible unexecuted workflow state safely.
 
-## Namespace
+Transport authentication is not runtime authorization.
 
-If exposed through FLAMORIS MCP Hub, the expected public namespace is conceptually:
+## Runtime control surface
 
-```text
-runtime.*
-```
-
-A directly connected MCP server may use shorter local tool names.
-
-Exact naming should be finalized with implementation and ecosystem integration.
-
-## MCP has two roles
-
-This repository may use MCP in two different directions:
-
-```text
-AI / Agent
-   │
-   │ MCP control plane
-   ▼
-FLAMORIS AI Runtime
-   │
-   │ registered workflow capability
-   ▼
-external MCP server/tool
-```
-
-The first role is the Runtime's own MCP surface, used to discover, validate, submit, observe, and cancel workflows.
-
-The second role is optional outbound execution: a configured external MCP tool may be exposed to a workflow as a registered capability.
-
-These roles must not be confused. A workflow must not gain the ability to choose arbitrary MCP endpoints, credentials, or unrestricted tools. Connection configuration and authorization live outside portable workflow JSON.
-
-## Initial tool surface
-
-Conceptual tools:
+Conceptual tools may include:
 
 ```text
 capabilities.list
-workflow.validate
+models.list
+
 run.submit
 run.status
 run.result
 run.cancel
+run.interrupt
+
+jobs.list
+jobs.status
+jobs.cancel
+
+events.read / events.stream
 ```
 
 Later:
 
 ```text
+run.pause
+run.resume
 run.patch
-run.events
 ```
+
+Exact names are not frozen.
 
 Avoid one giant `execute_anything` tool.
 
+## Inference versus workflow submission
+
+A caller may submit:
+
+- a direct inference request;
+- a workflow containing inference;
+- a task that the Runtime/model expands into bounded registered work, depending on the future API.
+
+Do not require the external caller to pre-author every internal job if the Runtime itself can safely coordinate jobs during inference.
+
+Likewise, do not let model output become ambient permission to run arbitrary work.
+
+Every dispatched capability remains subject to registration, authorization, resource, and side-effect policy.
+
 ## capabilities.list
 
-Purpose:
+Return machine-readable capabilities available to the caller.
 
-Return the capabilities available to the current caller.
+Metadata may include:
 
-The response should be sufficient for an AI planner to compose valid workflow nodes.
-
-It may include:
-
-- node/capability identifier;
-- version;
-- input schema;
-- output schema;
-- side-effect classification;
+- capability identifier/version;
+- input/output schema;
+- side effects;
 - idempotency;
-- cancellation support;
-- permission/availability state;
-- bounded resource hints;
-- conceptual capability class such as algorithmic, future Vem, external AI/API, external MCP, or FLAMORIS service, when useful for planning.
+- cancellability;
+- pause/resume support;
+- resource class;
+- availability;
+- bounded resource hints.
 
-It must not expose:
+Do not expose credentials, private endpoints, or private topology.
 
-- credentials;
-- private endpoints;
-- private topology;
-- secrets hidden behind adapters.
+## models.list
 
-## workflow.validate
+Conceptually exposes model/backend choices relevant to the caller without leaking internal host details.
 
-Purpose:
+Possible metadata may include:
 
-Validate a workflow without executing side effects.
+- logical model ID;
+- context limits;
+- supported modalities;
+- streaming support;
+- pause/resume support;
+- rewind/state-mutation support where intentionally exposed;
+- availability.
 
-Validation should cover:
-
-- schema version;
-- serialized size;
-- node/edge limits;
-- graph validity;
-- node type existence;
-- input/output references;
-- capability availability;
-- caller permissions;
-- server execution policy;
-- resource budgets;
-- unsupported cycle/loop constructs.
-
-A validation response should be structured.
-
-Conceptual response:
-
-```json
-{
-  "valid": false,
-  "errors": [
-    {
-      "code": "unknown_node_type",
-      "path": "nodes[2].type",
-      "message": "Capability is not available."
-    }
-  ]
-}
-```
-
-Messages should not leak sensitive implementation details.
+This tool is conceptual and may be merged into capability discovery later.
 
 ## run.submit
 
-Purpose:
+Admit work into the Runtime.
 
-Admit a validated workflow for execution.
+Submission must be revalidated at execution time.
 
-The server must revalidate at submission time. A previous successful `workflow.validate` response is advisory and does not reserve permissions or capability availability.
+Potential inputs may include:
 
-Conceptual request:
+- request ID/idempotency key;
+- model/task selection;
+- prompt/input;
+- optional Workflow IR;
+- tighter client limits;
+- trace/stream preferences.
 
-```json
-{
-  "request_id": "uuid",
-  "workflow": {},
-  "inputs": {}
-}
-```
-
-Important properties:
-
-- bounded request size;
-- caller-scoped authorization;
-- idempotency semantics defined before side effects;
-- structured admission failure;
-- server-assigned `run_id`.
-
-The workflow must not carry raw credentials.
+The server assigns a `run_id`.
 
 ## run.status
 
-Purpose:
-
-Return bounded execution state.
+Return bounded high-level execution state.
 
 Potential states:
 
-- `queued`
-- `running`
-- `succeeded`
-- `failed`
-- `cancelling`
-- `cancelled`
+- queued;
+- running;
+- waiting;
+- paused;
+- cancelling;
+- succeeded;
+- failed;
+- cancelled.
 
-Do not expose arbitrary raw upstream logs by default.
+Status should include stable metadata, not unrestricted raw logs.
 
-## run.result
+## run.interrupt
 
-Purpose:
+Request intervention in an active run/inference.
 
-Return the final declared workflow outputs and stable metadata.
+Conceptual actions may include:
 
-Large generated media should normally be represented by references owned by the service that created them, not copied into the MCP response.
+- stop;
+- pause;
+- resume where supported;
+- bounded external input injection;
+- cancel selected child jobs;
+- later, select/change an unexecuted workflow path.
 
-## run.cancel
+The response should distinguish:
 
-Purpose:
+- interrupt accepted/requested;
+- interrupt applied;
+- unsupported action;
+- run already terminal.
 
-Request cancellation.
+Interrupt application should also be observable as an event.
 
-Cancellation semantics must be explicit:
+## Jobs
 
-- cancellation is best-effort only where an upstream capability cannot stop immediately;
+Jobs are scheduler-visible runtime work.
+
+A caller may need job visibility for live inspection and targeted cancellation.
+
+Conceptual tools:
+
+```text
+jobs.list
+jobs.status
+jobs.cancel
+```
+
+Job details should expose bounded metadata such as:
+
+- job ID/type;
+- parent run/job;
+- state;
+- dependencies;
+- resource class;
+- timing/progress;
+- terminal result summary/reference.
+
+Do not expose secrets or unrestricted backend objects.
+
+## Join and race visibility
+
+Workflow execution may create join/race coordination.
+
+Event/status output may expose:
+
+- participants;
+- waiting state;
+- selected winner;
+- loser cancellation requests;
+- terminal loser outcomes where retained.
+
+A race winner does not imply rollback of other side effects.
+
+## Events and real-time observation
+
+Structured events are the primary real-time observation surface.
+
+Potential families include:
+
+- inference lifecycle;
+- prefill/decode progress;
+- token generation where enabled;
+- sampling metadata where enabled;
+- model-exposed reasoning channel where policy permits;
+- job lifecycle/progress;
+- workflow node lifecycle;
+- interrupt requested/applied;
+- join/race state;
+- resource warnings;
+- terminal result.
+
+Event streaming must be optional for correctness.
+
+A reconnecting client should be able to inspect bounded retained event history or current state without requiring an uninterrupted stream.
+
+## Trace levels
+
+A request may ask for a supported trace level, bounded by deployment policy.
+
+Conceptually:
+
+1. lifecycle/state/timing;
+2. token/sampling;
+3. model-exposed reasoning stream;
+4. deep backend debug probes.
+
+Higher trace levels may be unavailable or restricted.
+
+## Cancellation semantics
+
+Cancellation must be explicit:
+
+- cancellation may be best-effort for opaque remote capabilities;
 - already completed side effects are not rolled back automatically;
-- cancellation must not be reported as successful until the runtime reaches a defined cancelled/terminal state.
+- loser cancellation in `race` follows the same rule;
+- the Runtime must not report a job/run as cancelled before its state reaches the defined terminal condition.
 
-## run.patch
+## Pause/resume semantics
 
-Future feature.
+Pause/resume is capability-specific.
 
-Purpose:
+A backend that cannot safely preserve model state must report pause/resume as unsupported.
 
-Apply validated graph changes to an eligible run revision.
+The MCP surface must not pretend every remote provider has state-preserving pause.
 
-The patch contract must include:
+## Result handling
 
-- base run/workflow revision;
-- explicit patch operations;
-- validation before commit;
-- rejection of edits that would rewrite completed side effects;
-- resulting revision;
-- provenance.
+Final results should contain declared outputs and stable metadata.
 
-Do not accept arbitrary replacement of internal executor state.
+Large media normally remains as references owned by the producing service.
 
-## Events and streaming
-
-Streaming is useful but should not be required for correctness.
-
-A future event stream may include bounded events such as:
-
-- run admitted;
-- node started;
-- node completed;
-- node failed;
-- run cancelled;
-- run completed;
-- graph revision changed.
-
-Events must avoid secrets and unbounded model/provider output.
+Inference results may include final text/structured output plus explicitly enabled trace references.
 
 ## Authentication and authorization
 
-Transport authentication and runtime authorization are separate concerns.
+Transport authentication and runtime authorization are separate.
 
-Even after transport authentication, the runtime must evaluate whether the current principal may use each capability.
+Even after a caller is authenticated, the Runtime must evaluate:
 
-A future deployment may support different capability sets per principal.
+- model access;
+- capability access;
+- side-effect permission;
+- external provider permission;
+- resource budgets;
+- trace/logging permission.
 
-## Error handling
+Model output or workflow JSON never grants permission by itself.
 
-Prefer stable error codes.
+## Retry and idempotency
 
-Examples:
+Retries are dangerous around side effects.
+
+The contract should:
+
+- define idempotency for submission;
+- distinguish transport uncertainty from known rejection;
+- avoid replaying non-idempotent side effects;
+- define race participant retry behavior explicitly.
+
+## Relationship to Agent
+
+`flamoris-ai-agent` may call the Runtime.
+
+The Agent remains authoritative for:
+
+- identity;
+- long-term memory;
+- durable conversation;
+- personality;
+- goals/Agent policy.
+
+The Runtime owns active model execution and runtime state, not durable Agent identity.
+
+## Relationship to Intelligence MCP
+
+`flamoris-intelligence-mcp` may expose or route intelligence capabilities, but AI Runtime may directly own model execution for the models/backends it controls.
+
+The integration should preserve Runtime observability and interrupt semantics rather than forcing every model operation through an opaque remote request.
+
+## Relationship to Generation and external capabilities
+
+Generation MCP and other services retain their domain state.
+
+External AI/API and MCP tools are exposed through configured registered capabilities.
+
+Portable workflow/runtime requests must not carry arbitrary endpoints or raw credentials.
+
+## Errors
+
+Prefer stable error codes such as:
 
 - `invalid_request`
-- `unsupported_schema_version`
+- `unsupported_model`
+- `backend_unavailable`
 - `invalid_workflow`
 - `capability_unavailable`
 - `permission_denied`
 - `budget_exceeded`
+- `resource_unavailable`
 - `duplicate_request`
 - `run_not_found`
-- `run_not_terminal`
+- `job_not_found`
+- `unsupported_interrupt`
 - `run_cancelled`
 - `upstream_failure`
 - `internal_error`
 
-Do not make callers parse prose to determine error class.
-
-## Retry behavior
-
-Retries are dangerous around side effects.
-
-The MCP contract should:
-
-- define idempotency for `run.submit`;
-- avoid automatic retries with a fresh request ID after an uncertain submission;
-- distinguish retryable transport failure from known runtime rejection;
-- never silently replay non-idempotent side-effecting nodes.
-
-## Relationship to MCP Hub
-
-MCP Hub may aggregate and namespace Runtime tools.
-
-Hub remains routing/aggregation infrastructure.
-
-It must not:
-
-- become the workflow executor;
-- duplicate runtime run state;
-- reinterpret workflow semantics;
-- become a second capability registry authority.
-
-## Relationship to Agent
-
-AI Agent may use Runtime to execute an AI-authored graph.
-
-Agent remains authoritative for:
-
-- identity;
-- conversation;
-- memory;
-- personality;
-- Agent policy.
-
-Runtime output may be referenced by Agent state, but Runtime must not become the Agent's memory store.
-
-## Relationship to external AI/API and MCP capabilities
-
-External AI/API services may be exposed through configured adapters.
-
-External MCP tools may be exposed through configured MCP connections and registered tool schemas.
-
-For both:
-
-- workflow JSON selects a registered logical capability rather than carrying secrets or arbitrary endpoint configuration;
-- capability discovery reflects caller-specific availability;
-- timeout, cancellation, side-effect, cost/resource, and retry policy remain explicit;
-- raw upstream errors are not automatically returned to callers;
-- registration does not transfer ownership of remote state into the Runtime.
-
-Future Vem capabilities should follow the same model once Vem has a stable callable contract.
-
-## Relationship to Intelligence and Generation
-
-Runtime should compose their public capabilities rather than re-own their domain state.
-
-Conceptually:
-
-```text
-AI-authored workflow
-       │
-       ▼
-   AI Runtime
-    │      │
-    │      └────► Generation MCP
-    │
-    └───────────► Intelligence MCP
-```
-
-This keeps the workflow executor generic while preserving the existing FLAMORIS authority map.
+Callers should not need to parse prose to determine error class.
