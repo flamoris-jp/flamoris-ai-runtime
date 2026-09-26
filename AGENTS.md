@@ -2,9 +2,9 @@
 
 This repository is part of the FLAMORIS ecosystem.
 
-FLAMORIS AI Runtime is currently a **design-stage repository** for a headless processing/execution layer used by external AI callers such as ChatGPT, `flamoris-ai-agent`, Studio AI, or other Agents. Those callers author workflow IR; the Runtime validates and executes it under explicit capability and resource boundaries.
+FLAMORIS AI Runtime is currently a **design-stage model-adjacent AI execution runtime**. It is intended to control model inference, workflow execution, jobs, interrupts, and observability in one runtime kernel.
 
-Do not implement behavior based only on prior chat context. Read the current repository documentation first and keep planned behavior clearly separated from implemented behavior.
+Do not implement behavior from chat context alone. Read current repository documentation first and keep planned behavior clearly separated from implemented behavior.
 
 ## Repository identity
 
@@ -12,132 +12,269 @@ Do not implement behavior based only on prior chat context. Read the current rep
 
 Planned ownership:
 
-- workflow IR and schema versioning;
-- workflow validation and compilation;
-- bounded execution semantics;
-- per-run runtime state, cancellation, limits, and results;
-- capability discovery;
-- a narrow MCP surface for workflow submission;
-- later, safe adaptive graph patching.
+- model-adjacent inference lifecycle for supported/controlled backends;
+- model/backend execution contracts;
+- active inference state such as token position, cache/state, sampling state, and stop conditions;
+- runtime workflow IR and validation;
+- job lifecycle, dependencies, scheduling, cancellation, and results;
+- logical parallelism and resource-aware execution;
+- interrupt, pause, resume, and later backend-specific rewind capabilities;
+- structured execution events and bounded real-time traces;
+- capability discovery and execution adapters;
+- per-run limits and provenance.
 
 ### This repository does not own
 
-Do not duplicate authority from neighboring FLAMORIS repositories:
+Do not absorb durable authority from neighboring systems:
 
-- Agent identity, conversations, memory, personality, and Agent policy belong to `flamoris-ai-agent`;
-- raw language/reasoning/coding provider authority belongs to `flamoris-intelligence-mcp`;
-- generative-media workflow/job/asset authority belongs to `flamoris-generation-mcp`;
-- local GPU/runtime lifecycle transitions belong to `flamoris-gpu-node-manager`;
+- Agent identity, conversations, long-term memory, personality, and Agent policy belong to `flamoris-ai-agent`;
+- generative-media domain workflow/job/asset authority belongs to `flamoris-generation-mcp`;
+- host-wide GPU/runtime lifecycle transitions belong to `flamoris-gpu-node-manager`;
 - Studio and desktop products retain authority for their own state and documents.
 
-The runtime may call another service through an explicit adapter. It must not silently copy or become authoritative for that service's state.
+`flamoris-intelligence-mcp` may expose or route bounded intelligence capabilities, but do not assume that model execution internals must live outside AI Runtime. The final integration must preserve the inference control points required by this repository.
 
-## Caller/runtime separation
+## Core architecture rule
 
-The planning intelligence stays outside this repository.
+**Inference and workflow execution share one controllable runtime loop.**
 
-Do not turn the Runtime into a persistent conversational Agent merely because Agents are expected callers.
+Do not reduce the model to an opaque remote `generate()` call when the feature being implemented requires:
 
-The default responsibility split is:
+- decode-level observation;
+- low-latency interrupt;
+- state-preserving pause/resume;
+- child-job dispatch;
+- bounded result injection;
+- backend state inspection.
 
-- caller / Agent: intent, goals, identity, conversation, memory, planning, and next-step decisions;
-- Runtime: workflow admission, validation, execution, per-run state, cancellation, results, and execution provenance.
+A limited opaque provider may still exist as a capability, but it must advertise its limitations honestly.
 
-The same Runtime should be usable by `flamoris-ai-agent`, ChatGPT, Studio AI, and other authorized clients.
+## Runtime concepts
 
-## Core design rule
+Keep these concepts distinct:
 
-**AI-authored does not mean AI-trusted.**
+- **Inference session/state** - active model execution state.
+- **Workflow** - dependency/data/control description.
+- **Job** - scheduler-visible unit of active work.
+- **InferenceJob** - a stateful job that may preserve model execution state.
+- **Capability** - registered callable functionality.
+- **Event** - structured observable state transition or progress record.
 
-Workflow input is untrusted execution input.
+Do not collapse Workflow and Job into one abstraction.
 
-Before execution, the runtime must validate at least:
+## Jobs and scheduling
+
+The scheduler should support logical parallelism without promising physical simultaneous execution.
+
+Independent jobs may run concurrently when resources allow.
+
+The scheduler may serialize jobs when constrained by:
+
+- VRAM/RAM;
+- GPU exclusivity;
+- model residency;
+- CPU capacity;
+- remote rate limits;
+- side-effect policy.
+
+Conceptual control operations include:
+
+- await;
+- join;
+- race;
+- cancel;
+- pause/resume where supported.
+
+Race semantics must define the winner condition and loser policy. Cancellation is not rollback.
+
+## Inference control
+
+The preferred control surface is around inference lifecycle stages and decode iterations.
+
+Conceptually:
+
+```text
+tokenize -> prefill -> decode iteration -> sampling -> token/state update
+                                      -> emit events
+                                      -> apply interrupt
+                                      -> optionally dispatch/await jobs
+                                      -> continue
+```
+
+Exact backend behavior must be verified before freezing interfaces.
+
+Do not promise universal rewind, pause, or cache mutation. These are backend capabilities.
+
+## Observability
+
+Structured events are the source of truth for real-time observation.
+
+Human-readable logs should be derived from events rather than being the only representation of execution.
+
+Support bounded trace levels conceptually:
+
+1. lifecycle/state/timing;
+2. token and sampling information;
+3. model-exposed reasoning channel where intentionally supported;
+4. deep backend debug probes.
+
+Never log secrets, credentials, unbounded tensors, unrestricted provider responses, or unlimited model/media output.
+
+## Workflow security
+
+Workflow/model/tool output is untrusted execution input.
+
+Validate at least:
 
 - schema version;
-- node types;
 - graph structure;
 - references;
 - capability availability;
-- permission requirements;
+- permissions;
 - resource budgets;
 - side-effect policy;
-- concurrency and fan-out bounds;
-- timeout and cancellation behavior.
+- concurrency/fan-out bounds;
+- timeout/cancellation rules.
 
-Do not add a general arbitrary-code node, unrestricted shell execution, ambient filesystem access, ambient network access, or credential injection as a shortcut.
+Do not add arbitrary shell, unrestricted Python, ambient filesystem/network access, or credential injection as shortcuts.
+
+## Provider and capability boundaries
+
+Prefer stable capability contracts over provider-specific workflow syntax.
+
+Conceptual families may include:
+
+- `control.*`
+- `data.*`
+- `algorithm.*`
+- `model.*` / inference-specific operations where intentionally exposed
+- `vision.*`
+- `speech.*`
+- `generation.*`
+- `vem.*` after Vem has a stable callable contract
+- `external_ai.*`
+- `mcp.*`
+- explicitly registered FLAMORIS product/service capabilities
+
+External AI/API and MCP execution must use configured, registered adapters. Do not embed raw credentials, arbitrary endpoints, or arbitrary MCP server URLs in portable workflow JSON.
+
+## Existing FLAMORIS LLM foundation
+
+Before reimplementing model execution, inspect `flamoris-net/flamoris-LLM`.
+
+Evaluate reuse of its:
+
+- model runtime boundary;
+- generation loop;
+- cache handling;
+- tokenizer/model contracts;
+- compute abstraction;
+- CPU reference path;
+- OpenCL backend work;
+- tests.
+
+Reuse should be deliberate. Do not copy model-specific internals into unrelated workflow/scheduler layers.
+
+## Required runtime research before implementation
+
+Before freezing the first inference/backend contracts, compare representative runtimes/stacks including:
+
+- `llama.cpp`;
+- Hugging Face Transformers;
+- vLLM;
+- TensorRT-LLM.
+
+Focus on:
+
+- prefill/decode boundaries;
+- KV/cache ownership;
+- streaming;
+- sampler hooks;
+- cancellation;
+- pause/resume feasibility;
+- scheduling/continuous batching;
+- state snapshot/rewind feasibility;
+- observability;
+- server API versus embedded runtime control.
+
+Record the conclusions in repository documentation or a design decision before implementing a long-lived abstraction.
+
+## Preferred implementation sequence
+
+Keep the first implementation small and reviewable.
+
+1. runtime research and decision record;
+2. evaluate/refactor the reusable `flamoris-LLM` foundation;
+3. define inference state/controller and structured event bus;
+4. define Job lifecycle and a simple scheduler;
+5. add deterministic Workflow IR validation/execution;
+6. add interrupt/cancel and supported pause/resume behavior;
+7. add MCP/API/CLI adapters;
+8. add real local/external capabilities;
+9. optimize scheduling and adaptive workflows only after measured need.
+
+Do not jump directly to distributed scheduling, a plugin marketplace, or a generic graph programming language.
 
 ## Headless-first rule
 
 Execution semantics must not depend on GUI state.
 
-Do not make canvas coordinates, visual grouping, editor tabs, colors, comments, or layout metadata required for execution.
-
-A future visual editor may keep optional presentation metadata, but the portable workflow IR must remain executable without it.
-
-## Provider and service boundaries
-
-Prefer capability names and explicit adapters over provider-specific architecture.
-
-Examples of acceptable conceptual node families:
-
-- `control.*`
-- `data.*`
-- `algorithm.*`
-- `vem.*` for future Vem-backed capabilities once Vem has a stable callable contract
-- `intelligence.*`
-- `generation.*`
-- `external_ai.*`
-- `mcp.*`
-- explicitly registered product/service capabilities
-
-Algorithmic processing is a first-class workflow use case and must not be treated as merely glue around model calls.
-
-Vision, speech recognition, TTS/voice generation, multimodal inference, embeddings/similarity, and other ordinary AI capabilities may also be exposed through registered capability families. The workflow model should be general enough to pass one capability's structured output into the next.
-
-The intended principle is **open-ended composition, bounded execution**. Do not add arbitrary product-level filters that prevent safe registered capabilities from being composed merely because they belong to different domains. Do preserve strict execution boundaries around permissions, credentials, side effects, resource use, filesystem/network access, and external services.
-
-External AI/API and external MCP execution must use configured, registered adapters/capabilities. Do not put raw credentials, arbitrary provider endpoints, or arbitrary MCP server URLs into portable workflow JSON.
-
-Vem integration is intentionally future-facing. Do not invent Vem-specific request, state, or lifecycle semantics until its callable contract exists.
-
-Provider-specific configuration should stay behind the owning service or adapter unless a public provider-specific contract is intentionally approved.
-
-## Workflow evolution
-
-The initial implementation should stay small.
-
-Preferred sequence:
-
-1. schema and validator;
-2. deterministic reference executor;
-3. pure control/data nodes;
-4. mock adapters and offline tests;
-5. bounded run lifecycle;
-6. MCP surface;
-7. real service adapters;
-8. only then adaptive graph patching and richer orchestration.
-
-Do not jump directly to a plugin marketplace or a general-purpose distributed scheduler.
+A future UI may inspect inference state, tokens, jobs, queues, races, resources, and events, but canvas coordinates and visual metadata are non-semantic.
 
 ## MCP design
 
-MCP is the intended AI-facing submission boundary, but the core runtime must not depend on MCP-specific message framing.
+MCP may expose runtime control and observation, but the runtime core must remain transport-independent.
 
 Keep:
 
 ```text
-workflow/runtime core
-        ↑
-    MCP adapter
+runtime kernel
+    ↑
+MCP/API/CLI adapters
 ```
 
-rather than embedding execution semantics inside MCP handlers.
+rather than embedding inference/workflow semantics inside MCP handlers.
 
-The draft MCP contract lives in `docs/MCP_CONTRACT.md`.
+## Documentation discipline
+
+Current implementation is authoritative.
+
+At the moment this repository is design-only. Do not claim implemented inference, scheduling, pause/resume, race, MCP, or workflow features until code and tests exist.
+
+When implementation begins:
+
+- document exact setup and test commands from the real repository;
+- add deterministic tests for lifecycle/state transitions;
+- test cancellation and race semantics;
+- keep examples aligned with the implemented schema;
+- version breaking workflow/runtime contract changes explicitly.
+
+## Testing expectations
+
+When code exists, prefer deterministic offline tests for:
+
+- inference lifecycle transitions;
+- event ordering;
+- interrupt request/application;
+- cancellation;
+- supported pause/resume;
+- job state transitions;
+- scheduler dependency ordering;
+- join/race semantics;
+- resource-limit rejection;
+- valid/invalid workflow graphs;
+- unsupported schema versions;
+- unknown capabilities;
+- missing references;
+- timeout behavior;
+- result-size/event-volume limits;
+- idempotency and side-effect boundaries;
+- adapter failures;
+- stable structured errors.
 
 ## Security
 
-Treat workflow JSON, model output, tool output, service responses, and retrieved content as untrusted.
+Treat model output, workflow input, tool output, service responses, and retrieved content as untrusted.
 
 Security-sensitive behavior must fail closed.
 
@@ -145,59 +282,9 @@ Never:
 
 - commit or log secrets, credentials, tokens, or private topology;
 - embed credentials in workflow JSON;
-- expose raw provider error bodies when they may contain sensitive data;
+- expose sensitive raw upstream errors;
 - silently retry non-idempotent side effects;
-- infer permission from the fact that an AI requested an operation.
-
-## Documentation discipline
-
-Current implementation is authoritative.
-
-At the moment, this repository contains design documents only. Do not change README wording to imply a runtime, MCP service, schema, or node catalog is implemented until the corresponding code and tests exist.
-
-When implementation begins:
-
-- document the exact setup and test commands from the real repository;
-- add deterministic tests for validation and execution semantics;
-- keep examples aligned with the current schema;
-- version breaking workflow-schema changes explicitly.
-
-## Before a substantial change
-
-Read:
-
-- `README.md`
-- `docs/ARCHITECTURE.md`
-- `docs/WORKFLOW_IR.md`
-- `docs/MCP_CONTRACT.md`
-- relevant Issues and PRs
-- the FLAMORIS AI ecosystem map when cross-repository behavior is involved
-
-Then identify:
-
-- the authority being changed;
-- whether behavior is runtime-core, adapter, MCP, or documentation;
-- whether the change adds a side effect;
-- whether the change expands permissions or resource use;
-- whether the public workflow contract changes.
-
-## Testing expectations
-
-When code exists, prefer deterministic offline tests for:
-
-- valid and invalid graph structure;
-- unsupported schema versions;
-- unknown node types;
-- missing references;
-- cycle policy;
-- resource-limit rejection;
-- cancellation;
-- timeouts;
-- fan-out/concurrency bounds;
-- result-size limits;
-- idempotency and side-effect boundaries;
-- adapter failures;
-- stable structured errors.
+- infer permission from the fact that a model or AI requested an operation.
 
 ## Licensing
 
