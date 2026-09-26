@@ -143,8 +143,9 @@ outbound action already committed as running counts as in-flight, even if its
 worker has not started it. Worker progress, completion, and cleanup can settle
 captured targets while new useful dispatch is closed.
 
-Each paused Job records the cause (targeted command or Run barrier generation).
-Timeout removes only the current barrier's causes; targeted pauses survive.
+Each paused Job records a bounded set of causes (targeted command identities
+and Run barrier generations). Removing one cause cannot resume a Job while
+another remains. Timeout removes only the current barrier's causes; targeted pauses survive.
 Child results satisfy a paused wait condition but do not queue its owner.
 Resume clears only the named cause, revalidates permission, and moves eligible
 state through Continuation -> PendingResume -> active machine. A cancelled or
@@ -194,15 +195,61 @@ operation with a monotonic generation. Duplicates cannot fill an unbounded queue
 The executor drains a slot before issuing the next segment. Failed telemetry
 enqueue increments a bounded loss counter; it cannot suppress completion.
 
-Event admission uses a checked, finite worst-case accounting expression, not
-an estimate of average logging. For each admitted plan compute maximum root and
-dynamic Jobs, attempts, suspensions, control requests, groups, resource operations,
-and cleanup records from its finite limits. The Phase C event catalog assigns
-each operation kind a fixed maximum mandatory event count and payload byte cap;
-reserve the sum of those products plus terminal/closure capacity before the
-operation can start. Unknown maxima or integer overflow reject admission.
-Actual optional token/debug traffic has a separate finite byte/count budget.
-Resource bounds include this storage, not only model memory.
+Event admission uses the following conservative **Phase B reservation profile v1**,
+not an estimate of average logging. All variables are total maxima over the Run,
+including retries, dynamic work, denied proposals and cleanup; they are never
+reset by pause/resume. The compiler derives a finite maximum from the plan and
+trusted contracts, or rejects it. Deployment can tighten the profile.
+
+| Obligation | Maximum mandatory event slots reserved |
+| --- | ---: |
+| Run admission/activity/stop/finalization base | 32 |
+| Each Job, `J` | 16 |
+| Each attempted dispatch including denial/retry, `A` | 12 |
+| Each suspension/wake/discard cycle, `S` | 8 |
+| Each accepted control command, `C` | 8 |
+| Each join/race/group decision, `G` | 8 |
+| Each bounded resource operation/acknowledgement episode, `R` | 8 |
+| Each dynamic-fragment proposal including rejection, `D` | 8 |
+| Each cleanup record, `Q`, with at most `U` post-terminal updates | `4 + 2*U`, including closure |
+
+Thus `N = 32 + 16J + 12A + 8S + 8C + 8G + 8R + 8D + (4+2U)Q`.
+Fan-out barrier actions consume the corresponding Job/suspension/resource
+budgets, not just the one command budget. Activity projection updates belong to
+the causing obligation's slots. Partial acquisitions/transfer acknowledgements
+consume their own bounded `R`; unknown operation maxima reject the capability.
+Any extra mandatory diagnostic consumes its causing obligation's allowance;
+an implementation needing more must revise this reviewed catalog, not drop it.
+
+Each mandatory encoded envelope including payload is at most 4 KiB. Use bounded
+logical references/summaries for larger results and participant sets. Internal
+storage for a slot, its indexes and snapshot projection is charged at a maximum
+8 KiB; Phase C must prove the chosen representation fits or reject/change the
+profile before enabling it. Reserve `N * 8 KiB` in checked arithmetic, with a
+default per-Run control-storage ceiling of 64 MiB and a process-wide configured
+ceiling. Optional telemetry has a separate default 1 MiB per-Run pool. Results,
+plans, worker payloads and current state are separately charged; this expression
+does not hide them inside event memory. `U=4` by default; coalesce further updates
+and reserve closure at transfer. No coefficient is an assertion that code exists.
+
+The normal inbox defaults to 1,024 command envelopes of at most 2 KiB each;
+large request/result buffers live in separately bounded owned storage, referenced
+by opaque handles. A completion slot similarly holds at most 2 KiB metadata and
+a handle to already charged output. Reserve one such slot per in-flight operation
+and one coalesced stop slot per active Job, plus the cleanup records admitted by
+`Q`; their aggregate storage must fit the process control budget before admission.
+Duplicate waiter/response slots are separately charged before attachment. A full
+normal inbox rejects new work and cannot steal any of these reserved slots.
+
+A committed group has at most `N` slots; its atomic in-memory visibility uses a
+group descriptor over reserved storage. Transport pages may explicitly mark an
+incomplete group with finite total size; projections apply only a complete group,
+otherwise return a gap/snapshot. Snapshot bytes are separately reserved at Run
+admission from bounded Job/resource counts, with a default 1 MiB cap; status can
+page Job details at the same watermark rather than grow an unbounded snapshot.
+Unknown maxima, ceiling violations, and any arithmetic overflow reject admission.
+Tests at every limit and one above it assert no operation begins without its
+completion, mandatory transition, terminal and closure capacity.
 
 Whole groups may expire after active bookkeeping is no longer needed; observers
 get an explicit gap and current watermark. An active cleanup record cannot be
@@ -219,9 +266,13 @@ was already immutable. No unbounded per-Run tombstone is kept to receive callbac
 
 ## Callback fences and destruction
 
-Every observation is an owned value carrying runtime incarnation, Run/Job ID,
-attempt ID, operation ID, relevant segment/suspension generation, and backend,
-host, allocation epochs. A callback captures a weak endpoint plus its immutable
+Every observation is an owned value with a discriminated correlation ticket.
+Pre-admission tickets carry incarnation, claim/operation identity and claim
+generation, without a fabricated Job/Attempt. Lifecycle tickets require
+Run/Job/attempt/operation identity and relevant segment/suspension generations.
+Cleanup tickets identify the independently retained cleanup/allocation/paid
+operation and applicable backend/host epochs; expired Run references are optional
+provenance. A callback captures a weak endpoint plus its immutable
 ticket, never a raw Run/controller pointer. Endpoint locking grants access only
 to a bounded delivery slot; the callback cannot dereference lifecycle records.
 Native buffers referenced by an in-flight call are owned by its worker context
