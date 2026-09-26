@@ -39,7 +39,8 @@ the absence of this controlled-step contract.
 | Design object | Owner / lifetime | Mutation and references | Disposal / serialization |
 | --- | --- | --- | --- |
 | BackendDescriptor / ModelProfile | Immutable registered snapshot pinned by plan; replacement gets a new revision | Control executor reads values, workers receive immutable copies/references | Safe bounded metadata only; no native addresses or local artifact paths |
-| BackendWorker | Runtime backend host, through shutdown/cleanup | One bounded work queue; owns native runtime initialization and session table | Join only after drained; never detach a thread holding freed native state |
+| NativeBackendLifetime | Sole Runtime composition root under ProcessRuntimeGuard; before first native call through complete teardown | One designated worker performs process-global init/log configuration/free; stable bounded log context | Internal; dispose after native workers, handles and callbacks quiesce; no per-model/global-free coupling |
+| BackendWorker | Runtime backend host, through shutdown/cleanup | One bounded work queue; owns session table, uses the root-owned native lifetime | Join only after drained; never detach a thread holding freed native state |
 | ModelHandle | Worker model table with session and bounded residency references; initial load belongs to one admitted Job | Immutable logical model; all native access serialized initially | Free only after all sessions/calls stop; Resource Manager confirms actual release |
 | InferenceSession | Worker table, uniquely associated with Job/attempt; may survive in cleanup | Native context, sampler and incremental decoder; one in-flight segment; logical access by generation-tagged ID | No public serialization. Transfer destruction duty to cleanup if Job closes |
 | InferenceStateSummary | Control-owned bounded copy of last accepted receipt | Positions/stage/stop state and allocation IDs, no mutable native aliases | Authorized observations may serialize; not a checkpoint |
@@ -52,6 +53,49 @@ worker serializes access even across separate contexts, avoiding an unproved
 upstream reentrancy assumption. One worker does not imply one Job: frozen
 sessions may coexist, with each retained footprint charged. Later parallel
 workers or shared device pools require another qualified profile.
+
+## Process-global native lifecycle
+
+Phase C baseline permits **one RuntimeInstance construction per process**,
+including fake-only production configurations. The composition-root factory
+atomically claims a `ProcessRuntimeGuard` before creating executors/workers or
+calling any native API. Concurrent or subsequent construction returns a bounded
+availability error before native calls. The claim remains consumed through
+shutdown or failed construction; restart/recreation requires a new process.
+This intentionally excludes embedded multi-Runtime hosts and same-process native
+reinitialization. There is one process guard shared by all entry points; loading
+independent copies of the library or mixing independently managed llama.cpp users
+in that process is unsupported. Process-local exclusivity grants no host GPU rights.
+
+The root owns exactly one `NativeBackendLifetime` for the initial llama.cpp
+integration, with immutable configuration, initialization status and a bounded
+sanitized logging context. A designated backend worker performs the global calls
+under this owner. Initialize at most once before its first native model operation,
+within that admitted initializing segment's accounted resource envelope. Repeated
+model loads/unloads do not initialize/free global backend state. The pinned
+[llama.h source](../adr/0001-backend-control.md) documents `llama_backend_init()` /
+`llama_backend_free()` as program-level calls and global `llama_log_set()` as
+not thread-safe. This lifetime scope is an adapter obligation, not an upstream
+promise that arbitrary initialization failures are recoverable.
+
+Shutdown/failed-start cleanup follows this strict order:
+
+1. Close useful admission/dispatch and request stop; keep the native owner and
+   log/callback contexts alive. No other Runtime can start during drain.
+2. Prove native calls/callbacks stopped, then destroy sessions, contexts, samplers
+   and models on their designated worker, with ordinary allocation receipts.
+3. On that worker, call `llama_backend_free()` exactly once only if initialization
+   completed and native teardown is safe. Keep logging context alive through free.
+4. After all native calls/log producers are quiescent, detach the global log
+   callback, then release its context and native owner, and finish worker shutdown.
+   No log reconfiguration races an active native call. The process guard stays spent.
+
+A partial initialization with uncertain global state or a wedged native call
+requires containment/process exit; do not blindly call free, discard callback
+storage or release the process claim. Failed second construction cannot free or
+reconfigure the first instance's backend. Destructors neither retry initialization
+nor infer quiescence from an empty queue. Log callbacks carry only their stable
+bounded context, never a Run/Job/Runtime pointer.
 
 ## Complete inference state tuple
 
@@ -175,8 +219,9 @@ the baseline must fail explicitly when offload is unavailable.
 Backend callbacks can only read their stable cancellation control block or emit
 bounded owned observations. They cannot throw through a C boundary, acquire a
 Run lock, allocate an unbounded result, publish tokens directly, or dispatch a
-child. Register global native logging once during backend initialization; never
-race reconfiguration. Sanitize and cap copied diagnostics before observation.
+child. The root-owned NativeBackendLifetime registers global logging once before
+native initialization and detaches only after teardown quiescence as specified
+above. Sanitize and cap copied diagnostics before observation.
 
 All receipts carry runtime incarnation, backend/model generation, Job/attempt,
 segment and relevant host/allocation epochs. Stale lifecycle proposals are

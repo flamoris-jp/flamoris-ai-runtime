@@ -38,9 +38,9 @@ inherits its prerequisites' completed regression suite.
 | Slice | Direct prerequisites | Main responsibility | Acceptance families exercised |
 | --- | --- | --- | --- |
 | C01 | Reviewed Phase B | Toolchain, IDs, bounded values/errors/effects, test kit | A06; B-SER01 primitives |
-| C02 | C01 | Run/Job controller, Continuation, event commit and manual executor | A08–A09, A14–A19, A28, A37–A38, A40 controller cases; B-LIFE01/B-EVENT01 |
+| C02 | C01 | Process construction guard, Run/Job controller, Continuation, event commit and manual executor | A08–A09, A14–A19, A28, A37–A38, A40 controller cases; B-LIFE01/B-EVENT01/B-NATIVE01 factory cases |
 | C03 | C02 | Resource ledger, host protocol, accounted cleanup | A10–A13, A28–A29; B-CALL01/B-DRAIN01 resource cases |
-| C04 | C03 | Current authorization, submission claim, Run limits, durable paid port | A04–A05, A24–A27, A33, A35, A41–A42 policy/port cases; B-RETRY01 |
+| C04 | C03 | Current authorization, submission claim, Run limits, durable paid port | A04–A05, A24–A27, A33, A35, A41–A42 policy/port cases; B-RETRY01/B-PAID02 |
 | C05 | C01, C04 | Bounded IR parser, validator/compiler, direct normalization | A01–A03, A06–A07, A24, A36, A39 compile/admission cases; B-SER01 |
 | C06 | C03, C04, C05 | Scheduler, fairness, backend activation and host lifecycle client | A10, A13, A15, A17–A19, A34, A37, A40; B-ACT01–B-ACT12 |
 | C07 | C02, C04, C05, C06 | WorkflowMachine, dependency binding, await/join/race | A07–A10, A16, A20–A26, A36–A40 workflow cases |
@@ -75,7 +75,8 @@ test does not close an acceptance case.
 
 ## C02 — lifecycle and atomic local commits
 
-- **Scope:** Runtime-owned control executor, Run/Job records/controllers,
+- **Scope:** composition-root ProcessRuntimeGuard and Runtime-owned control executor,
+  Run/Job records/controllers,
   AttemptRecord, Continuation/PendingResume move ownership, pause causes/barriers,
   immutable finalizing intent, callback identities and bounded command/proposal
   slots. State plus complete EventGroup commit is one bounded control turn.
@@ -84,7 +85,8 @@ test does not close an acceptance case.
 - **Tests / acceptance:** complete transition table and invalid pairs; owner and
   generation rejection; both cancel/completion orders; exact deadline boundary;
   Run versus targeted pause projection and atomic child/barrier races. Exercise
-  A08–A09, A14–A19, A28, A37–A38, A40 plus B-LIFE01/B-EVENT01 at controller level.
+  A08–A09, A14–A19, A28, A37–A38, A40 plus B-LIFE01/B-EVENT01 at controller level
+  and B-NATIVE01 construction rejection with fake native calls; C10 closes native teardown qualification.
 - **Commit units:** records/ownership; serialized proposal and event publication;
   suspension/control/finalization; deterministic arbitration/failure tests.
 - **Excluded:** useful real work, backend pause claims, resource feasibility,
@@ -245,7 +247,9 @@ test does not close an acceptance case.
 ## C10 — first real backend, embedded llama.cpp on CPU
 
 - **Scope:** pin researched llama.cpp revision and licenses, implement the minimum
-  embedded C API adapter, one sequence/context per Job and serialized context
+  embedded C API adapter, ProcessRuntimeGuard enforcing one construction per
+  process, root-owned NativeBackendLifetime for global init/log/free ordering,
+  one sequence/context per Job and serialized context
   ownership, explicit tokenizer/model identity, bounded prefill/decode/sampler
   progression, in-place preserved-state safe points and accounted release.
   Revalidate primary API evidence if the pinned revision changes.
@@ -253,7 +257,8 @@ test does not close an acceptance case.
   bounds. No production feature is advertised merely because the fake supports it.
 - **Tests / acceptance:** run the real-backend qualification matrix below and
   relevant lifecycle invariants from A08–A19/A28; CPU model tests are a separate
-  opt-in, clearly reported integration lane. Default contract tests remain offline
+  opt-in, clearly reported integration lane. B-NATIVE01 uses instrumented native
+  calls and isolated process/factory tests before real integration. Default contract tests remain offline
   with no weights. Unsupported offload/rewind/batching must reject explicitly.
 - **Commit units:** pinned dependency/licensing; model/context owner and resource
   adapter; bounded step/sampler controls; pause/cancel/lifetime conformance;
@@ -290,7 +295,7 @@ test does not close an acceptance case.
 - **Prerequisites:** C01–C11. If a component is deliberately not delivered, narrow
   the milestone label; do not call the complete baseline accepted.
 - **Tests / acceptance:** every A01–A42 case in [test map](ACCEPTANCE_TEST_MAP.md),
-  B-LIFE/B-CALL/B-EVENT/B-RETRY/B-INPUT/B-SER/B-DRAIN, B-PAID02, B-ACT01–B-ACT12, clean
+  B-LIFE/B-CALL/B-EVENT/B-RETRY/B-INPUT/B-SER/B-DRAIN, B-PAID02/B-NATIVE01, B-ACT01–B-ACT12, clean
   configure/build and required compiler/static/sanitizer gates. Run optional real
   CPU qualification with explicitly available fixture; report an absent fixture as
   not run, not pass. Inspect final diff and public/private boundaries.
@@ -312,7 +317,7 @@ with results. Real output quality is not an architecture assertion.
 | B-REAL01 | Approved tiny model/tokenizer loads within conservative measured envelope; tokenize → bounded prefill → decode → sampler → committed token progression is observable. | CPU, provisioned licensed weights; no download inside deterministic suite. |
 | B-REAL02 | Same pinned build/config/seed/input: uninterrupted versus in-place paused/resumed execution retains matching token/state progression at advertised quiescent boundaries. | CPU fixture; no cross-device numerical identity promise. |
 | B-REAL03 | Cancel at tokenize/prefill/decode boundaries produces genuine quiescence before context destruction/release; no next useful step after applied stop. Unsupported partial-step control rejects honestly. | CPU fixture with safe-point instrumentation and sanitizer lane where supported. |
-| B-REAL04 | Context/model/sampler lifetime, partial load failure, retained state, unload acknowledgement and finite memory growth are accounted; state invalidation never becomes silent fresh inference. | CPU fixture and controlled allocator/failure seams; native hang containment remains A28/supervisor boundary. |
+| B-REAL04 | Sole-instance process guard and root-owned global init/log/free ordering (including callback context alive through free); context/model/sampler lifetime, partial load failure, retained state, unload acknowledgement and finite memory growth are accounted; state invalidation never becomes silent fresh inference. | CPU fixture and controlled allocator/failure seams; native hang containment remains A28/supervisor boundary. |
 | B-REAL05 | Snapshot/offload/rewind/continuous batching capabilities remain false until independently implemented and qualified; opaque providers do not inherit embedded controls. | Capability metadata/conformance; no weights needed for rejection checks. |
 | B-REAL06 | With and without a pending emitted token, approved bounded child-input append consumes that token and injected penalty history once, preserves sampler/RNG/decoder/stop state, and samples only after the last admitted prefill chunk; rejected grammar/injection profiles cannot silently substitute another strategy. | CPU fixture under a pinned injection-qualified profile and current policy/resource checks. |
 | B-HOST01 | Deployed authority actually enforces ownership/capacity and generation fencing, including another process attempting allocation; unavailable/expired authority blocks affected dispatch. | Separate host integration task; no success claim from process-local mutex. |

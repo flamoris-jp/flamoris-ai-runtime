@@ -51,7 +51,9 @@ namespace and must not depend on a process counter alone.
 
 | Concept → proposed type | Owner and lifetime | Mutation / valid references / thread | Serialization | Cleanup and invariants |
 | --- | --- | --- | --- | --- |
-| Runtime instance → `RuntimeInstance` | Composition root, creation through completed shutdown | C; owns executor, indices, workers/ports; exports command and observation interfaces | Instance ID/status wire; object internal | Stop admission, drain/contain, quiesce callbacks/workers before destroying ports; restart never recovers Jobs |
+| Process construction → `ProcessRuntimeGuard` | One process-wide composition-root guard; successful claim remains spent until process exit | Atomic factory claim before any executor/native creation; later/concurrent construction rejected without touching existing owners | Internal | Exactly one Runtime construction per process; failed start/shutdown do not reset it; no host-wide resource authority |
+| Native global lifetime → `NativeBackendLifetime` | Sole Runtime composition root; first native use through quiescent final teardown | Designated backend worker performs init/log/free once; immutable config and stable bounded callback context | Internal | Free after all native sessions/models/calls stop; detach log callback after free before context destruction; uncertain partial init requires containment |
+| Runtime instance → `RuntimeInstance` | Composition root under ProcessRuntimeGuard, creation through completed shutdown | C; owns executor, indices, workers/ports; exports command and observation interfaces | Instance ID/status wire; object internal | Stop admission, drain/contain, quiesce callbacks/workers before destroying ports; restart never recovers Jobs |
 | Run → `RunController`, `RunRecord` | Runtime Run index; admitted lifetime plus bounded observation retention | C; owns Job tree, immutable plan/input references, budgets and gates; outside references are `RunId` | Status/result wire; record internal | Drop workload ownership only after all Jobs terminal and debt transferred; terminal intent immutable |
 | Job → `JobRecord`, `JobController` | Exactly one Run controller; parent `JobId` except root; bounded post-terminal provenance | C; JobController is a mutation capability used only in Run commits, not a second owner; Scheduler keeps IDs | Status wire; live record internal | One lifecycle and payload alternative; descendants settle before parent terminal; stable ID across yield/resume/retry |
 | Attempt → `AttemptRecord` | Job; one active attempt, bounded historical outcomes | C; backend/adapter messages name `AttemptId` and `DispatchGeneration` | Redacted outcome/effect evidence wire | A retry creates a new attempt only on the explicit Phase A retry path after the previous attempt is stopped and reconciled; pause/resume segments preserve attempt identity |
@@ -122,7 +124,8 @@ terminates the process when safe local containment is impossible.
 
 `CallbackTicket` is a discriminated value: pre-admission replies carry the
 instance, PendingSubmissionId and operation generation, plus optional keyed-claim
-identity/generation, never fabricated Job or attempt IDs; lifecycle observations carry instance, Run, Job, attempt/dispatch,
+identity/generation, never fabricated Job or attempt IDs; lifecycle observations
+carry instance, Run, Job, attempt/dispatch,
 operation and applicable suspension/backend/host/allocation generations;
 cleanup replies carry independent CleanupId/operation/allocation epochs, with
 Run provenance optional after retention expiry. A weak sink reference may
@@ -132,6 +135,12 @@ The control executor looks up the live owner and validates epochs. Invalid
 lifecycle data cannot resurrect it; release/cost evidence is routed to matching
 ledger records. Closing a sink without a worker-quiescence protocol is forbidden:
 rejecting a callback does not prove the worker stopped touching native memory.
+
+The factory enforces one Runtime construction per process; a second creation
+(including after shutdown/failure) requires a new process. The process guard is
+not a shared Job singleton. NativeBackendLifetime outlives every native handle
+and callback; its exact init/free/log teardown order is in
+[Backend Contract](BACKEND_CONTRACT.md).
 
 Runtime shutdown closes admission, fixes the drain deadline, stops remaining
 work, transfers accounted debt, stops/join workers when possible, seals callback

@@ -16,6 +16,11 @@ host/provider qualification is a separate gate in [Phase C plan](PHASE_C_PLAN.md
 ## Shared fixture and oracle
 
 Every case constructs an isolated Runtime instance or the named smaller component.
+Production-factory cases use a fresh subprocess per instance/lifecycle. Component
+fixtures may simulate separate process guards/incarnations without calling the
+production factory or native APIs; never reset the real process guard in tests.
+Multi-instance budget fixtures represent separate processes against one authority,
+not permission to construct two production RuntimeInstances in one process.
 The fixture supplies every seam below. The case's `Active doubles` list identifies
 which doubles are exercised. All others reject unexpected calls and assert a zero
 call count; omission never falls back to a live service.
@@ -732,6 +737,26 @@ not replacements for Phase A behavior:
   until worker/callback quiescence and accounting acknowledgement/transfer. Fake
   crashes discard local proof but preserve D state. Exhausted gate storage rejects
   before arm; wrong identity proof changes no balance. No network/GPU/money needed.
+
+### B-NATIVE01 — exclusive construction and native teardown order
+
+- **Boundary / doubles:** composition-root factory/ProcessRuntimeGuard and
+  NativeBackendLifetime with instrumented fake native init/log/free and worker/
+  callback barriers; C/X/B/R/O. No model, GPU or network required.
+- **Injection:** race two factory creates in one isolated subprocess; attempt
+  another create while active, draining, after shutdown and after failed creation.
+  Fail before init, simulate uncertain partial init, and block a callback/native
+  call during shutdown. Exercise multiple model load/unload cycles in the winner.
+- **State / events:** one construction wins; every rejected creator makes zero
+  native init/log/free calls and cannot alter the winner's status/events. Multiple
+  loads have at most one global init. Fresh process creation is a separate case,
+  with a new incarnation and no inherited live state or guard reset.
+- **Lifetime / resources:** assert calls/callbacks quiesce before handle destruction,
+  then free once after successful init, then log detachment/context destruction,
+  then worker join. A fake callback during free still has valid storage; held
+  callbacks block teardown. Uncertain partial init/wedge preserves containment
+  and forbids unsafe free. After failed/finished lifetime no second construction
+  is admitted. Real native ordering is additionally qualified in B-REAL04.
 
 Activation/startup cases B-ACT01–B-ACT12 are defined by the
 [activation contract](ACTIVATION_CONTRACT.md) and

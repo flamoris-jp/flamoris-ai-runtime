@@ -39,7 +39,10 @@ or plugin ABI in this proposal.
 
 - C++20 with ordinary ownership and bounded typed results; a library-first,
   headless Kernel. The toolchain ADR specifies the proposed CI matrix and pins.
-- One control executor per Runtime initially owns all per-Run commits, Scheduler,
+- One Runtime construction per process, enforced before workers/native calls;
+  a new construction after failure/shutdown needs a fresh process. Its root owns
+  global native init/log/free lifetime through final worker/callback quiescence.
+  One control executor initially owns all per-Run commits, Scheduler,
   resource ledger and local policy projections. Workers own native state and I/O;
   only value observations return to the controller. This keeps dispatch, barrier,
   resource and event decisions locally atomic without a coroutine framework.

@@ -7,7 +7,11 @@ The proposed types are responsibilities, not production declarations or a stable
 
 ## One control executor, independent workers
 
-The baseline chooses one `ControlExecutor` thread per `RuntimeInstance`. It owns
+The baseline permits one RuntimeInstance construction per process, enforced by
+an atomic ProcessRuntimeGuard claim before any worker/native initialization.
+The claim stays spent after failure or shutdown; reconstruction needs a fresh
+process. It is independent of host/resource authority. That sole instance has
+one `ControlExecutor` thread. It owns
 all Run controllers, Job records, the Scheduler, ResourceManager ledger,
 SubmissionIndex, current capability/policy projections, timer heap, and retained
 observation records. Each Run therefore has a serialized control order. Shared
@@ -29,7 +33,8 @@ use the same simple pattern; no callbacks execute while a queue mutex is held.
 `std::jthread`/stop requests express cooperative thread shutdown, not evidence
 that native inference has stopped. No coroutine framework, lock-free queue, or
 mutable domain singleton is required. A DeliveryGate uses one narrow atomic
-state for worker send versus control/worker close; its registry owns lifetime. The [ownership map](CPP_OWNERSHIP.md) specifies
+state for worker send versus control/worker close; its registry owns lifetime.
+The [ownership map](CPP_OWNERSHIP.md) specifies
 destruction responsibility; [backend contracts](BACKEND_CONTRACT.md) specify
 actual quiescence.
 
@@ -69,6 +74,7 @@ No controller waits holding a mutex across an external operation. See
 
 | Operation | Single authoritative point | Rejected/stale consequence |
 | --- | --- | --- |
+| Runtime construction | ProcessRuntimeGuard atomically changes unused to permanently claimed before creating workers/native state | Concurrent/later construction rejects with no init/log/free side effects |
 | Keyed submission claim | Insert explicit scoped key + canonical request digest + reserved Run identity in SubmissionIndex | Different digest conflicts; same digest attaches to the pending decision |
 | Unkeyed submission preparation | Allocate a fresh bounded PendingSubmissionId + reserved Run identity without inserting or querying SubmissionIndex | Independent admission/rejection; equal digests never attach |
 | Run admission | Resolve the pending submission (and optional keyed claim) with one Run/root and all finite bookkeeping budgets | No runnable partial Run; notify keyed duplicate waiters before releasing failed claim |
@@ -89,12 +95,15 @@ the Run commit order; backend wall timestamps cannot override that order.
 
 ## Submission claims and bounded duplicates
 
-Every validated request first has a bounded `PendingSubmission` owned by the
+Every independent admission owner has a bounded `PendingSubmission` owned by the
 Runtime admission index, with fresh `PendingSubmissionId`, reserved RunId,
 operation generation, deadline and response slot. This non-durable preparation
 record is not an admitted Run. Pre-admission callbacks use its ID/generation
 for both keyed and unkeyed requests; it is retired after decision delivery is
-prepared and outstanding replies are fenced/routed to cleanup.
+prepared and outstanding replies are fenced/routed to cleanup. For keyed requests,
+create this owner and reserve its RunId atomically with the winning scoped-key
+claim; duplicate callers attach only response slots and allocate no second owner
+or RunId. An unkeyed request always takes the independent-owner path.
 
 When the key is absent, do not query or insert `SubmissionIndex`, attach digest
 waiters, or synthesize a null/empty/digest key. Each request independently passes
@@ -331,8 +340,12 @@ Orderly shutdown is:
    gates, endpoints, resource/paid adapters and executor while workers acknowledge
    quiescence, release/containment, and ledger reconciliation. Claimed/unknown
    gates never become no-send proofs during shutdown.
-4. When no callbacks/native accesses can remain, stop/join workers outside the
-   control thread, drain their final observations, and close their endpoints.
+4. When native operations quiesce, destroy native sessions/models and perform
+   root-owned global free/log detachment on the designated worker, retaining
+   callback storage through the last possible callback. Then stop/join workers
+   outside the control thread, drain final observations and close endpoints.
+   Follow [native lifetime ordering](BACKEND_CONTRACT.md); the construction guard
+   remains spent even on failure or completed shutdown.
 5. Publish remaining bounded closure records, close observers and timer sources,
    then destroy controllers, ledger and executor on their designated owners.
 

@@ -251,6 +251,12 @@ In particular:
 - Terminal lifecycle state is immutable, while bounded post-terminal reconciliation may append to the Run observation stream within retention; ledger cleanup survives its expiry.
 - Hard tenant paid budgets require an external durable authority for pre-handoff attempt reservation, reconciliation and fail-closed restart/availability behavior; an in-process ledger alone cannot enforce them.
 
+Phase B additionally fixes these implementation boundaries:
+
+- An absent submission idempotency key means independent fresh admission; only explicit valid keys enter SubmissionIndex.
+- Paid handoff uses an identity-bound one-shot DeliveryGate created before arm; only absorbing closure proves no-send, never a stop hint or missing event.
+- Baseline allows one Runtime construction per process; the guard stays spent after failure/shutdown. The sole root owns global native init/log/free through actual quiescence. Tests needing multiple instances model separate processes.
+
 Do not jump directly to distributed scheduling, a plugin marketplace, or a generic graph programming language.
 
 ## Headless-first rule

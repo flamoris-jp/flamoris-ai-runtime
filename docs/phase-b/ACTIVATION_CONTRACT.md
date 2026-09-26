@@ -86,10 +86,13 @@ unless admission already committed. After Ready, it forwards an explicitly bound
 submission to the indicated instance/epoch and the ordinary compiler/admission path.
 Activation success does not imply submission success or extend caller deadlines.
 
-Concurrent requests share process activation but keep their own submission keys/digests.
-Same submission identity is deduplicated by Kernel admission, independently of activation.
-If forwarding has an unknown outcome, query/deduplicate against that same live instance
-within retention; never assume failure and silently submit to a new process. After
+Concurrent requests share process activation but preserve their optional submission
+keys/digests. Explicit valid keys deduplicate at Kernel admission, independently of
+activation; absent keys create independent fresh admissions. If forwarding has an
+unknown outcome, use an already known Run identity or the explicit key against the
+same live instance within retention. Without either, report unknown admission rather
+than replaying the unkeyed submit. Never assume failure and silently submit to a new
+process. After
 restart the gateway reports the ambiguity because baseline submission deduplication is
 not durable. A confirmed rejection before Run creation permits a bounded retry; it is
 not an unknown handoff.
