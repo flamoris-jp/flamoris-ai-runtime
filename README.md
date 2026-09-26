@@ -139,6 +139,38 @@ An `InferenceJob` may retain model execution state such as token position, cache
 
 Not every job/backend must support pause, resume, rewind, or cancellation. These are capabilities, not assumptions.
 
+## Continuations
+
+A **Continuation** is Runtime-owned resume state attached to exactly one suspended Job.
+
+Keep the distinction explicit:
+
+```text
+Job
+  = the only scheduler-visible unit of work and lifecycle authority
+
+Continuation
+  = resume state owned by a waiting/paused Job
+```
+
+The Scheduler schedules Jobs, not Continuations. A yield does not create a second scheduler identity. When the waiting condition is satisfied, the owning Job keeps its identity and transitions back toward `queued`/runnable execution using its Continuation.
+
+Cancellation, timeout, parent/child provenance, metrics, and terminal status remain properties of the Job/run lifecycle.
+
+A continuation may include:
+
+- the owning Job and execution machine;
+- resume point;
+- backend/model state reference where supported;
+- what result or event it is waiting for;
+- input/result bindings required on resume;
+- resource requirements and affinity hints;
+- deadline/cancellation linkage inherited from the owning Job.
+
+A paused Job should not normally hold an **execution lease** indefinitely. However, releasing an execution lease does not imply that retained KV/cache/backend state has left VRAM or RAM. The Resource Manager must continue accounting for any **retained state footprint** until that state is offloaded, snapshotted elsewhere, or evicted.
+
+Inference is not the only possible source of resumable state. Both the Inference Machine and Workflow Machine may suspend their scheduler-visible Job through the same Continuation contract.
+
 ## Parallel, join, and race
 
 Independent jobs may become runnable at the same time.
@@ -300,6 +332,42 @@ InferenceJob
 
 See [Workflow IR](docs/WORKFLOW_IR.md).
 
+## Workflow compilation
+
+Workflow IR is not executed directly by the scheduler.
+
+The intended path is:
+
+```text
+Workflow IR
+    ↓
+Validator
+    ↓
+Execution Plan Compiler
+    ↓
+Execution Plan
+    ↓
+Jobs / Continuations
+    ↓
+Scheduler
+```
+
+The compiler resolves registered capabilities, validates bindings and limits, derives resource requirements and effects, identifies side-effect boundaries, and records statically known suspension sites/continuation policy.
+
+Actual Continuation instances are created only at runtime. Inference may also yield at runtime-defined control points that were not enumerated as concrete Continuations during compilation.
+
+Compilation is not an authorization grant. The Runtime must revalidate current capability availability, caller authorization, budgets, and policy when admitting execution, and again immediately before dispatching side-effecting work where policy requires it. A cached/reused Execution Plan must not carry stale permission as executable authority.
+
+This keeps AI-authored or externally supplied Workflow IR separate from the Runtime's executable scheduling contract.
+
+Effect sets are validated rather than treated as arbitrary labels:
+
+- `pure` is exclusive with `read`, `write`, `external`, `destructive`, and `paid`;
+- `read` means reading ambient or mutable state beyond declared immutable inputs;
+- `destructive` requires `write`;
+- `external` and `paid` are orthogonal attributes that may combine with reads/writes;
+- unknown, empty, or contradictory effect metadata fails closed rather than defaulting to `pure`.
+
 ## Security model
 
 The broad design principle remains:
@@ -321,6 +389,35 @@ The Runtime should validate and constrain:
 Model output does not grant permission by itself.
 
 Do not add arbitrary shell, unrestricted Python, ambient filesystem/network access, or embedded credentials as shortcuts.
+
+## Implementation language and kernel boundary
+
+The intended implementation language for the Runtime Kernel is **C++**.
+
+C++ is chosen for the model-adjacent core because the Runtime is expected to coordinate low-level inference control, backend state, cache lifetime, native model runtimes, scheduling, and GPU/resource-aware execution without forcing those control points through a higher-level service boundary.
+
+Conceptually:
+
+```text
+MCP / API / CLI / language bindings
+              │
+              ▼
+        C++ Runtime Kernel
+   ┌──────────┼───────────┐
+   ▼          ▼           ▼
+Inference   Workflow    Scheduler
+ Machine     Machine
+      \       /
+      Continuation
+              │
+       Resource Manager
+```
+
+C++ does **not** mean every capability must run in-process. External AI, MCP, Generation, and other services remain registered external capabilities with their own authority.
+
+The exact minimum C++ standard, build toolchain, ABI/binding strategy, and backend integration details remain Phase 0 decisions and must be based on runtime research and the reusable parts of `flamoris-net/flamoris-LLM`.
+
+See [Implementation Strategy](docs/IMPLEMENTATION_STRATEGY.md).
 
 ## Existing FLAMORIS LLM foundation
 
@@ -378,28 +475,34 @@ The purpose is not compatibility with all of them. It is to identify the smalles
 
 - compare existing runtimes;
 - inspect/reuse `flamoris-LLM`;
+- confirm the C++ kernel/toolchain strategy;
 - define inference lifecycle;
 - define backend capability contract;
-- define structured events.
+- define structured events;
+- define the Continuation and Execution Plan contracts.
 
-### Phase 1 - Inference controller
+### Phase 1 - Inference and continuation foundation
 
 - active inference state;
+- Inference Machine lifecycle;
 - prefill/decode control;
 - token/event streaming;
 - interrupt/cancel;
-- supported pause/resume;
+- supported pause/resume through explicit Continuations;
 - deterministic tests.
 
-### Phase 2 - Jobs and workflow
+### Phase 2 - Jobs, compiler, and workflow
 
 - Job lifecycle;
 - simple resource-aware scheduler;
-- Workflow IR validator/executor;
+- Workflow IR validator;
+- Execution Plan Compiler;
+- Workflow Machine execution;
+- effect analysis;
 - independent-job parallel readiness;
 - join;
-- race;
-- result injection back into inference.
+- basic race;
+- bounded result injection back into inference.
 
 ### Phase 3 - Interfaces and capabilities
 
@@ -426,6 +529,7 @@ See:
 - [Architecture](docs/ARCHITECTURE.md)
 - [Workflow IR](docs/WORKFLOW_IR.md)
 - [MCP Contract](docs/MCP_CONTRACT.md)
+- [Implementation Strategy](docs/IMPLEMENTATION_STRATEGY.md)
 
 ## FLAMORIS
 

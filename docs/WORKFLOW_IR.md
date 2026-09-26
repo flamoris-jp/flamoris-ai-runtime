@@ -14,13 +14,17 @@ Keep these concepts separate:
 
 ```text
 Workflow IR
-   │ describes dependencies/control
+   │ declarative dependencies/control
    ▼
-Runtime execution plan
-   │
+Validator
+   ▼
+Execution Plan Compiler
+   ▼
+Runtime Execution Plan
+   │ approved normalized contract
    ▼
 Jobs
-   │ scheduled according to resources
+   │ scheduler-visible; may own Continuations while suspended
    ▼
 Capabilities / Inference
 ```
@@ -81,6 +85,46 @@ Conceptually:
 
 Exact names remain draft.
 
+## Compilation boundary
+
+Workflow IR is never scheduler state and should not be executed directly.
+
+The Runtime first validates the IR, resolves registered capabilities and bindings, applies caller/runtime limits, derives resource/effect information, and compiles an **Execution Plan**.
+
+Conceptually:
+
+```text
+Workflow IR
+  ↓
+schema / graph / reference validation
+  ↓
+capability resolution
+  ↓
+static permission/effect/budget requirement analysis
+  ↓
+Execution Plan Compiler
+  ↓
+Execution Plan
+```
+
+The plan may contain:
+
+- resolved capability/version references;
+- normalized steps;
+- dependencies;
+- input/output bindings;
+- resource requirements and affinity hints;
+- effect sets;
+- side-effect boundaries;
+- runtime limits;
+- statically known potential suspension sites and continuation policy.
+
+The plan is Runtime-owned and may use internal identifiers that are not part of the portable Workflow IR schema.
+
+The plan is not an authorization token. Capability availability, caller authorization, budget, and policy are revalidated at execution admission, and side-effecting dispatch is revalidated when required by policy. Cached/reused plans must not preserve stale permission.
+
+Concrete Continuation instances are never compiled into the plan. They are runtime-owned state created when a scheduler-visible Job actually yields, including inference yields whose exact occurrence is only known during execution.
+
 ## Nodes and jobs
 
 A node describes a logical operation.
@@ -112,7 +156,7 @@ Unknown node types are validation errors, not dynamic imports.
 A node type's registered capability metadata determines:
 
 - input/output schema;
-- side effects;
+- effect set;
 - idempotency;
 - cancellability;
 - pause/resume support if meaningful;
@@ -282,6 +326,27 @@ The IR should not contain raw KV cache or backend pointers.
 
 Those belong to runtime execution state.
 
+## Continuations
+
+Workflow IR may describe control that can yield or wait, but it must not serialize raw Continuation objects, backend pointers, KV cache, GPU leases, or other live Runtime state.
+
+The compiler may identify **potential suspension sites** and continuation policy from validated workflow/capability semantics, such as `await` or `join`. It does not pre-create concrete Continuations.
+
+The Runtime creates a Continuation only when a Job actually suspends. Runtime-defined inference yields may therefore create Continuations at control points whose concrete occurrence could not be known during compilation.
+
+Every Continuation is owned by exactly one waiting/paused Job and has no independent scheduler identity.
+
+A Continuation may hold:
+
+- resume point;
+- waiting condition;
+- bounded result bindings;
+- backend/state reference where supported;
+- resource requirements and affinity hints;
+- deadline/cancellation linkage.
+
+This lets inference and workflow resume through a common Runtime mechanism without turning Workflow IR into a process snapshot format.
+
 ## References
 
 References should remain small and deterministic.
@@ -302,19 +367,33 @@ Large assets should normally remain owned by the capability/service that produce
 
 Output size is bounded.
 
-## Side effects
+## Effects and side-effect analysis
 
-Side-effect classification belongs to registered capability metadata, not to claims in workflow JSON.
+Effect classification belongs to registered capability metadata, not to claims in workflow JSON.
 
-Examples include:
+Effects are a composable set, but not every combination is valid. Initial conceptual values include:
 
-- sending a message;
-- changing product state;
-- creating/publishing an asset;
-- starting/stopping a service;
-- calling a paid remote API.
+- `pure` - only declared immutable inputs/outputs, with no ambient read, external boundary, mutation, destructive action, or policy-relevant cost;
+- `read` - reads ambient or mutable state beyond declared immutable inputs;
+- `write` - mutates persistent or externally observable state;
+- `external` - crosses an external process/service/network authority boundary;
+- `destructive` - destructive mutation and therefore requires `write`;
+- `paid` - may consume monetary, billed-token, quota, or similar policy-relevant cost.
 
-The validator/compiler should be able to identify side-effecting jobs before execution where possible.
+Initial validation rules:
+
+- effect sets are non-empty and contain only known values;
+- `pure` is exclusive with every other effect;
+- `read` and `write` may coexist;
+- `destructive` without `write` is invalid;
+- `external` and `paid` are orthogonal attributes and may combine with non-pure read/write/destructive effects;
+- unknown or contradictory sets fail closed.
+
+For example, local deterministic resize may be `{ pure }`, remote paid inference may be `{ external, paid }`, issue creation may be `{ external, write }`, and deletion may be `{ write, destructive }`.
+
+The validator/compiler should derive a run-level effect summary before execution and mark side-effect boundaries in the Execution Plan.
+
+This allows authorization, confirmation, budget checks, retry policy, race policy, and event provenance to reason about effects without trusting workflow-authored claims.
 
 ## Interrupts and workflow changes
 
@@ -335,15 +414,15 @@ Conceptual metadata:
 
 ```json
 {
-  "type": "vision.describe",
+  "type": "mcp.github.issue.get",
   "version": "1",
   "input_schema": {},
   "output_schema": {},
-  "side_effects": false,
+  "effects": ["external", "read"],
   "idempotent": true,
   "cancellable": true,
   "pausable": false,
-  "resource_class": "gpu"
+  "resource_class": "network"
 }
 ```
 
@@ -373,8 +452,10 @@ The first implementation should be intentionally small:
 - simple scheduler;
 - independent-node parallel readiness;
 - basic join;
-- basic race with explicit loser cancellation policy;
-- event emission;
+- basic race with explicit acceptance and loser policy;
+- effect analysis;
+- explicit continuation creation/resume;
+- event emission and bounded event journal;
 - no dynamic loops;
 - no arbitrary code;
 - no durable distributed scheduler.
