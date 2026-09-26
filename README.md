@@ -1,292 +1,431 @@
 # FLAMORIS AI Runtime
 
-**A runtime for workflows written by AI.**
+**Inference and workflow, controlled in one runtime.**
 
-FLAMORIS AI Runtime is a planned provider-neutral **processing and execution layer for external AI callers**.
+FLAMORIS AI Runtime is a planned **model-adjacent AI execution runtime**.
 
-The caller intelligence lives outside the Runtime. ChatGPT, `flamoris-ai-agent`, Studio AI, or another Agent can decide what it wants to do, compose a workflow through MCP, and hand that graph to the Runtime. The Runtime validates, compiles, and executes the requested processing without needing to own the caller's personality, memory, or conversation.
+It is intended to sit at the layer that wraps and drives a model, conceptually alongside ordinary model runtimes, while adding FLAMORIS-specific control over inference, jobs, workflows, interrupts, and real-time observability.
 
-The core idea is simple: **the outer AI plans; the Runtime executes.**
+The core idea is:
+
+> **Inference and workflow execution share one controllable runtime loop.**
 
 > **Status: design only. No production runtime is implemented yet.**
->
-> The documents in this repository define the initial responsibility boundary and draft contracts. They are intentionally explicit about what is planned versus what already exists.
 
 Part of the [FLAMORIS AI ecosystem](https://github.com/flamoris-jp/flamoris-ai/blob/main/docs/ai-ecosystem.md).
 
-## 🧭 Repository identity / このRepositoryは何者？
+## What it is
 
-### What it is / 何者か
+FLAMORIS AI Runtime is not only a workflow service above an already-finished LLM endpoint.
 
-A headless processing layer for declarative AI workflows, designed so an external AI can discover available capabilities, submit a workflow graph through MCP, inspect execution results, and decide what to do next.
+It is intended to own enough of model execution to coordinate:
 
-It is inspired by the usefulness of node-based systems such as ComfyUI, but it is **not a ComfyUI compatibility project**. The workflow format is intended to be a portable execution IR for FLAMORIS rather than a UI serialization format.
-
-### What it owns / 主な責任範囲
-
-FLAMORIS AI Runtime is intended to own:
-
-- the runtime workflow IR and schema versioning;
-- workflow validation and compilation;
-- bounded execution of workflow nodes and control-flow primitives;
-- per-run execution state, limits, cancellation, and result assembly;
-- runtime capability discovery;
-- a narrow MCP surface for AI-authored workflow submission;
-- later, safe graph patching for adaptive workflows.
-
-### What it does not own / 持たない責任
-
-It does **not** own:
-
-- persistent Agent identity, conversations, memory, or personality - owned by [flamoris-ai-agent](https://github.com/flamoris-jp/flamoris-ai-agent);
-- raw language/reasoning/coding provider authority - owned by [flamoris-intelligence-mcp](https://github.com/flamoris-jp/flamoris-intelligence-mcp);
-- generative-media workflow/job/asset authority - owned by [flamoris-generation-mcp](https://github.com/flamoris-jp/flamoris-generation-mcp);
-- local GPU/runtime lifecycle transitions - owned by [flamoris-gpu-node-manager](https://github.com/flamoris-jp/flamoris-gpu-node-manager);
-- Studio account/session/UI state;
-- FLAMORIS desktop product documents or editing history;
-- arbitrary shell, Python, filesystem, network, or credential authority.
-
-The runtime may call other FLAMORIS services through explicit adapters, but it must not become a second authority for their state.
-
-### Current status / 現在の状態
-
-This repository currently contains **design documentation only**.
-
-The first implementation should begin with a small schema, validator, deterministic reference executor, and mock/service adapters. MCP execution, durable run state, adaptive graph patching, and Studio visualization should be added only after the core execution contract is proven.
-
-### Where it fits / FLAMORISのどこに属する？
+- tokenize / prefill / decode / sampling lifecycle;
+- active inference state and cache/state where supported;
+- pause, resume, interrupt, and cancellation;
+- Workflow IR validation and execution;
+- schedulable Jobs;
+- logical parallelism with resource-aware scheduling;
+- `await`, `join`, and `race`;
+- local algorithms and multimodal capabilities;
+- external AI/API and MCP capabilities;
+- structured real-time events and traces.
 
 Conceptually:
 
 ```text
- ChatGPT / external AI / Studio AI
-                │
-        flamoris-ai-agent
-                │
-                │ intent + workflow IR
-                ▼
-       FLAMORIS AI Runtime
-        ├─ validate
-        ├─ compile
-        ├─ execute
-        ├─ observe
-        └─ cancel / later patch
-                │
-      ┌─────────┼──────────┬─────────┐
-      ▼         ▼          ▼         ▼
-   Vision   Algorithms    Vem    External AI
-      │         │          │         │
-      ├─────────┼──────────┼──────► MCP
-      │         │          │         │
-      └─────────┴──────────┴────► Generation
-                │
-                ▼
-              result
+          App / Agent / ChatGPT
+                  │
+                  ▼
+        FLAMORIS AI Runtime
+        ┌───────────────────────┐
+        │ Inference Controller  │
+        │ Workflow Engine       │
+        │ Job Scheduler         │
+        │ Event / Trace Bus     │
+        │ Resource Manager      │
+        │ Capability Registry   │
+        └───────────┬───────────┘
+                    │
+          ┌─────────┼──────────┐
+          ▼         ▼          ▼
+        Model    local work   external work
 ```
 
-The Runtime is an **execution substrate beneath the caller intelligence**, not a new umbrella authority over the AI ecosystem.
+## Model-adjacent, not only orchestration
 
-A persistent Agent can sit outside the Runtime very naturally: the Agent owns identity, memory, conversation, goals, and policy, while the Runtime executes the processing graph the Agent selected. ChatGPT or another external AI can use the same layer without adopting the FLAMORIS Agent model.
-
-See [Runtime Concept](docs/CONCEPT.md) for the intended caller/runtime split and example flows.
-
-## What workflows are meant to compose
-
-The workflow graph is not limited to LLM calls. The long-term design is to let one runtime graph compose several kinds of work behind the same validated capability boundary:
-
-- **algorithmic processing** — deterministic or explicitly versioned processing implemented as runtime/library capabilities, useful for transforms, analysis, filtering, scoring, conversion, and other work that does not require an AI model;
-- **Vem capabilities** — future Vem-backed processing should be exposable as registered capabilities once Vem has a stable callable contract; the portable workflow IR should not hard-code Vem-specific execution details before that contract exists;
-- **external AI services** — local or remote AI providers, including API-based services, may be called through registered adapters without embedding provider credentials or private endpoints in workflow JSON;
-- **external MCP capabilities** — configured MCP servers/tools may be exposed to workflows as registered capabilities, subject to the same validation, permission, timeout, side-effect, and resource rules as any other node.
-
-Conceptually, a single graph may eventually mix them:
+A normal model runtime may expose something conceptually like:
 
 ```text
-input
-  │
-  ├─► algorithmic preprocessing
-  │
-  ├─► Vem capability
-  │
-  ├─► external AI / API
-  │
-  └─► external MCP capability
-            │
-            ▼
-          result
+prompt
+  ↓
+prefill
+  ↓
+decode
+  ↓
+sampling
+  ↓
+tokens
 ```
 
-These are **capability classes**, not permission shortcuts. AI-authored workflows still receive only the capabilities explicitly registered and authorized for that caller.
+FLAMORIS AI Runtime wants explicit control points inside that lifecycle.
 
-The Runtime is intentionally not restricted to one "kind" of AI application. A caller may route image analysis into another processing stage, combine deterministic algorithms with model inference, call an external specialist AI or MCP tool, generate speech for a response, or avoid AI entirely for steps where an ordinary algorithm is better.
-
-The unusual part is not Vision, TTS, APIs, or MCP individually. The unusual part is that the **outer AI can choose how those ordinary capabilities are composed for the current task**.
-
-## The core loop
-
-The intended interaction is:
+Conceptually:
 
 ```text
-1. Discover capabilities
-2. Compose workflow
-3. Validate
-4. Optionally dry-run / compile
-5. Execute
-6. Inspect result
-7. Later: patch and continue when adaptation is needed
+prefill
+  ↓
+decode iteration
+  ↓
+sampling
+  ↓
+token/state update
+  ↓
+emit event
+  ↓
+interrupt?
+  ↓
+workflow/job work?
+  ↓
+continue inference
 ```
 
-The important rule is:
+This allows the Runtime to observe inference in real time, pause it, dispatch other work, wait for results, inject bounded results, and continue where the backend supports state preservation.
 
-> **The AI may author the workflow, but the runtime never trusts the workflow.**
+## Workflow inside the Runtime
 
-Every submitted graph must pass schema checks, capability checks, resource limits, permission checks, and execution policy before any side effect occurs.
+Workflow is part of the Runtime execution machinery.
 
-## Example draft workflow
-
-This example is illustrative. The schema is not yet frozen.
-
-```json
-{
-  "schema_version": "0.1-draft",
-  "workflow": {
-    "id": "analyze-and-answer",
-    "name": "Analyze input and produce an answer"
-  },
-  "inputs": {
-    "text": {
-      "type": "string"
-    }
-  },
-  "nodes": [
-    {
-      "id": "analyze",
-      "type": "intelligence.request",
-      "with": {
-        "task": "analyze",
-        "input": "${inputs.text}"
-      }
-    },
-    {
-      "id": "answer",
-      "type": "intelligence.request",
-      "with": {
-        "task": "answer",
-        "input": "${nodes.analyze.output}"
-      }
-    }
-  ],
-  "edges": [
-    ["analyze", "answer"]
-  ],
-  "outputs": {
-    "result": "${nodes.answer.output}"
-  }
-}
-```
-
-The runtime should care about execution semantics, not canvas coordinates, visual layout, or editor-only metadata.
-
-## Why this exists
-
-Visual node systems are useful when a human wants to inspect and edit a graph.
-
-FLAMORIS also needs the inverse:
+It is not intended to be a completely separate orchestrator that repeatedly calls the model from outside.
 
 ```text
-human intent
-    ↓
-AI composes graph
-    ↓
-runtime executes graph
-    ↓
-human sees result
+InferenceJob
+   ↓
+needs additional work
+   ↓
+yield / pause
+   ↓
+child jobs
+   ├─ Vision
+   ├─ algorithm
+   ├─ external AI
+   └─ MCP
+   ↓
+await / join / race
+   ↓
+selected bounded result
+   ↓
+resume inference
 ```
 
-A GUI may visualize or edit the graph later, but the graph must remain valid without a GUI.
+The goal is to avoid unnecessary model re-entry, serialization, and loss of execution state while keeping execution bounded and observable.
 
-This makes the same execution contract usable from:
+## Jobs
 
-- MCP;
-- CLI;
-- Studio;
-- AI Agent;
-- tests;
-- future visual editors.
+A **Job** is the scheduler-visible unit of active work.
 
-## Initial safety model
+Conceptual job types include:
 
-The first runtime should prefer a small allowlisted node set over an open-ended plugin free-for-all.
+- `InferenceJob`;
+- `AlgorithmJob`;
+- `VisionJob`;
+- `SpeechJob`;
+- `GenerationJob`;
+- `ExternalAIJob`;
+- `McpJob`;
+- future Vem-backed jobs.
 
-Initial design rules:
+An `InferenceJob` may retain model execution state such as token position, cache/state, sampling state, workflow linkage, and interrupt state.
 
-- capability discovery before composition;
-- schema-versioned workflows;
-- explicit allowlisted node types;
-- no arbitrary code execution by default;
-- no ambient filesystem or network access;
-- no credential values embedded in workflow JSON;
-- bounded node count, graph depth, fan-out, output size, concurrency, and duration;
-- explicit cancellation;
-- deterministic validation errors;
-- side-effecting nodes clearly distinguished from pure nodes;
-- service ownership preserved across repository boundaries.
+Not every job/backend must support pause, resume, rewind, or cancellation. These are capabilities, not assumptions.
 
-See [Architecture](docs/ARCHITECTURE.md), [Workflow IR](docs/WORKFLOW_IR.md), and [MCP Contract](docs/MCP_CONTRACT.md).
+## Parallel, join, and race
+
+Independent jobs may become runnable at the same time.
+
+```text
+        ┌─ Job A ─┐
+input ──┤         ├─ join ─► continue
+        └─ Job B ─┘
+```
+
+Logical parallelism does not guarantee physical simultaneous execution.
+
+The scheduler may serialize GPU-heavy jobs because of VRAM, model residency, or device policy while allowing CPU or remote jobs to run concurrently.
+
+### Race
+
+`race` allows multiple candidate jobs to compete:
+
+```text
+            ┌─ local model ───────┐
+request ────┼─ remote specialist ─┼─ race ─► selected result
+            └─ cached path ───────┘
+```
+
+Race semantics must define:
+
+- what counts as a winner;
+- timeout/failure behavior;
+- what happens to unfinished losers;
+- whether loser results are retained;
+- how side effects are treated.
+
+Cancelling a loser is not rollback.
+
+## Real-time observability
+
+Inference and workflow execution should be observable through structured events.
+
+Conceptual events include:
+
+```text
+inference.started
+prefill.started
+prefill.completed
+decode.iteration
+token.generated
+sampling.completed
+
+job.submitted
+job.started
+job.progress
+job.completed
+job.failed
+
+workflow.node.started
+workflow.node.completed
+
+interrupt.requested
+interrupt.applied
+inference.paused
+inference.resumed
+race.winner_selected
+```
+
+These events may feed:
+
+- console logs;
+- JSONL logs;
+- Studio live inspection;
+- API/MCP event streams;
+- test probes.
+
+Human-readable log strings should not be the only source of truth.
+
+## Trace levels
+
+Observability should be bounded and configurable.
+
+Conceptually:
+
+1. lifecycle/state/timing;
+2. token/sampling information;
+3. model-exposed reasoning stream where intentionally available and permitted;
+4. deep backend debug probes.
+
+Normal operation must not emit secrets, unrestricted provider payloads, unbounded tensors, or unlimited media/model output.
+
+## Interrupts
+
+Interrupt is a core Runtime feature, not an afterthought.
+
+Possible actions include:
+
+- stop;
+- pause;
+- resume;
+- cancel selected jobs;
+- inject bounded input;
+- redirect an unexecuted workflow path;
+- later, rewind inference state where a backend explicitly supports it.
+
+The Runtime should record both the interrupt request and the point where it actually takes effect.
+
+## Relationship to FLAMORIS AI Agent
+
+A persistent Agent can live naturally above the Runtime.
+
+```text
+FLAMORIS AI Agent
+  ├─ identity
+  ├─ durable memory
+  ├─ conversation
+  ├─ goals
+  └─ personality
+        │
+        ▼
+FLAMORIS AI Runtime
+  ├─ model inference
+  ├─ active inference state
+  ├─ workflow
+  ├─ jobs
+  ├─ capabilities
+  └─ execution events
+```
+
+The Runtime may execute reasoning through a loaded model, but it does not become the durable identity or long-term memory authority of the Agent.
+
+## Relationship to other FLAMORIS services
+
+The Runtime may call other services through registered capabilities while preserving their domain authority.
+
+Examples:
+
+- Generation MCP retains generation workflow/job/asset authority;
+- GPU Node Manager retains host-wide runtime/GPU lifecycle policy;
+- Studio/products retain their own document and UI state;
+- external MCP/API/AI services remain external authorities.
+
+`flamoris-intelligence-mcp` may expose or route bounded intelligence capabilities, but AI Runtime may directly own model execution for the models/backends it controls. Final integration should preserve the Runtime's required inference control points.
+
+## Workflow IR
+
+Workflow IR describes dependencies, data flow, and bounded control.
+
+Jobs are the scheduler-visible execution units created from that plan.
+
+This distinction is intentional:
+
+```text
+Workflow
+  = what depends on what
+
+Job
+  = what is actively running/waiting
+
+InferenceJob
+  = a stateful model execution job
+```
+
+See [Workflow IR](docs/WORKFLOW_IR.md).
+
+## Security model
+
+The broad design principle remains:
+
+> **Open-ended composition. Bounded execution.**
+
+The Runtime should validate and constrain:
+
+- registered capabilities;
+- caller authorization;
+- side effects;
+- resource budgets;
+- GPU/CPU/device policy;
+- concurrency/fan-out;
+- network/filesystem/credential boundaries;
+- timeout/cancellation;
+- event/log volume.
+
+Model output does not grant permission by itself.
+
+Do not add arbitrary shell, unrestricted Python, ambient filesystem/network access, or embedded credentials as shortcuts.
+
+## Existing FLAMORIS LLM foundation
+
+`flamoris-net/flamoris-LLM` is a candidate implementation foundation.
+
+It already explores:
+
+- model runtime boundaries;
+- generation loops;
+- cache handling;
+- tokenizer/model contracts;
+- CPU reference execution;
+- OpenCL compute;
+- deterministic tests.
+
+The goal is not to copy it wholesale.
+
+The likely direction is to evolve reusable model/inference pieces into FLAMORIS AI Runtime, then add:
+
+- Inference Controller;
+- Job Scheduler;
+- Workflow Engine;
+- Event Bus;
+- Interrupt Control;
+- Capability System;
+- Resource Manager.
+
+## Runtime research before implementation
+
+Before freezing the first backend/inference contract, compare representative runtimes/stacks including:
+
+- `llama.cpp`;
+- Hugging Face Transformers;
+- vLLM;
+- TensorRT-LLM.
+
+Focus on:
+
+- prefill/decode structure;
+- KV/cache ownership and lifetime;
+- streaming;
+- sampler hooks;
+- cancellation;
+- pause/resume feasibility;
+- scheduler/continuous batching;
+- state snapshot/rewind feasibility;
+- observability;
+- how much control is lost behind server-style APIs.
+
+The purpose is not compatibility with all of them. It is to identify the smallest control surface FLAMORIS must own.
 
 ## Proposed implementation phases
 
-### Phase 0 - Contract spike
+### Phase 0 - Runtime research and foundation
 
-- workflow IR draft;
-- JSON Schema;
-- validator;
-- deterministic in-process reference executor;
-- pure control/data nodes;
-- mock capability nodes;
-- offline tests.
+- compare existing runtimes;
+- inspect/reuse `flamoris-LLM`;
+- define inference lifecycle;
+- define backend capability contract;
+- define structured events.
 
-### Phase 1 - Runtime service
+### Phase 1 - Inference controller
 
-- bounded run lifecycle;
-- capability registry;
-- structured errors;
-- cancellation;
-- execution budgets;
-- MCP surface;
-- service adapters to existing FLAMORIS authorities;
-- first registered algorithmic capabilities;
-- bounded adapters for external AI/API and MCP capabilities;
-- a reserved integration boundary for future Vem capabilities, without freezing Vem-specific semantics prematurely.
+- active inference state;
+- prefill/decode control;
+- token/event streaming;
+- interrupt/cancel;
+- supported pause/resume;
+- deterministic tests.
 
-### Phase 2 - Adaptive workflows
+### Phase 2 - Jobs and workflow
 
-- safe graph patch operations;
-- pause/resume boundaries;
-- partial re-execution where semantics are explicit;
-- provenance for graph revisions and outputs.
+- Job lifecycle;
+- simple resource-aware scheduler;
+- Workflow IR validator/executor;
+- independent-job parallel readiness;
+- join;
+- race;
+- result injection back into inference.
 
-### Phase 3 - Human inspection
+### Phase 3 - Interfaces and capabilities
 
-- Studio visualization;
-- optional graph editor;
-- execution trace inspection;
-- export/import of portable workflow IR.
+- MCP/API/CLI surfaces;
+- live event observation;
+- local algorithms;
+- Vision/audio;
+- external AI/API;
+- external MCP;
+- Generation;
+- future Vem integration.
 
 These phases are proposals, not implemented features.
 
-## Repository principles
+## Current status
 
-- **Outer AI plans; Runtime executes.** The caller intelligence stays outside the processing layer.
-- **AI-authored, runtime-validated.**
-- **Headless first.** GUI metadata must not define execution semantics.
-- **Portable IR.** Provider and deployment details stay behind explicit capabilities.
-- **Hybrid execution.** A workflow may combine Vision, speech/TTS, ordinary algorithms, future Vem capabilities, external AI/API calls, MCP capabilities, and FLAMORIS services without turning any of them into ambient authority.
-- **Open-ended composition, bounded execution.** The Runtime should avoid arbitrary product-level restrictions on what registered capabilities may be composed, while still enforcing permissions, side-effect rules, credentials, network/filesystem boundaries, timeouts, and resource budgets.
-- **One authority per domain.** Runtime execution must not absorb Agent, Generation, Intelligence, GPU, or product state ownership.
-- **Bounded behavior.** Resource use, side effects, retries, and permissions are explicit.
-- **No speculative compatibility promises.** ComfyUI, LangGraph, n8n, or other workflow formats are not automatically supported.
-- **Human-authoritative.** AI may propose and submit graphs; humans define the capabilities and permissions the runtime is allowed to expose.
+This repository currently contains **design documentation only**.
+
+Do not interpret the design as evidence that inference control, jobs, race, pause/resume, MCP, or Workflow IR are implemented.
+
+See:
+
+- [Runtime Concept](docs/CONCEPT.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Workflow IR](docs/WORKFLOW_IR.md)
+- [MCP Contract](docs/MCP_CONTRACT.md)
 
 ## FLAMORIS
 
@@ -298,8 +437,6 @@ Commercial use is welcome and does not require permission. If you'd like, we'd b
 
 FLAMORIS software is provided as-is. We do not provide individual support or guaranteed assistance.
 
-If you run into trouble, let your AI assistant read the repository, documentation, Issues, tests, logs, and source code and help you solve it.
-
 If FLAMORIS helps you or you find it interesting, your support helps fund development and keeps the project growing. 🌱
 
 <sub>Mostly GPU bills.</sub>
@@ -308,84 +445,57 @@ If FLAMORIS helps you or you find it interesting, your support helps fund develo
 
 ## 日本語
 
-FLAMORIS AI Runtimeは、**ChatGPTやAI Agentの下に置く汎用の処理・実行層**です。
+FLAMORIS AI Runtimeは、**モデルを包み、推論とWorkflowを同じ実行ループで制御するAI Runtime**を目指します。
 
-考える主体はRuntimeの外側にいます。ChatGPT、`flamoris-ai-agent`、Studio内AI、その他のAgentが「何をしたいか」を決め、利用可能なcapabilityからWorkflow IRを組み立ててMCP経由でRuntimeへ渡します。
-
-Runtimeは人格やConversationを持つ必要はありません。**外側のAIが考え、Runtimeが処理する**という分離です。
-
-Runtime側は、そのJSONを信用しません。
+単なる「LLMの外側に置くWorkflow Orchestrator」ではありません。
 
 ```text
-capabilities
-    ↓
-validate
-    ↓
-compile
-    ↓
-execute
-    ↓
-result
-    ↓
-将来: patch / continue
+モデル
+  ↓
+FLAMORIS AI Runtime
+  ├─ 推論
+  ├─ Workflow
+  ├─ Job Scheduler
+  ├─ 割り込み
+  ├─ Event / Trace
+  └─ Capability
 ```
 
-という境界を通して、schema、permission、resource limit、side effectを検証してから実行します。
+という位置です。
 
-ComfyUIのようなnode graphの便利さを参考にしますが、ComfyUI互換runtimeを目標にはしません。Canvas座標やGUI状態ではなく、**AIやCLIやStudioから共通利用できるportableな実行IR**を目指します。
+推論中に別の処理が必要になれば、Inferenceをyield/pauseし、Vision、algorithm、MCP、外部AIなどをJobとして実行し、その結果を受け取って推論を続けられる構造を目指します。
 
-現在は設計段階です。実装済みRuntimeやMCP serviceがあるという意味ではありません。
+Jobは並行に実行可能で、Workflowでは `await`、`join`、`race` などを扱えるようにします。
 
-WorkflowはLLM呼び出しだけを対象にしません。たとえばVisionで画像を解析し、その結果をアルゴリズム処理へ流し、必要な部分だけ外部の賢いAIへ渡し、最後にTTSで音声応答を作る、といった処理をひとつのgraphとして表現できます。
+ただし「並行に実行可能」と「GPU上で同時実行する」は同じ意味ではありません。VRAM、model residency、GPU/CPU、外部rate limitなどをSchedulerが見て、実際の実行順序を決めます。
 
-将来的には、同じgraphの中で:
+推論過程はstructured eventとしてリアルタイム観測できる設計にします。将来Studioなどから、token、推論stage、active job、queue、race、interrupt、resource状態を見られることを想定します。
 
-- **アルゴリズムによる各種処理**
-- **Vemのcapability**
-- **外部AI / APIの呼び出し**
-- **外部MCPのcapability呼び出し**
-- **FLAMORIS内の各service**
-- **Vision / speech recognition / TTSなどの一般的なAI capability**
+途中割り込みもRuntimeの中心機能です。
 
-を組み合わせられる構想です。
+```text
+推論
+ ↓
+割り込み要求
+ ↓
+安全なcontrol pointで適用
+ ↓
+pause / stop / child job / input injection
+ ↓
+必要ならresume
+```
 
-ここで重要なのは、個々のCapabilityが特別なのではなく、**外側のAIがその場で処理の組み方を決められる**ことです。固定された `Vision → LLM → TTS` pipelineではなく、必要に応じて `Vision → algorithm → external AI → TTS` にしたり、MCPやVemを途中へ挟んだり、AIが不要ならalgorithmだけで終えることもできます。
+という形を想定します。
 
-構想上は用途の組み合わせをできるだけ限定しません。一方で実行権限は無制限にしません。
+実装前には `llama.cpp`、Hugging Face Transformers、vLLM、TensorRT-LLMなどの一般的なRuntimeを調査し、prefill/decode、KV cache、streaming、cancel、scheduler、pause/resume、state rewind、observabilityの設計を比較します。
 
-> **Open-ended composition. Bounded execution.**
->
-> 組み方は広く、実行は厳格に。
+また、既存の `flamoris-net/flamoris-LLM` はModel Runtime、generation loop、cache、compute、CPU/OpenCL実装を持っているため、AI Runtimeの下地として再利用可能性を調査します。
 
-という境界を目指します。
+外側の `flamoris-ai-agent` はIdentity、Memory、Conversation、Personalityなどの永続的なAgent状態を担当し、AI Runtimeは実際にモデルと処理を動かす実行層を担当する想定です。
 
-Vemについては、安定した呼び出しcontractが定義された時点でregistered capabilityとして接続し、現段階でWorkflow IRへVem固有仕様を固定しません。外部AI/APIやMCPも、workflow JSONにcredentialや任意endpointを直接埋め込むのではなく、Runtime側で登録・許可されたadapter / capabilityを通して利用します。
+**推論とWorkflowを分離して外から往復させるのではなく、ひとつのRuntimeで握る。**
 
-### 責任範囲
-
-AI Runtimeが将来担当するもの:
-
-- Workflow IR / schema version
-- validate / compile
-- bounded execution
-- run state / cancel / result
-- capability discovery
-- AIがWorkflowを差し込むためのMCP surface
-- 将来のsafe graph patch
-
-担当しないもの:
-
-- AgentのIdentity / Conversation / Memory / Personality
-- Intelligence providerのauthority
-- Generationのdomain workflow / job / asset authority
-- GPU runtime切替
-- Studioのaccount / UI state
-- Desktop productのDocument / Project state
-- 任意shell / Python / filesystem / networkへの無制限アクセス
-
-**AIがWorkflowを書く。でもRuntimeはAIを信用しない。**
-
-ここを最初の設計原則にします。🐈⚙️
+ここがFLAMORIS AI Runtimeの中心構想です。🐈⚙️
 
 ## License
 
