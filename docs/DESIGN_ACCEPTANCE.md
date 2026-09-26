@@ -11,6 +11,7 @@ Read with [Execution Model](EXECUTION_MODEL.md), [State Machines](STATE_MACHINES
 | ID | Stimulus / competing actions | Required observable outcome |
 | --- | --- | --- |
 | A01 | Compile identical IR/snapshot/compiler/limits twice | Same normalized semantics/fingerprint or same rejection; no dispatch or authorization granted |
+| A39 | Submit equivalent direct inference and single-root inference workflow under the same capability snapshot | Both follow the compiler/plan admission path with pinned model/backend, effects, finite limits and explicit child envelope; direct submission cannot bypass stale pins or current policy |
 | A02 | Missing binding, incompatible schema, reference-derived cycle, excessive expansion | Reject before execution; no partial graph or hidden reference I/O |
 | A03 | Cache plan, then change a pinned effect/schema/adapter contract | `plan_stale` before dispatch/resume; no silent substitution or live migration |
 | A04 | Revoke permission after compile/admission but before dispatch | Current check denies the operation; no effect handoff; cleanup authority retained |
@@ -27,6 +28,7 @@ Read with [Execution Model](EXECUTION_MODEL.md), [State Machines](STATE_MACHINES
 | A15 | Completion arrives at/after deadline before timer callback | Timeout wins; suspension/queue/retry never resets deadline; cleanup uses separate bounded allowance |
 | A16 | Pause parent while child is running; child completes | Child may settle; parent keeps satisfied wait state without auto-resume; no fabricated Run-wide paused claim |
 | A17 | Run pause includes an opaque operation without safe pause | Reject unsupported barrier without partially applying a successful pause; accepted barriers report pending until quiescent |
+| A40 | Dynamic child creation races with Run pause preflight | One serialized commit validates targets, closes dispatch/child gates and snapshots barrier generation; child committed earlier is included or pause rejected, child proposed later cannot enter |
 | A18 | Pause barrier times out after some Jobs pause | Clear only that command's pause flags; preserve prior targeted pauses and state; normal resume authorization still applies |
 | A19 | Resume with invalid preserved state or revoked permission | Fail and account cleanup; never recreate inference and call it equivalent resume |
 | A20 | Required child times out during all_success | Fail required coordination, stop unfinished siblings, invalidate parent resume, settle subtree before terminal |
@@ -41,8 +43,9 @@ Read with [Execution Model](EXECUTION_MODEL.md), [State Machines](STATE_MACHINES
 | A29 | Terminal Job has quarantined resource and later matching release ack | Reconcile cleanup ledger once, no state resurrection, no duplicate accounting release |
 | A30 | Slow observer, token flood, exhausted normal event capacity | Stop new admission as needed; reserved control/cleanup capacity remains; bounded telemetry loss/gaps explicit |
 | A31 | Reconnect cursor expired or persisted event group incomplete | Return explicit gap/current snapshot watermark; no invented complete history |
-| A32 | Replay trace containing paid/write/cancel/resource events | Only isolated observation changes; zero backend, adapter, scheduler or cleanup dispatch |
+| A32 | Replay retained in-memory trace containing paid/write/cancel/resource events before baseline acceptance | Only isolated observation changes; zero backend, adapter, scheduler or cleanup dispatch; no durable recovery claim |
 | A33 | Crash immediately before/after external handoff | Trace may be incomplete; new instance does not resume or infer outcome; reconcile host/provider before reuse |
+| A41 | Paid handoff accepted, Runtime crashes with unknown outcome, restarts, then another paid Run submits | Durable tenant/attempt reservation remains; affected paid admission fails closed until reconciliation or conservative full-liability accounting certifies safe remaining balance; no new hard-budget overspend or invented refund |
 | A34 | Unbounded stream of warm-model Jobs competes with older cold work | Fairness bound prevents indefinite bypass; dependencies/effect ordering never relaxed for residency |
 | A35 | Another principal requests status, media handle, trace or replay | Current scope checked for each surface; no cross-tenant/expired-handle leakage |
 | A36 | Two unordered writes may target the same object | Reject ambiguous ordering unless trusted contract proves disjoint scopes; physical serialization is not semantic order |
