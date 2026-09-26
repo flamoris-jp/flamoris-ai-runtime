@@ -22,6 +22,7 @@ the backend owner until its work and callbacks have quiesced.
 | `ResourceTicket` | Resource Manager; one bounded dispatch preparation | References exact reservation and compatibility revisions; offers reserved capacity, not permission to execute |
 | `ExecutionLease` | Resource Manager record, referenced by active Job/attempt | Lease ID, admitted vector and epochs, one current execution owner; no Continuation ownership |
 | `AllocationRecord` | Resource Manager; until actual release/reconciliation | Allocation ID, backend incarnation, host epoch, pool/location, conservative bytes, shared references, quiescence/release evidence |
+| `RuntimeOverheadRecord` | Resource Manager, from first native-init preparation to proven process teardown or containment | Process/backend incarnation, separately bounded host/Runtime overhead allowance, unique global allocation or uncertain reservation, native-init/release evidence; no Job/Run ownership |
 | `StateReference` | Job active state, Continuation or pending resume; cleanup after invalidation | Immutable allocation identities plus model/content/configuration and state revision; moving the reference never changes charged bytes |
 | `CleanupRecord` | Resource Manager; may outlive the Run and its retained stream | Operation/allocation identity, old epochs, admitted maintenance allowance, uncertainty, bounded observation link and reconciliation obligations |
 
@@ -31,6 +32,24 @@ quota, including shared state it requires. An aggregate backend pool is charged 
 pool members may be tracked for sublimits without being added again to physical totals.
 Reference release is a logical event. A zero reference count permits eviction but does
 not itself prove physical deallocation.
+
+A first-use native backend global initialization is triggered by an admitted Job,
+but its process-lifetime RAM/handles are a distinct `RuntimeOverheadRecord`, never
+a Job allocation or a Run quota charge. Before that Job's dispatch, atomically
+reserve its complete cold-load/working-set vector alongside the separately
+configured bounded Runtime/host global-overhead allowance. A policy lacking that
+allowance or an unbounded native global requirement rejects before native init.
+On materialization convert the global portion to one process-owned allocation or
+uncertainty record, leaving the Job's model/context/loading receipts separate;
+only proven unmaterialized remainder is released. Shared physical capacity includes
+both, each counted once. Existing per-Run working-set quotas still cover shared
+model/context/state needed by that Run, while process-global overhead consumes its
+own host/Runtime ceiling, not the initiating Run's tenant quota. Cancel/terminal,
+failed load and model eviction cannot release the global record. Subsequent Runs
+reuse initialized globals without another global reservation. A failed/uncertain
+init remains charged and blocks unsafe reuse until matching evidence or process
+containment. At safe shutdown, settle the global allocation exactly once after
+native free and matching release evidence; unknown free remains charged/contained.
 
 ## Proposed ports
 
