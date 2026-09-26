@@ -261,7 +261,7 @@ test does not close an acceptance case.
   relevant lifecycle invariants from A08–A19/A28; CPU model tests are a separate
   opt-in, clearly reported integration lane. B-NATIVE01 uses instrumented native
   calls and isolated process/factory tests, including first Job terminal → second
-  Run reuse → one process-owned overhead release and uncertain-init containment,
+  Run reuse → one process-owned overhead release and uncertain-init containment
   before real integration. Default contract tests remain offline with no weights.
   Unsupported offload/rewind/batching must reject explicitly.
 - **Commit units:** pinned dependency/licensing; model/context owner and resource
