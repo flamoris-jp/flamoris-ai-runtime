@@ -91,7 +91,7 @@ Exact names remain draft.
 
 Workflow IR is never scheduler state and should not be executed directly.
 
-The Runtime first validates the IR, resolves registered capabilities and bindings, applies caller/runtime limits, derives resource/effect information, and compiles an **Execution Plan**.
+The Runtime first validates the IR, resolves registered capabilities and bindings, applies caller/runtime limits, derives resource/effect information, and compiles an **Execution Plan**. Direct inference submission is normalized into a minimal single-root inference plan under the same compiler and admission contract, including pinned model/backend, effects, bounds and an explicit dynamic-child envelope; see [Execution Model](EXECUTION_MODEL.md). It does not bypass plan compilation merely because the caller did not supply Workflow IR.
 
 Conceptually:
 
