@@ -103,8 +103,13 @@ The existing Job becomes `running` only after normal dispatch checks and complet
 admission. Its machine may then report `initializing` while its worker loads weights and
 creates bounded backend state. No hidden loader thread acquires capacity outside the
 Job's lease. The complete incremental vector includes cold weights, transient loading
-buffers and context/state capacity. Partial materialization remains charged until actual
-release or safe quarantine. Workload deadlines continue through load.
+buffers and context/state capacity. If this is the first native use, admission also
+reserves a separate bounded process-owned global initialization allowance; its
+physical footprint transfers to the `RuntimeOverheadRecord` on materialization,
+not to the initiating Job/Run quota. Partial or uncertain global materialization
+remains charged until proven release or process containment. Model/context
+materialization remains Job/residency-owned as below. Workload deadlines continue
+through load.
 
 A Resource Manager `ModelResidencyRecord` maps a content revision, backend/configuration
 fingerprint, logical device and backend/host incarnation to:
