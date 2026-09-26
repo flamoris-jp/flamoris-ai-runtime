@@ -41,7 +41,7 @@ In scope:
 - structured events, journal retention, trace replay and process failure limitations;
 - external AI/MCP, Agent, Generation, products and GPU Node Manager boundaries.
 
-The baseline is a single Runtime process controlling its own Runs and accounting ledger. It may call external services. It is not a distributed scheduler and does not promise restart-safe continuation, exactly-once external effects, universal pause/rewind, or automatic rollback.
+The baseline is a single Runtime process controlling its own Runs and resource accounting ledger. Hard tenant paid-budget authority is an external durable ledger as specified in [Authorization Model](AUTHORIZATION_MODEL.md); it does not confer Run recovery. The Runtime may call external services. It is not a distributed scheduler and does not promise restart-safe continuation, exactly-once external effects, universal pause/rewind, or automatic rollback.
 
 Exit gate:
 
