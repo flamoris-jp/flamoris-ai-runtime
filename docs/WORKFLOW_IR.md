@@ -123,6 +123,8 @@ These prefixes are conceptual and not frozen schema.
 
 The important contract is that every executable node type is registered with machine-readable input/output, side-effect, permission, and resource metadata before a workflow may reference it.
 
+This is what lets an outer AI inspect available building blocks and compose a graph whose outputs can actually feed the next stage instead of guessing ad-hoc text conventions.
+
 ### Algorithmic processing
 
 Algorithm nodes are first-class workflow operations, not merely glue around AI calls.
@@ -171,6 +173,27 @@ Validation should reject:
 - impossible dependency ordering.
 
 The first implementation should prefer DAG-only execution.
+
+## Data flow between processing stages
+
+Passing one capability's result into the next is a core use case, not an incidental feature.
+
+Examples include:
+
+```text
+Vision result → algorithm
+Vision result → external AI
+speech recognition → reasoning
+reasoning → TTS
+algorithm result → MCP tool
+Vem result → Generation capability
+```
+
+The IR therefore needs typed or schema-described outputs that can be referenced by downstream nodes without requiring every intermediate result to become human-readable text.
+
+Structured JSON-like values may flow directly when their schemas are compatible.
+
+Large media payloads should prefer bounded handles/references or explicitly supported streaming/materialization mechanisms rather than repeatedly embedding large binary/base64 values into every node boundary.
 
 ## References
 
