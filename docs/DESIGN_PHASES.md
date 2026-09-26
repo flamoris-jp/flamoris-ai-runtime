@@ -70,10 +70,11 @@ Required design outputs:
 | Toolchain | ADR for C++ standard, compilers, build/test/package layout and dependency policy |
 | Domain mapping | Concept → C++ type/interface table, ownership/lifetime and invariants |
 | Errors | Result/exception boundary, typed failure propagation and cancellation representation |
-| Concurrency | State commit/linearization, worker callbacks, thread affinity, clocks and cancellation safety |
+| Concurrency | State commit/linearization, concurrent submission claim and Run identity, duplicate-waiter decisions, worker callbacks, thread affinity, clocks and cancellation safety |
 | Resources | Handle/allocation ownership, cleanup/quarantine protocol, host-adapter contract |
+| Paid budgets | External durable authority protocol for atomic tenant/attempt reservation, crash inventory/reconciliation, full-liability fallback and fail-closed availability; no Runtime recovery implication |
 | Backend | Evidence-backed capability matrix, first integration contract and deterministic fake seams |
-| Serialization | Versioned IR, plan/event/error shapes, redaction, bounded parser and compatibility rules |
+| Serialization | Versioned IR, plan/event/error shapes, bounded post-terminal observation/retention, redaction, bounded parser and compatibility rules |
 | Delivery | Implementation slices, exact acceptance case mapping, CI/toolchain matrix and risk register |
 
 A C++ concept table is a design deliverable, not a stable public ABI. Do not freeze plugin ABI, bindings, allocator architecture, distributed execution or a complex coroutine framework without a concrete need. Focused feasibility experiments require a separate explicit scope and must not be presented as implemented product behavior.

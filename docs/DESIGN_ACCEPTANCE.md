@@ -36,9 +36,9 @@ Read with [Execution Model](EXECUTION_MODEL.md), [State Machines](STATE_MACHINES
 | A24 | Race requests writes or more paid attempts than aggregate budget permits | Reject initial write/destructive race or budget violation before any participant dispatch |
 | A25 | Provider accepts write but response is lost | Unknown outcome; no blind retry; reconcile under a bounded registered contract |
 | A26 | Provider write completes but output is invalid/oversized | Fail result validation, preserve effect evidence, never inject rejected data or repeat write to obtain output |
-| A27 | Same submission key with same/different digest; key expires or process restarts | Same Run/conflict inside retention; no cross-restart exactly-once claim and no absence-as-nonexecution inference |
+| A27 | Concurrent same-key/same-digest and same-key/different-digest submissions; owner admission succeeds or rejects; key expires or process restarts | Atomic key claim plus one Run identity before dispatch; same digest waiters share admitted Run or one pre-Run rejection, different digest conflicts while pending; rejected claim releases only after notifying waiters; no cross-restart exactly-once claim |
 | A28 | Child or native backend cannot stop before cleanup deadline | No fictitious terminal/quiescence; only proven safe containment permits transfer; uncertain capacity stays unavailable |
-| A29 | Terminal Job has quarantined resource and later matching release ack | Reconcile cleanup ledger once, no state resurrection, no duplicate accounting release |
+| A29 | Terminal Job/Run has quarantined resource and later matching release ack within retention; repeated/stale ack or expiry follows | Terminal group precedes bounded same-Run post-terminal reconciliation group with increasing sequence and matching allocation/generation; no state resurrection or double release; reserve closure capacity at quarantine transfer; after stream expiry update ledger without inventing Run events |
 | A30 | Slow observer, token flood, exhausted normal event capacity | Stop new admission as needed; reserved control/cleanup capacity remains; bounded telemetry loss/gaps explicit |
 | A31 | Reconnect cursor expired or persisted event group incomplete | Return explicit gap/current snapshot watermark; no invented complete history |
 | A32 | Replay retained in-memory trace containing paid/write/cancel/resource events before baseline acceptance | Only isolated observation changes; zero backend, adapter, scheduler or cleanup dispatch; no durable recovery claim |
@@ -51,6 +51,7 @@ Read with [Execution Model](EXECUTION_MODEL.md), [State Machines](STATE_MACHINES
 | A39 | Submit equivalent direct inference and single-root inference workflow under the same capability snapshot | Both follow the compiler/plan admission path with pinned model/backend, effects, finite limits and explicit child envelope; direct submission cannot bypass stale pins or current policy |
 | A40 | Dynamic child creation races with Run pause preflight | One serialized commit validates targets, closes dispatch/child gates and snapshots barrier generation; child committed earlier is included or pause rejected, child proposed later cannot enter |
 | A41 | Paid handoff accepted, Runtime crashes with unknown outcome, restarts, then another paid Run submits | Durable tenant/attempt reservation remains; affected paid admission fails closed until reconciliation or conservative full-liability accounting certifies safe remaining balance; no new hard-budget overspend or invented refund |
+| A42 | Durable paid-budget authority is unavailable or its restart inventory is incomplete when hard-budget paid work submits | No paid handoff/admission in affected scope until atomic reservation and safe remaining balance can be certified; unaffected non-paid work follows independent policy; no Run recovery inferred from ledger state |
 
 ## Worked failure trace: inference awaits an MCP child
 

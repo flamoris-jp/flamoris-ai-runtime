@@ -173,6 +173,18 @@ request digest. Within an advertised retention window, the same key/digest refer
 the same Run; a changed digest is a conflict. After expiry or process restart without
 durable deduplication, exactly-once submission is not promised.
 
+After canonical request validation, the admission authority serializes the claim for
+`(subject/tenant, request kind, key)` with reservation of one Run identity as a single
+atomic decision. The digest is stored with the claim. A concurrent same-digest caller
+waits for the owner's admission decision and receives that same Run identity if admitted;
+a different digest conflicts even while the first admission is pending. Only the claim
+owner may create/dispatch work. If admission is rejected before a Run exists, all
+current waiters observe the same bounded rejection, then the pending claim is released
+after notifying them; a later submission may attempt admission anew. Once a Run is
+admitted, its claim remains associated with that Run for the advertised retention,
+including terminal failure. Dispatch or uncertainty never releases the claim early.
+This process-lifetime atomicity does not make submission exactly-once across restart.
+
 A Job may have bounded attempt identities; Job identity and provenance remain stable.
 Retries are allowed only by explicit policy, within original deadlines/limits, with a
 known safe outcome or a configured provider idempotency contract. No new physical

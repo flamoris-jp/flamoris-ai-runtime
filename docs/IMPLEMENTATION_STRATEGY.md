@@ -51,7 +51,8 @@ Names below describe required responsibilities, not declarations or a frozen ABI
 | Machines | Inference/backend control versus workflow/dependency control |
 | Resource Manager | Allocation/lease/reservation handles, generations and cleanup debt |
 | Capability | Registry snapshot, effect set, current availability and adapter dispatch |
-| Authorization | Current policy decision, scoped execution input and budget reservation |
+| Authorization | Current policy decision, scoped execution input, atomic submission claim and Run identity, and process-local limits |
+| Paid Budget Authority | External durable reservation before paid handoff, scoped attempt liability, reconciliation/settlement, restart inventory and fail-closed availability |
 | Event | Envelope, sequence, bounded payload and journal/subscriber boundary |
 | Failure | Typed code, external outcome certainty, retry and cleanup disposition |
 
@@ -83,7 +84,9 @@ Choose only what the first implementation needs:
 - result/error versus exception strategy across backend/adapter boundaries;
 - RAII/handle/smart-pointer ownership and destruction thread requirements;
 - worker model, synchronization, clocks, timers and cancellation tokens;
-- event/ID/schema representation and parser/resource bounds;
+- event/ID/schema representation and parser/resource bounds, including bounded post-terminal Run observation;
+- atomic process-local submission claim/Run admission and duplicate-waiter arbitration;
+- external durable paid-budget integration contract: atomic tenant/attempt reservation, stable IDs, finite provider-enforced liability, settlement/reconciliation after crash, unavailable/partial-inventory fail-closed behavior and deterministic fake seams;
 - backend adapter and host coordination protocol;
 - deterministic fake clocks, backend callbacks and allocation test seams.
 

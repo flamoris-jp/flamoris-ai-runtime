@@ -242,6 +242,9 @@ In particular:
 - Unknown external outcomes are not safe retries or successful cancellation.
 - Shared allocations are counted once; releasing an execution lease never proves state memory was freed.
 - Event replay is observation only; the baseline is not durable execution recovery.
+- Concurrent submission deduplication atomically claims the scoped key and one Run identity before work dispatch; failed pre-Run admission releases the claim only after waiters share its rejection.
+- Terminal lifecycle state is immutable, while bounded post-terminal reconciliation may append to the Run observation stream within retention; ledger cleanup survives its expiry.
+- Hard tenant paid budgets require an external durable authority for pre-handoff attempt reservation, reconciliation and fail-closed restart/availability behavior; an in-process ledger alone cannot enforce them.
 
 Do not jump directly to distributed scheduling, a plugin marketplace, or a generic graph programming language.
 

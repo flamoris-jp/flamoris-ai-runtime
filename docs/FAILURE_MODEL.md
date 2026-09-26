@@ -107,7 +107,10 @@ reconciliation or an explicitly authorized new operation, never blind repeat.
 
 Run-submission deduplication and provider-operation idempotency are separate.
 Within its advertised retention scope, a repeated submission key with identical
-input returns the existing Run; different input is rejected. After retention
+input returns the existing Run; different input is rejected. Concurrent submissions
+use one atomic scoped key claim and Run identity reservation; a pending duplicate
+waits for that admission decision. If no Run was admitted, current waiters receive
+the same rejection before the claim is released; no work can dispatch twice. After retention
 expires or a non-durable process restarts, absence is not evidence that no work
 occurred. Do not promise exactly-once execution across that boundary.
 
@@ -201,8 +204,12 @@ Reconciliation queries an approved provider status surface without repeating
 the original operation. Give it its own deadline, authorization, and budget;
 if the provider cannot answer, retain `unknown`. Polling is not free authority.
 After terminal commit, attach bounded reconciliation evidence to the operation
-record; never change the Job's terminal state, inject a late result, restart
-descendants, or retract already published events. Expose both facts to callers.
+record and append a correlated post-terminal observation to the same Run stream
+within its reserved capacity and advertised retention; terminal is not stream EOS.
+Never change the Job's terminal state, inject a late result, restart descendants,
+or retract already published events. Once the bounded Run observation window closes,
+continue authoritative ledger reconciliation without reopening that stream. Expose
+both facts to callers while the relevant record is available.
 
 Phase B must map these contracts to typed errors, clocks, attempt records,
 containment interfaces, and deterministic tests, including response-loss,

@@ -51,6 +51,12 @@ under [EXECUTION_MODEL.md](EXECUTION_MODEL.md). Completion and cancellation comm
 serialized at their commit point. An accepted cancel request is distinct from its
 application and eventual terminal outcome. Late callbacks may reconcile resource/cost
 ledgers but cannot resurrect a terminal Job or replace a committed race winner.
+A terminal state transition closes the workload lifecycle, not the Run observation
+stream. Within bounded retention, authorized post-terminal reconciliation commits
+append to that same Run stream with increasing `seq`, correlation to the original
+operation/allocation/generation and the current resource or paid-ledger revision.
+These commits update cleanup/outcome observations only; they cannot revise the
+terminal state, result intent or prior events. The terminal event is not end-of-stream.
 
 ## Lifecycle and observation families
 
@@ -68,6 +74,7 @@ These names establish the architecture vocabulary, not a frozen wire API:
 | `resource.lease_acquired`, `resource.lease_released`, `resource.lease_revoked` | Execution permission changed; does not prove memory release |
 | `resource.allocation_release_confirmed`, `resource.allocation_unknown` | Physical-accounting evidence or uncertainty with allocation/generation identity |
 | `authorization.denied`, `budget.reserved`, `budget.settled` | Policy/budget decision metadata without secrets |
+| `reconciliation.observed`, `reconciliation.closed` | Bounded post-terminal cleanup/attempt evidence or closure of its observation window; no lifecycle change |
 | `inference.progress`, `token.generated`, `sampling.observed` | Optional bounded telemetry; not Job transition authority |
 
 Legacy conceptual event names in overview examples can be rendered views of these
@@ -101,6 +108,11 @@ than claiming confirmed cancellation. [STATE_MACHINES.md](STATE_MACHINES.md) and
 Lifecycle/control records and optional telemetry have distinct bounded capacity.
 Admission accounts for maximum Jobs, attempts, suspensions and accepted control commands
 so mandatory transition records and cancellation/terminal cleanup capacity are reserved.
+Transfer to quarantine reserves finite post-terminal reconciliation record capacity
+before terminal publication, including a closure record; finite attempts/updates are
+coalesced when possible. If capacity cannot be secured, the affected Run cannot
+publish terminal via quarantine transfer. Repeated late callbacks cannot exhaust
+unbounded control records or block authoritative ledger cleanup.
 An operation that cannot reserve its required records cannot start. Repeated no-op
 commands are rate-limited/coalesced; they cannot consume unbounded control capacity.
 
@@ -111,6 +123,12 @@ bounded telemetry summary. Control records are never silently treated as dropped
 When normal capacity is exhausted, stop admitting new work; retain reserved cleanup
 capacity and authoritative current state. Exact sizing and overflow tests belong to Phase B.
 
+The retained history is bounded by count/bytes/time. Post-terminal observation
+remains available only within the advertised Run retention/window; before it closes,
+the stream records final known reconciliation or an explicit still-unknown closure.
+After that bound, late authoritative release/settlement still updates its resource or
+durable paid-budget ledger, but cannot reopen an expired Run stream. Queries to an
+expired Run report a gap/expiration rather than inventing a late lifecycle event.
 The retained history is bounded by count/bytes/time. Whole committed groups may age out,
 including control groups, once their active bookkeeping need is satisfied. A reader with
 an expired cursor receives an explicit gap with earliest retained sequence and a current
