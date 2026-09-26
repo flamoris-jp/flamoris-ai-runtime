@@ -129,12 +129,31 @@ new work, not an implicit privilege increase caused by model text.
 
 ## Budgets, concurrency, and confirmations
 
-Run/tenant budgets are authoritative ledgers, not counters checked independently by
-each parallel Job. Reservation of child/attempt slots, maximum cost, output/event bounds
-and required resource accounting is one logical admission decision before dispatch.
-If any part fails, the operation does not start and provisional reservations roll back.
-Reservations are held or charged until actual outcomes are reconciled, not released
-merely because a caller times out. See [RESOURCE_MODEL.md](RESOURCE_MODEL.md).
+Run budgets are authoritative in the process-lifetime Run ledger; hard tenant
+paid-cost budgets require an external durable budget authority. They are never
+independent per-Job counters. The external authority atomically reserves a bounded
+maximum for each paid operation/attempt under a stable tenant, operation and
+attempt identity before any provider handoff, and records the unresolved liability
+durably. A local process ledger or retained trace cannot establish a hard tenant
+budget after restart. The external ledger supplies a current remaining balance
+and reconciliation status to admission/dispatch. If it is absent or unreachable,
+paid work requiring a hard tenant budget fails closed; non-paid work may proceed
+under its independent policy and resources.
+
+Reservation of child/attempt slots, maximum cost, output/event bounds and required
+resource accounting is one logical eligibility decision before dispatch. If local
+admission fails after an external reservation, the durable reservation is released
+only with proof of no handoff; an uncertain handoff keeps the liability reserved.
+The provider must enforce the per-attempt upper bound when hard spending is promised.
+On restart, unresolved paid operations or an incomplete ledger/attempt handoff
+inventory block new paid admission in the affected tenant/budget scope until
+provider/budget reconciliation proves an outcome or the durable authority
+conservatively accounts the full bounded liability and certifies a safe remaining
+balance. Unknown cost is never inferred to be zero. Reservations stay held or
+charged until settlement, not released because a caller times out, a Job becomes
+terminal, or the Runtime crashes. This is budget authority only: it neither
+recovers Runs nor promises exactly-once external execution. See
+[RESOURCE_MODEL.md](RESOURCE_MODEL.md) and [Failure Model](FAILURE_MODEL.md).
 
 Every cost-bearing attempt needs a configured finite upper bound or provider-enforced
 limit. Estimates alone cannot promise a hard external spending ceiling; providers that
@@ -174,6 +193,7 @@ digest/scope; it is not regenerated to bypass duplicate detection.
 Read/pure work may be retryable but still consumes budgets and requires current input
 access. Paid work is not free to retry merely because it does not mutate user data.
 Cancellation, deadline expiry, transport failure and race loss are not evidence of
-non-execution. Unknown external cost/outcome remains conservatively reserved/accounted
-until settlement or explicit operator reconciliation, including after Job termination.
+non-execution. Unknown external cost/outcome remains conservatively reserved/accounted in the
+durable paid ledger until settlement or explicit operator reconciliation,
+including after Job termination or process restart.
 Trace replay never enters these execution paths.
