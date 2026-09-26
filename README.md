@@ -2,9 +2,11 @@
 
 **A runtime for workflows written by AI.**
 
-FLAMORIS AI Runtime is a planned provider-neutral execution runtime for AI-authored workflow graphs.
+FLAMORIS AI Runtime is a planned provider-neutral **processing and execution layer for external AI callers**.
 
-The core idea is simple: a human or AI describes an intent, an AI composes a bounded workflow through MCP, and the runtime validates, compiles, and executes that graph without requiring a human to build a visual node graph first.
+The caller intelligence lives outside the Runtime. ChatGPT, `flamoris-ai-agent`, Studio AI, or another Agent can decide what it wants to do, compose a workflow through MCP, and hand that graph to the Runtime. The Runtime validates, compiles, and executes the requested processing without needing to own the caller's personality, memory, or conversation.
+
+The core idea is simple: **the outer AI plans; the Runtime executes.**
 
 > **Status: design only. No production runtime is implemented yet.**
 >
@@ -16,7 +18,7 @@ Part of the [FLAMORIS AI ecosystem](https://github.com/flamoris-jp/flamoris-ai/b
 
 ### What it is / 何者か
 
-A headless execution runtime for declarative AI workflows, designed so an AI can discover available capabilities, submit a workflow graph through MCP, inspect execution results, and adapt the graph when needed.
+A headless processing layer for declarative AI workflows, designed so an external AI can discover available capabilities, submit a workflow graph through MCP, inspect execution results, and decide what to do next.
 
 It is inspired by the usefulness of node-based systems such as ComfyUI, but it is **not a ComfyUI compatibility project**. The workflow format is intended to be a portable execution IR for FLAMORIS rather than a UI serialization format.
 
@@ -57,27 +59,36 @@ The first implementation should begin with a small schema, validator, determinis
 Conceptually:
 
 ```text
-Human / AI / Agent / Studio
-            │
-            │ intent
-            ▼
-        AI planner
-            │
-            │ MCP: workflow IR
-            ▼
-   FLAMORIS AI Runtime
-    ├─ validate
-    ├─ compile
-    ├─ execute
-    ├─ observe
-    └─ cancel / later patch
-            │
-            ├────────► Intelligence MCP
-            ├────────► Generation MCP
-            └────────► other explicit capabilities
+ ChatGPT / external AI / Studio AI
+                │
+        flamoris-ai-agent
+                │
+                │ intent + workflow IR
+                ▼
+       FLAMORIS AI Runtime
+        ├─ validate
+        ├─ compile
+        ├─ execute
+        ├─ observe
+        └─ cancel / later patch
+                │
+      ┌─────────┼──────────┬─────────┐
+      ▼         ▼          ▼         ▼
+   Vision   Algorithms    Vem    External AI
+      │         │          │         │
+      ├─────────┼──────────┼──────► MCP
+      │         │          │         │
+      └─────────┴──────────┴────► Generation
+                │
+                ▼
+              result
 ```
 
-The runtime is an **execution substrate**, not a new umbrella authority over the AI ecosystem.
+The Runtime is an **execution substrate beneath the caller intelligence**, not a new umbrella authority over the AI ecosystem.
+
+A persistent Agent can sit outside the Runtime very naturally: the Agent owns identity, memory, conversation, goals, and policy, while the Runtime executes the processing graph the Agent selected. ChatGPT or another external AI can use the same layer without adopting the FLAMORIS Agent model.
+
+See [Runtime Concept](docs/CONCEPT.md) for the intended caller/runtime split and example flows.
 
 ## What workflows are meant to compose
 
@@ -106,6 +117,10 @@ input
 ```
 
 These are **capability classes**, not permission shortcuts. AI-authored workflows still receive only the capabilities explicitly registered and authorized for that caller.
+
+The Runtime is intentionally not restricted to one "kind" of AI application. A caller may route image analysis into another processing stage, combine deterministic algorithms with model inference, call an external specialist AI or MCP tool, generate speech for a response, or avoid AI entirely for steps where an ordinary algorithm is better.
+
+The unusual part is not Vision, TTS, APIs, or MCP individually. The unusual part is that the **outer AI can choose how those ordinary capabilities are composed for the current task**.
 
 ## The core loop
 
@@ -262,10 +277,12 @@ These phases are proposals, not implemented features.
 
 ## Repository principles
 
+- **Outer AI plans; Runtime executes.** The caller intelligence stays outside the processing layer.
 - **AI-authored, runtime-validated.**
 - **Headless first.** GUI metadata must not define execution semantics.
 - **Portable IR.** Provider and deployment details stay behind explicit capabilities.
-- **Hybrid execution.** A workflow may combine ordinary algorithms, future Vem capabilities, external AI/API calls, MCP capabilities, and FLAMORIS services without turning any of them into ambient authority.
+- **Hybrid execution.** A workflow may combine Vision, speech/TTS, ordinary algorithms, future Vem capabilities, external AI/API calls, MCP capabilities, and FLAMORIS services without turning any of them into ambient authority.
+- **Open-ended composition, bounded execution.** The Runtime should avoid arbitrary product-level restrictions on what registered capabilities may be composed, while still enforcing permissions, side-effect rules, credentials, network/filesystem boundaries, timeouts, and resource budgets.
 - **One authority per domain.** Runtime execution must not absorb Agent, Generation, Intelligence, GPU, or product state ownership.
 - **Bounded behavior.** Resource use, side effects, retries, and permissions are explicit.
 - **No speculative compatibility promises.** ComfyUI, LangGraph, n8n, or other workflow formats are not automatically supported.
@@ -291,9 +308,11 @@ If FLAMORIS helps you or you find it interesting, your support helps fund develo
 
 ## 日本語
 
-FLAMORIS AI Runtimeは、**AI自身が組み立てたWorkflowを実行するためのheadless runtime**です。
+FLAMORIS AI Runtimeは、**ChatGPTやAI Agentの下に置く汎用の処理・実行層**です。
 
-人間が毎回Node graphを手で組むのではなく、AIが利用可能なcapabilityを確認し、MCP経由でWorkflow IRを組み立ててRuntimeへ渡します。
+考える主体はRuntimeの外側にいます。ChatGPT、`flamoris-ai-agent`、Studio内AI、その他のAgentが「何をしたいか」を決め、利用可能なcapabilityからWorkflow IRを組み立ててMCP経由でRuntimeへ渡します。
+
+Runtimeは人格やConversationを持つ必要はありません。**外側のAIが考え、Runtimeが処理する**という分離です。
 
 Runtime側は、そのJSONを信用しません。
 
@@ -317,15 +336,28 @@ ComfyUIのようなnode graphの便利さを参考にしますが、ComfyUI互�
 
 現在は設計段階です。実装済みRuntimeやMCP serviceがあるという意味ではありません。
 
-WorkflowはLLM呼び出しだけを対象にしません。将来的には、同じgraphの中で:
+WorkflowはLLM呼び出しだけを対象にしません。たとえばVisionで画像を解析し、その結果をアルゴリズム処理へ流し、必要な部分だけ外部の賢いAIへ渡し、最後にTTSで音声応答を作る、といった処理をひとつのgraphとして表現できます。
+
+将来的には、同じgraphの中で:
 
 - **アルゴリズムによる各種処理**
 - **Vemのcapability**
 - **外部AI / APIの呼び出し**
 - **外部MCPのcapability呼び出し**
 - **FLAMORIS内の各service**
+- **Vision / speech recognition / TTSなどの一般的なAI capability**
 
 を組み合わせられる構想です。
+
+ここで重要なのは、個々のCapabilityが特別なのではなく、**外側のAIがその場で処理の組み方を決められる**ことです。固定された `Vision → LLM → TTS` pipelineではなく、必要に応じて `Vision → algorithm → external AI → TTS` にしたり、MCPやVemを途中へ挟んだり、AIが不要ならalgorithmだけで終えることもできます。
+
+構想上は用途の組み合わせをできるだけ限定しません。一方で実行権限は無制限にしません。
+
+> **Open-ended composition. Bounded execution.**
+>
+> 組み方は広く、実行は厳格に。
+
+という境界を目指します。
 
 Vemについては、安定した呼び出しcontractが定義された時点でregistered capabilityとして接続し、現段階でWorkflow IRへVem固有仕様を固定しません。外部AI/APIやMCPも、workflow JSONにcredentialや任意endpointを直接埋め込むのではなく、Runtime側で登録・許可されたadapter / capabilityを通して利用します。
 
