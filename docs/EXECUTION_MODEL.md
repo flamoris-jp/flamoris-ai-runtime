@@ -9,7 +9,10 @@ types, backend APIs, or a transport schema.
 The initial execution authority is one Runtime process. Its Runs, Jobs,
 Continuations, leases, and request deduplication records are process-lifetime
 state. A restart does not resume them. Persisted traces are evidence, not a
-recovery log. Durable recovery and distributed ownership require a later design.
+recovery log. Hard tenant paid-budget authority is an external durable ledger,
+not reconstructable from those process-lifetime records; see
+[Authorization Model](AUTHORIZATION_MODEL.md). Durable Run recovery and
+distributed ownership require a later design.
 
 ## Authority and ownership
 
@@ -39,6 +42,17 @@ atomic. Agent, Generation, GPU Node Manager, and product authorities remain as
 defined in [Architecture](ARCHITECTURE.md).
 
 ## Immutable plan and execution identity
+
+Every submission, including direct inference, MUST pass through validation and
+compilation to an immutable, versioned Execution Plan before Run admission.
+Direct inference is normalized to a minimal single-root inference plan by the
+same compiler contract; it is not an unplanned dispatch shortcut. The normalized
+plan pins the selected model/backend and capability contracts and carries the
+inference input/output schema, effects, resource/time/cost/trace bounds, and
+bounded dynamic-child envelope (explicitly empty when no child work is allowed).
+It has the same fingerprint, stale-pin rejection, admission and dispatch checks
+as a workflow plan. A direct request with unsupported or unbounded semantics is
+rejected before admission; it cannot acquire authority by skipping Workflow IR.
 
 Compilation produces an immutable, versioned Execution Plan. It includes:
 
