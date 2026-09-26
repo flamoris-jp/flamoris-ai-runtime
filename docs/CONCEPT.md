@@ -4,6 +4,8 @@
 
 **Design concept only. No runtime is implemented yet.**
 
+The review gates and normative document map are in [Design Phases](DESIGN_PHASES.md). This document describes intent; the detailed contracts specify the initial bounded behavior.
+
 FLAMORIS AI Runtime is intended to be a **model-adjacent AI execution runtime**.
 
 It sits at the layer that wraps and drives a model, conceptually alongside ordinary model runtimes such as `llama.cpp`, rather than being only a workflow orchestrator above an already-complete inference service.
@@ -152,7 +154,7 @@ Continuation: waiting for Vision result
    ↓
 Vision Job
    ↓ result
-Continuation becomes runnable
+owning Job becomes ready to resume
    ↓
 Inference Machine resumes
 ```
@@ -405,7 +407,7 @@ Agent / ChatGPT / Studio
 
 Python, C#, or other language integration may later exist as adapters/bindings if useful. Such bindings must not become the authority for Runtime execution semantics.
 
-The exact C++ standard and toolchain are deliberately not frozen until Phase 0 research and inspection of `flamoris-net/flamoris-LLM`.
+The exact C++ standard and toolchain are deliberately not frozen until Phase B research and inspection of `flamoris-net/flamoris-LLM`.
 
 ## Implementation research before freezing contracts
 
@@ -441,3 +443,4 @@ Reusing it should be evaluated at the code/contract level rather than copied who
 Model-specific code may become a backend or model layer, while the new Runtime adds the inference controller, jobs, workflow execution, event stream, interrupts, and resource scheduling around it.
 
 This is a design direction, not yet an implementation claim.
+

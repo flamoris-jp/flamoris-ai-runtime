@@ -177,7 +177,7 @@ Keep the model-adjacent execution core in C++ so inference lifecycle control, na
 
 Do not interpret this as a requirement to pull every capability into the C++ process. MCP, Generation, external AI/API, and other domain services remain external capabilities when that preserves authority boundaries.
 
-Do not freeze the exact C++ standard, compiler matrix, build system details, or public ABI from chat assumptions. Record those decisions during Phase 0 after inspecting `flamoris-net/flamoris-LLM` and representative runtimes.
+Do not freeze the exact C++ standard, compiler matrix, build system details, or public ABI from chat assumptions. Record those decisions during Phase B implementation design after inspecting `flamoris-net/flamoris-LLM` and representative runtimes.
 
 Language bindings or service adapters must sit outside the Runtime Kernel contract rather than changing core execution semantics.
 
@@ -222,20 +222,26 @@ Focus on:
 
 Record the conclusions in repository documentation or a design decision before implementing a long-lived abstraction.
 
-## Preferred implementation sequence
+## Design and implementation gates
 
-Keep the first implementation small and reviewable.
+Follow [Design Phases](docs/DESIGN_PHASES.md) and its document authority map.
 
-1. runtime research and decision record, including the C++ kernel/toolchain boundary;
-2. evaluate/refactor the reusable `flamoris-LLM` foundation;
-3. define Inference Machine state/control, Continuation, and structured Event Bus;
-4. define Job lifecycle and a simple scheduler;
-5. define deterministic Workflow IR validation and the Execution Plan Compiler;
-6. add the Workflow Machine and execute compiled plans rather than raw Workflow IR;
-7. add interrupt/cancel and supported pause/resume behavior through Continuations;
-8. add MCP/API/CLI adapters;
-9. add real local/external capabilities;
-10. add event journal/trace replay, residency-aware scheduling, and adaptive/speculative execution only after the simpler semantics are proven.
+1. Phase A: architecture contracts and failure/acceptance scenarios; no production code or build scaffold.
+2. Phase B: current `flamoris-LLM` and primary-source runtime research, then C++ types/interfaces, ownership, errors, concurrency, serialization and build/test ADRs; still no production runtime implementation.
+3. Phase C: implement reviewed contracts in logical, frequently committed slices with deterministic acceptance tests.
+
+Review each stage before starting the next. Do not treat old Phase 0–3 descriptions as permission to combine architecture and implementation again. Semantic deviations require a documented rationale, affected invariants and acceptance cases, then design review.
+
+For architecture changes read [Execution Model](docs/EXECUTION_MODEL.md), [State Machines](docs/STATE_MACHINES.md), [Resource Model](docs/RESOURCE_MODEL.md), [Authorization Model](docs/AUTHORIZATION_MODEL.md), [Event Model](docs/EVENT_MODEL.md), and [Failure Model](docs/FAILURE_MODEL.md). Update [Design Acceptance](docs/DESIGN_ACCEPTANCE.md) with changed observable obligations.
+
+In particular:
+
+- Scheduler-visible identity belongs only to Jobs; suspended Continuations are consumed atomically into Job-owned pending resume payloads when queued.
+- `finalizing` closes child/resource ownership before terminal publication; transferred cleanup debt is explicit and still accounted.
+- Current authorization is checked for every dispatch, retry and resume; a cached plan is never permission.
+- Unknown external outcomes are not safe retries or successful cancellation.
+- Shared allocations are counted once; releasing an execution lease never proves state memory was freed.
+- Event replay is observation only; the baseline is not durable execution recovery.
 
 Do not jump directly to distributed scheduling, a plugin marketplace, or a generic graph programming language.
 
@@ -319,3 +325,4 @@ Never:
 Unless stated otherwise, code and documentation are Apache License 2.0.
 
 Models, weights, datasets, media, providers, and third-party components may use separate terms. Document them explicitly.
+

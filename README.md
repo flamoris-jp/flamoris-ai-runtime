@@ -153,7 +153,7 @@ Continuation
   = resume state owned by a waiting/paused Job
 ```
 
-The Scheduler schedules Jobs, not Continuations. A yield does not create a second scheduler identity. When the waiting condition is satisfied, the owning Job keeps its identity and transitions back toward `queued`/runnable execution using its Continuation.
+The Scheduler schedules Jobs, not Continuations. A yield does not create a second scheduler identity. When the wait is satisfied, the Runtime atomically consumes the Continuation into a Job-owned pending resume payload and queues the same Job. Its state remains accounted while resources are unavailable. See [State Machines](docs/STATE_MACHINES.md).
 
 Cancellation, timeout, parent/child provenance, metrics, and terminal status remain properties of the Job/run lifecycle.
 
@@ -415,7 +415,7 @@ Inference   Workflow    Scheduler
 
 C++ does **not** mean every capability must run in-process. External AI, MCP, Generation, and other services remain registered external capabilities with their own authority.
 
-The exact minimum C++ standard, build toolchain, ABI/binding strategy, and backend integration details remain Phase 0 decisions and must be based on runtime research and the reusable parts of `flamoris-net/flamoris-LLM`.
+The exact minimum C++ standard, build toolchain, ABI/binding strategy, and backend integration details remain Phase B implementation-design decisions and must be based on runtime research and the reusable parts of `flamoris-net/flamoris-LLM`.
 
 See [Implementation Strategy](docs/IMPLEMENTATION_STRATEGY.md).
 
@@ -469,53 +469,21 @@ Focus on:
 
 The purpose is not compatibility with all of them. It is to identify the smallest control surface FLAMORIS must own.
 
-## Proposed implementation phases
+## Design before implementation
 
-### Phase 0 - Runtime research and foundation
+Work proceeds through three review gates:
 
-- compare existing runtimes;
-- inspect/reuse `flamoris-LLM`;
-- confirm the C++ kernel/toolchain strategy;
-- define inference lifecycle;
-- define backend capability contract;
-- define structured events;
-- define the Continuation and Execution Plan contracts.
+| Stage | Deliverable | Status |
+| --- | --- | --- |
+| Phase A: Architecture Design | Execution/state/resource/authorization/event/failure contracts and acceptance scenarios | Proposed for review |
+| Phase B: C++ Implementation Design | Runtime research, concept-to-type mapping, ownership, concurrency, backend interfaces and build/test ADRs | Not started |
+| Phase C: Implementation | Reviewed contracts implemented in small, tested commits | Not started |
 
-### Phase 1 - Inference and continuation foundation
+[Design Phases](docs/DESIGN_PHASES.md) defines the gates and document authority. This replaces the earlier Phase 0–3 roadmap. Runtime research and private foundation inspection remain required before backend interfaces are frozen in Phase B.
 
-- active inference state;
-- Inference Machine lifecycle;
-- prefill/decode control;
-- token/event streaming;
-- interrupt/cancel;
-- supported pause/resume through explicit Continuations;
-- deterministic tests.
+The Phase A baseline is a single Runtime process with bounded execution. Job completion includes a `finalizing` phase for child/resource cleanup; a terminal result may report explicitly transferred cleanup debt or unknown external outcomes. Trace replay only inspects events and cannot recover live execution after a process crash.
 
-### Phase 2 - Jobs, compiler, and workflow
-
-- Job lifecycle;
-- simple resource-aware scheduler;
-- Workflow IR validator;
-- Execution Plan Compiler;
-- Workflow Machine execution;
-- effect analysis;
-- independent-job parallel readiness;
-- join;
-- basic race;
-- bounded result injection back into inference.
-
-### Phase 3 - Interfaces and capabilities
-
-- MCP/API/CLI surfaces;
-- live event observation;
-- local algorithms;
-- Vision/audio;
-- external AI/API;
-- external MCP;
-- Generation;
-- future Vem integration.
-
-These phases are proposals, not implemented features.
+Architecture review comes before C++ interface design, and interface review comes before production code.
 
 ## Current status
 
@@ -530,6 +498,8 @@ See:
 - [Workflow IR](docs/WORKFLOW_IR.md)
 - [MCP Contract](docs/MCP_CONTRACT.md)
 - [Implementation Strategy](docs/IMPLEMENTATION_STRATEGY.md)
+- [Design Phases and document map](docs/DESIGN_PHASES.md)
+- [Design Acceptance](docs/DESIGN_ACCEPTANCE.md)
 
 ## FLAMORIS
 
@@ -566,6 +536,8 @@ FLAMORIS AI Runtime
 ```
 
 という位置です。
+
+開発は **Phase A：アーキテクチャ設計 → Phase B：C++実装設計 → Phase C：実装** の3段階で進め、各段階でレビューします。現在はPhase Aの設計提案で、本番コードはまだありません。
 
 推論中に別の処理が必要になれば、Inferenceをyield/pauseし、Vision、algorithm、MCP、外部AIなどをJobとして実行し、その結果を受け取って推論を続けられる構造を目指します。
 
@@ -606,3 +578,4 @@ pause / stop / child job / input injection
 Code and documentation in this repository are licensed under the [Apache License 2.0](LICENSE), unless otherwise noted.
 
 AI models, model weights, datasets, media, and other non-code assets may use separate licenses. State their applicable licenses alongside those assets.
+
