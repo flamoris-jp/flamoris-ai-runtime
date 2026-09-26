@@ -69,9 +69,19 @@ Examples of acceptable conceptual node families:
 
 - `control.*`
 - `data.*`
+- `algorithm.*`
+- `vem.*` for future Vem-backed capabilities once Vem has a stable callable contract
 - `intelligence.*`
 - `generation.*`
+- `external_ai.*`
+- `mcp.*`
 - explicitly registered product/service capabilities
+
+Algorithmic processing is a first-class workflow use case and must not be treated as merely glue around model calls.
+
+External AI/API and external MCP execution must use configured, registered adapters/capabilities. Do not put raw credentials, arbitrary provider endpoints, or arbitrary MCP server URLs into portable workflow JSON.
+
+Vem integration is intentionally future-facing. Do not invent Vem-specific request, state, or lifecycle semantics until its callable contract exists.
 
 Provider-specific configuration should stay behind the owning service or adapter unless a public provider-specific contract is intentionally approved.
 
