@@ -79,6 +79,34 @@ Human / AI / Agent / Studio
 
 The runtime is an **execution substrate**, not a new umbrella authority over the AI ecosystem.
 
+## What workflows are meant to compose
+
+The workflow graph is not limited to LLM calls. The long-term design is to let one runtime graph compose several kinds of work behind the same validated capability boundary:
+
+- **algorithmic processing** — deterministic or explicitly versioned processing implemented as runtime/library capabilities, useful for transforms, analysis, filtering, scoring, conversion, and other work that does not require an AI model;
+- **Vem capabilities** — future Vem-backed processing should be exposable as registered capabilities once Vem has a stable callable contract; the portable workflow IR should not hard-code Vem-specific execution details before that contract exists;
+- **external AI services** — local or remote AI providers, including API-based services, may be called through registered adapters without embedding provider credentials or private endpoints in workflow JSON;
+- **external MCP capabilities** — configured MCP servers/tools may be exposed to workflows as registered capabilities, subject to the same validation, permission, timeout, side-effect, and resource rules as any other node.
+
+Conceptually, a single graph may eventually mix them:
+
+```text
+input
+  │
+  ├─► algorithmic preprocessing
+  │
+  ├─► Vem capability
+  │
+  ├─► external AI / API
+  │
+  └─► external MCP capability
+            │
+            ▼
+          result
+```
+
+These are **capability classes**, not permission shortcuts. AI-authored workflows still receive only the capabilities explicitly registered and authorized for that caller.
+
 ## The core loop
 
 The intended interaction is:
@@ -211,7 +239,10 @@ See [Architecture](docs/ARCHITECTURE.md), [Workflow IR](docs/WORKFLOW_IR.md), an
 - cancellation;
 - execution budgets;
 - MCP surface;
-- service adapters to existing FLAMORIS authorities.
+- service adapters to existing FLAMORIS authorities;
+- first registered algorithmic capabilities;
+- bounded adapters for external AI/API and MCP capabilities;
+- a reserved integration boundary for future Vem capabilities, without freezing Vem-specific semantics prematurely.
 
 ### Phase 2 - Adaptive workflows
 
@@ -234,6 +265,7 @@ These phases are proposals, not implemented features.
 - **AI-authored, runtime-validated.**
 - **Headless first.** GUI metadata must not define execution semantics.
 - **Portable IR.** Provider and deployment details stay behind explicit capabilities.
+- **Hybrid execution.** A workflow may combine ordinary algorithms, future Vem capabilities, external AI/API calls, MCP capabilities, and FLAMORIS services without turning any of them into ambient authority.
 - **One authority per domain.** Runtime execution must not absorb Agent, Generation, Intelligence, GPU, or product state ownership.
 - **Bounded behavior.** Resource use, side effects, retries, and permissions are explicit.
 - **No speculative compatibility promises.** ComfyUI, LangGraph, n8n, or other workflow formats are not automatically supported.
@@ -284,6 +316,18 @@ result
 ComfyUIのようなnode graphの便利さを参考にしますが、ComfyUI互換runtimeを目標にはしません。Canvas座標やGUI状態ではなく、**AIやCLIやStudioから共通利用できるportableな実行IR**を目指します。
 
 現在は設計段階です。実装済みRuntimeやMCP serviceがあるという意味ではありません。
+
+WorkflowはLLM呼び出しだけを対象にしません。将来的には、同じgraphの中で:
+
+- **アルゴリズムによる各種処理**
+- **Vemのcapability**
+- **外部AI / APIの呼び出し**
+- **外部MCPのcapability呼び出し**
+- **FLAMORIS内の各service**
+
+を組み合わせられる構想です。
+
+Vemについては、安定した呼び出しcontractが定義された時点でregistered capabilityとして接続し、現段階でWorkflow IRへVem固有仕様を固定しません。外部AI/APIやMCPも、workflow JSONにcredentialや任意endpointを直接埋め込むのではなく、Runtime側で登録・許可されたadapter / capabilityを通して利用します。
 
 ### 責任範囲
 
