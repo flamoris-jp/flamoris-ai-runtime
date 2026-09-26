@@ -105,7 +105,8 @@ test does not close an acceptance case.
   and release loss; source/target overlap; stale host/backend epochs; fake host
   grants versus unenforced capacity hints; unsafe native containment. A10–A13,
   A28–A29 with actual ResourceManager, B-CALL01/B-DRAIN01 lifetime checks, and
-  cross-Run full-vector contention without partial useful execution.
+  cross-Run full-vector contention and distinct process-owned native-global
+  allowance/accounting without partial useful execution.
 - **Commit units:** accounting records/admission; allocation/reference lifetime;
   host epochs/receipt protocol; quarantine/reconciliation and fault tests.
 - **Excluded:** device reset/service control implementation, pretending existing
@@ -249,6 +250,7 @@ test does not close an acceptance case.
 - **Scope:** pin researched llama.cpp revision and licenses, implement the minimum
   embedded C API adapter, ProcessRuntimeGuard enforcing one construction per
   process, root-owned NativeBackendLifetime for global init/log/free ordering,
+  separately reserved and accounted process-owned RuntimeOverheadRecord,
   one sequence/context per Job and serialized context
   ownership, explicit tokenizer/model identity, bounded prefill/decode/sampler
   progression, in-place preserved-state safe points and accounted release.
@@ -258,10 +260,13 @@ test does not close an acceptance case.
 - **Tests / acceptance:** run the real-backend qualification matrix below and
   relevant lifecycle invariants from A08–A19/A28; CPU model tests are a separate
   opt-in, clearly reported integration lane. B-NATIVE01 uses instrumented native
-  calls and isolated process/factory tests before real integration. Default contract tests remain offline
-  with no weights. Unsupported offload/rewind/batching must reject explicitly.
+  calls and isolated process/factory tests, including first Job terminal → second
+  Run reuse → one process-owned overhead release and uncertain-init containment,
+  before real integration. Default contract tests remain offline with no weights.
+  Unsupported offload/rewind/batching must reject explicitly.
 - **Commit units:** pinned dependency/licensing; model/context owner and resource
-  adapter; bounded step/sampler controls; pause/cancel/lifetime conformance;
+  adapter; process-owned global overhead reservation/materialization/release
+  accounting; bounded step/sampler controls; pause/cancel/lifetime conformance;
   qualified fixture and accurately scoped status documentation.
 - **Excluded:** GPU acceleration, continuous batching, cross-Job shared KV, durable
   snapshots, offload/rewind, copying private model code and unsupported speed claims.
@@ -317,7 +322,7 @@ with results. Real output quality is not an architecture assertion.
 | B-REAL01 | Approved tiny model/tokenizer loads within conservative measured envelope; tokenize → bounded prefill → decode → sampler → committed token progression is observable. | CPU, provisioned licensed weights; no download inside deterministic suite. |
 | B-REAL02 | Same pinned build/config/seed/input: uninterrupted versus in-place paused/resumed execution retains matching token/state progression at advertised quiescent boundaries. | CPU fixture; no cross-device numerical identity promise. |
 | B-REAL03 | Cancel at tokenize/prefill/decode boundaries produces genuine quiescence before context destruction/release; no next useful step after applied stop. Unsupported partial-step control rejects honestly. | CPU fixture with safe-point instrumentation and sanitizer lane where supported. |
-| B-REAL04 | Sole-instance process guard and root-owned global init/log/free ordering (including callback context alive through free); context/model/sampler lifetime, partial load failure, retained state, unload acknowledgement and finite memory growth are accounted; state invalidation never becomes silent fresh inference. | CPU fixture and controlled allocator/failure seams; native hang containment remains A28/supervisor boundary. |
+| B-REAL04 | Sole-instance process guard and root-owned global init/log/free ordering (including callback context alive through free); first Job init, terminal, second Run reuse and exactly one process-owned global overhead release at shutdown, with partial/uncertain init containment; context/model/sampler lifetime, partial load failure, retained state, unload acknowledgement and finite memory growth are accounted; state invalidation never becomes silent fresh inference. | CPU fixture and controlled allocator/failure seams; native hang containment remains A28/supervisor boundary. |
 | B-REAL05 | Snapshot/offload/rewind/continuous batching capabilities remain false until independently implemented and qualified; opaque providers do not inherit embedded controls. | Capability metadata/conformance; no weights needed for rejection checks. |
 | B-REAL06 | With and without a pending emitted token, approved bounded child-input append consumes that token and injected penalty history once, preserves sampler/RNG/decoder/stop state, and samples only after the last admitted prefill chunk; rejected grammar/injection profiles cannot silently substitute another strategy. | CPU fixture under a pinned injection-qualified profile and current policy/resource checks. |
 | B-HOST01 | Deployed authority actually enforces ownership/capacity and generation fencing, including another process attempting allocation; unavailable/expired authority blocks affected dispatch. | Separate host integration task; no success claim from process-local mutex. |
