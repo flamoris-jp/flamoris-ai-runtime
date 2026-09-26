@@ -746,7 +746,11 @@ not replacements for Phase A behavior:
 - **Injection:** race two factory creates in one isolated subprocess; attempt
   another create while active, draining, after shutdown and after failed creation.
   Fail before init, simulate uncertain partial init, and block a callback/native
-  call during shutdown. Exercise multiple model load/unload cycles in the winner.
+  call during shutdown. First admitted Job triggers init, reaches terminal, then
+  a second Run reuses the native globals before process shutdown. Cancel the
+  initiating Job while init is in flight; inject a global-overhead reservation
+  refusal, partial materialization, and lost/unknown release evidence. Exercise
+  multiple model load/unload cycles in the winner.
 - **State / events:** one construction wins; every rejected creator makes zero
   native init/log/free calls and cannot alter the winner's status/events. Multiple
   loads have at most one global init. Fresh process creation is a separate case,
@@ -754,9 +758,17 @@ not replacements for Phase A behavior:
 - **Lifetime / resources:** assert calls/callbacks quiesce before handle destruction,
   then free once after successful init, then log detachment/context destruction,
   then worker join. A fake callback during free still has valid storage; held
-  callbacks block teardown. Uncertain partial init/wedge preserves containment
-  and forbids unsafe free. After failed/finished lifetime no second construction
-  is admitted. Real native ordering is additionally qualified in B-REAL04.
+  callbacks block teardown. Global init must reserve a distinct bounded
+  process-owned overhead allowance before first dispatch, convert it once to an
+  allocation/uncertainty record, and leave the initiating Run quota charged only
+  for its working set. First Job terminal, cancellation or model unload cannot
+  subtract global bytes/handles; the second Run sees the same physical charge
+  with no second init/reservation. Proven `backend_free`/release at shutdown
+  settles exactly once. Reservation refusal starts no native init; partial or
+  uncertain init/release stays charged and requires containment, never a Job
+  refund or a fabricated release. After failed/finished lifetime no second
+  construction is admitted. Real native ordering is additionally qualified in
+  B-REAL04.
 
 Activation/startup cases B-ACT01–B-ACT12 are defined by the
 [activation contract](ACTIVATION_CONTRACT.md) and
