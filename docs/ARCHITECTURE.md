@@ -2,451 +2,628 @@
 
 ## Purpose
 
-FLAMORIS AI Runtime is intended to be a general processing layer underneath external AI callers and to execute the declarative workflow graphs they author.
+FLAMORIS AI Runtime is intended to be a **model-adjacent execution runtime that controls inference and workflow in one runtime kernel**.
 
-Its job is not to "be the AI". The planning intelligence remains outside the Runtime. ChatGPT, `flamoris-ai-agent`, Studio AI, or another Agent can decide what processing is needed and submit a workflow.
+It is not merely a workflow service layered above an opaque LLM endpoint.
 
-The Runtime provides a small, explicit, testable execution substrate where that caller can compose available capabilities without receiving ambient authority over the host.
+The Runtime should own enough of the model execution lifecycle to observe, pause, interrupt, resume, and coordinate inference with other jobs while preserving backend state where possible.
 
-The conceptual split is:
-
-```text
-ChatGPT / Agent / external AI
-  │
-  │ intent
-  ▼
-planner in the caller
-  │
-  │ workflow IR
-  ▼
-FLAMORIS AI Runtime
-  │
-  ▼
-validator
-  ↓
-compiler / planner
-  ↓
-bounded executor
-  ↓
-registered capabilities
-  ↓
-results + provenance
-  │
-  ▼
-caller evaluates the result and decides the next step
-```
-
-## Caller intelligence stays outside
-
-A persistent Agent is a natural caller, but it is not part of the Runtime itself.
+A persistent Agent may sit above it, but the Runtime itself is responsible for the active execution machinery.
 
 ```text
-FLAMORIS AI Agent
-  ├─ identity
-  ├─ conversation
-  ├─ memory
-  ├─ goals
-  └─ policy
-       │
-       │ workflow IR
-       ▼
+Caller / Agent / App
+        │
+        ▼
 FLAMORIS AI Runtime
-  └─ execution state only
+┌──────────────────────────────┐
+│ Runtime Kernel               │
+│  ├─ Inference Controller     │
+│  ├─ Workflow Engine          │
+│  ├─ Job Scheduler            │
+│  ├─ Event / Trace Bus        │
+│  ├─ Resource Manager         │
+│  └─ Capability Registry      │
+└──────────────┬───────────────┘
+               │
+     ┌─────────┼──────────┐
+     ▼         ▼          ▼
+   Model    local work  external work
 ```
 
-This separation allows the same Runtime to serve ChatGPT, the FLAMORIS Agent, Studio AI, and other clients.
+## Responsibility boundary
 
-It also means that adaptation does not require the Runtime itself to become an Agent. A caller can inspect a result and submit a new workflow. Later graph patching may optimize some cases, but the basic architecture already supports adaptive behavior outside the Runtime.
+### Runtime owns
 
-## Why a separate runtime?
+Planned ownership:
 
-FLAMORIS already has domain authorities:
+- model-adjacent inference lifecycle;
+- model/backend selection contracts;
+- prefill/decode/sampling control where supported;
+- active inference state;
+- runtime workflow IR and validation;
+- job creation, lifecycle, dependency tracking, and scheduling;
+- logical parallelism and resource-aware physical scheduling;
+- pause, resume, interrupt, and cancellation semantics;
+- structured execution events and bounded trace/log output;
+- capability discovery and execution adapters;
+- per-run limits, provenance, and result assembly.
 
-- AI Agent for durable Agent state;
-- Intelligence MCP for bounded intelligence execution;
-- Generation MCP for generation workflows/jobs/assets;
-- GPU Node Manager for runtime lifecycle;
-- products for their own document/project state.
+### Runtime does not own
 
-What is missing is a generic **execution graph layer** that can compose those capabilities without becoming their owner.
+The Runtime should not become the durable authority for:
 
-The runtime exists to answer:
+- Agent identity, personality, conversation history, or long-term memory;
+- Studio account/UI state;
+- desktop product documents or editing history;
+- generated-media asset ownership that belongs to Generation;
+- host-wide GPU/service lifecycle policy that belongs to GPU Node Manager;
+- arbitrary shell, filesystem, network, credential, or code execution.
 
-> Given this declarative graph and these explicitly available capabilities, can it be executed safely and predictably?
+A capability may call another FLAMORIS service without taking ownership of that service's domain state.
 
-## Workflow IR versus domain workflow
+## Relationship to Intelligence MCP
 
-This distinction is important.
+Do not assume that model execution internals belong outside this repository merely because Intelligence MCP exists.
 
-### Runtime workflow IR
+The intended boundary is:
 
-Owned here.
+- **AI Runtime** owns the active model execution/inference machinery for models it directly hosts or controls;
+- **Intelligence MCP** may expose or route bounded intelligence capabilities to callers, depending on the final ecosystem integration;
+- an MCP/API surface must not force the Runtime to surrender the inference control points needed for pause, interrupt, state preservation, or workflow handoff.
 
-It describes an execution graph:
+The exact service integration remains to be finalized during implementation.
 
-- node identities;
-- node types;
+## Runtime kernel
+
+The runtime kernel coordinates four tightly related concerns:
+
+```text
+             Runtime Kernel
+       ┌──────────┼──────────┐
+       ▼          ▼          ▼
+   Inference   Workflow     Jobs
+       │          │          │
+       └──────┬───┴────┬─────┘
+              ▼        ▼
+          Event Bus   Resources
+```
+
+These concerns are separate contracts, but they must cooperate without forcing every transition through an external request/response boundary.
+
+## Model/backend layer
+
+A model backend should expose only the execution primitives the Runtime actually needs.
+
+Potential responsibilities include:
+
+- model loading;
+- tokenization;
+- prompt/prefill;
+- decode iteration;
+- logits access required for sampling;
+- sampling support or sampler integration;
+- cache/state management;
+- state capability reporting;
+- optional state snapshot/rewind operations;
+- backend-specific metrics.
+
+The public Runtime contract should not depend on CUDA, ROCm, OpenCL, Vulkan, or one model architecture.
+
+At the same time, backend abstraction must not erase useful execution control.
+
+A backend that only offers an opaque `generate(prompt) -> text` call may be usable as a limited capability, but it cannot provide the same pause/interrupt/state-preserving semantics as a backend exposing decode-level control.
+
+## Inference lifecycle
+
+Conceptual lifecycle:
+
+```text
+created
+  ↓
+loading / ready
+  ↓
+prefill
+  ↓
+decoding
+  ├─ pause
+  ├─ interrupt
+  ├─ wait for child jobs
+  ├─ resume
+  └─ continue decode
+  ↓
+terminal
+  ├─ succeeded
+  ├─ cancelled
+  └─ failed
+```
+
+The exact states may change during implementation.
+
+### Decode control point
+
+The preferred control boundary is around a decode iteration:
+
+```text
+model step
+  ↓
+logits
+  ↓
+constraints / sampling
+  ↓
+next token
+  ↓
+update model state
+  ↓
+emit bounded events
+  ↓
+apply interrupt / workflow decision
+  ↓
+next iteration
+```
+
+This allows low-latency observation and intervention without requiring tensor-level instrumentation.
+
+## Runtime state
+
+Separate durable Agent state from active execution state.
+
+### Active inference state
+
+May include:
+
+- backend/model handle;
+- token sequence/position;
+- KV or equivalent cache;
+- sampling configuration/state;
+- context bindings;
+- stop conditions;
+- current workflow/run link;
+- active child jobs;
+- interrupt flags;
+- metrics.
+
+### Workflow run state
+
+May include:
+
+- workflow revision;
+- validated execution plan;
+- node/job mapping;
+- dependency state;
+- produced values/references;
+- side-effect provenance;
+- resource budget;
+- run status.
+
+### Durable Agent state
+
+Not owned here:
+
+- identity;
+- long-term memory;
+- personality;
+- durable conversation history;
+- user/project preferences.
+
+## Workflow versus Job
+
+These are deliberately different concepts.
+
+### Workflow
+
+A workflow describes:
+
 - dependencies;
-- inputs and outputs;
-- execution options;
-- bounded control flow.
+- data flow;
+- control flow;
+- requested capabilities;
+- result bindings;
+- limits.
 
-Its lifetime may be only one run.
+### Job
 
-### Domain workflow
+A job is a scheduler-visible unit of active work.
 
-Owned by the domain service.
+A workflow node may create one job, no job, or later a bounded set of jobs depending on the node contract.
 
-For example, Generation MCP may own a durable media-generation workflow, job state, provider selection, and generated assets.
+Examples:
 
-The runtime may contain a node that asks Generation MCP to perform domain work, but that does not transfer Generation authority into this repository.
+- one inference segment -> `InferenceJob`;
+- one image analysis operation -> `VisionJob`;
+- one pure transform -> `AlgorithmJob`;
+- one remote tool invocation -> `McpJob`.
 
-```text
-AI Runtime run
-   │
-   └─ node: generation.submit
-            │
-            ▼
-      Generation MCP
-      owns its job/assets
-```
+The mapping must remain explicit enough for cancellation, tracing, provenance, and resource scheduling.
 
-The same principle applies to Agent state, Intelligence execution, GPU lifecycle, and product state.
+## Job lifecycle
 
-## Headless first
-
-The execution contract must be valid without a GUI.
-
-A future visual editor may attach presentation metadata such as:
-
-- node coordinates;
-- colors;
-- collapsed groups;
-- notes;
-- viewport state.
-
-That metadata must not determine execution semantics.
-
-The portable IR should remain usable from MCP, CLI, tests, Studio, or another AI.
-
-## Runtime layers
-
-The intended internal layering is:
+Conceptual common states:
 
 ```text
-MCP / API / CLI adapters
-          │
-          ▼
-     Admission layer
-          │
-          ├─ authentication context
-          ├─ schema size/version checks
-          └─ request limits
-          │
-          ▼
-       Validator
-          │
-          ├─ graph checks
-          ├─ node checks
-          ├─ reference checks
-          ├─ capability checks
-          ├─ permission checks
-          └─ budget checks
-          │
-          ▼
-    Compiler / Plan
-          │
-          ├─ dependency ordering
-          ├─ execution groups
-          └─ explicit side-effect boundaries
-          │
-          ▼
-       Executor
-          │
-          ├─ cancellation
-          ├─ timeout
-          ├─ concurrency limits
-          ├─ result limits
-          └─ structured events
-          │
-          ▼
- Capability adapters / handlers
+created
+  ↓
+queued
+  ↓
+running
+  ├─ waiting
+  ├─ paused
+  ├─ cancelling
+  └─ running
+  ↓
+terminal
+  ├─ succeeded
+  ├─ cancelled
+  └─ failed
 ```
 
-The execution core should not know whether the workflow arrived over MCP, CLI, or tests.
+Not every job type must support every transition.
 
-## Processing examples
+Capability/job metadata should declare at least:
 
-The intended layer is broad enough for ordinary multimodal AI processing.
+- cancellable;
+- pausable/resumable;
+- idempotent;
+- side-effecting;
+- resource class;
+- retry policy;
+- expected/maximum output size;
+- timeout policy.
 
-For example:
+## InferenceJob
 
-```text
-image
-  ↓
-Vision
-  ↓
-algorithmic feature extraction
-  ↓
-external reasoning AI
-  ↓
-TTS
-  ↓
-audio response
-```
-
-Or:
-
-```text
-media input
-  ↓
-algorithm
-  ↓
-Vem
-  ↓
-external MCP capability
-  ↓
-result
-```
-
-The first graph looks like a normal AI application. The difference is that the caller AI may decide to construct that graph dynamically instead of a developer hard-wiring the pipeline in advance.
-
-## Capability classes
-
-A single workflow may intentionally mix different execution styles:
-
-```text
-algorithmic processing ─┐
-future Vem capability ──┤
-external AI / API ──────┼─► one validated workflow graph
-external MCP tool ──────┤
-FLAMORIS service ───────┘
-```
-
-This mixing is one of the reasons to keep the workflow IR generic.
-
-The architecture goal is **open-ended composition, bounded execution**. The Runtime should not impose arbitrary product categories on registered capabilities. If two capabilities have valid contracts and the caller is allowed to use both, the workflow model should generally permit their composition. Execution policy still constrains permissions, side effects, credentials, network/filesystem access, cost/resource budgets, and runtime limits.
-
-The runtime should see all of them through one explicit capability model while preserving their different security and ownership properties:
-
-- pure/local algorithms may be deterministic and side-effect free;
-- Vem remains a future adapter boundary until its callable contract is stable;
-- external AI/API calls may incur cost, latency, rate limits, and provider-specific failure;
-- external MCP capabilities may perform arbitrary domain actions and therefore require explicit connection/tool authorization;
-- FLAMORIS services retain their own domain authority.
-
-## MCP in two directions
-
-MCP can appear on both sides of the runtime, but these are different roles.
-
-```text
-AI / Agent
-   │
-   │ MCP control plane
-   ▼
-AI Runtime
-   │
-   │ registered workflow capability
-   ▼
-external MCP server/tool
-```
-
-The inbound Runtime MCP surface controls workflow admission and observation.
-
-An outbound MCP capability is simply one registered executable capability inside a workflow. Its connection details, tool schema, authorization, and limits belong to runtime/deployment configuration, not to arbitrary workflow JSON.
-
-## Capability registry
-
-The runtime should expose a machine-readable capability registry.
-
-A capability entry should eventually describe enough information for an AI planner to compose valid graphs without guessing:
-
-- stable capability identifier;
-- version;
-- input schema;
-- output schema;
-- whether it has side effects;
-- whether it is idempotent;
-- permission requirements;
-- resource class or budget hints;
-- cancellation support;
-- availability status.
-
-The registry is not permission by itself.
-
-A capability may exist but remain unavailable to a caller.
-
-## Node families
-
-Initial node families should stay small.
-
-### Pure runtime nodes
-
-Candidates:
-
-- `data.input`
-- `data.constant`
-- `data.select`
-- `control.if`
-- `control.switch`
-- `control.merge`
-
-These should be deterministic and side-effect free.
-
-### Algorithmic capability nodes
-
-The runtime is also intended to execute ordinary algorithmic processing that does not require a model call.
-
-Conceptual examples use a family such as:
-
-- `algorithm.*`
-
-These capabilities may cover deterministic transforms, analysis, filtering, scoring, conversion, geometry, signal/image operations, or other bounded library/runtime work.
-
-Algorithm implementations should be versioned where output semantics matter. They remain subject to the same input/output, timeout, memory, and concurrency bounds as every other node.
-
-### Vem capability nodes
-
-Future Vem functionality should be connectable as registered capabilities once Vem exposes a stable callable contract.
+`InferenceJob` is a specialized job that may hold model execution state across pauses and child-job waits.
 
 Conceptually:
 
-- `vem.*`
+```text
+InferenceJob
+├─ model/backend
+├─ cache/state
+├─ token position
+├─ sampling state
+├─ interrupt state
+├─ workflow/run linkage
+└─ child jobs
+```
 
-The workflow IR should not hard-code Vem internals or guess its eventual API. Vem-specific lifecycle, state, and implementation details should remain behind its adapter/contract.
+A Runtime implementation should not promise pause/resume or rewind for a backend that cannot safely preserve or mutate its state.
 
-### Service and external capability nodes
+These are advertised capabilities, not universal assumptions.
 
-Candidates:
+## Job Scheduler
 
-- `intelligence.request`
-- `generation.submit`
-- `external_ai.*` for explicitly registered local/remote AI services, including API-backed providers;
-- `mcp.*` for explicitly registered external MCP capabilities;
-- later explicitly registered product/service commands.
+The scheduler decides when runnable jobs actually execute.
 
-These are adapters to owning services or configured external capabilities.
+It must distinguish:
 
-External AI/API nodes must not carry raw credentials or private endpoints in the portable workflow. Provider configuration belongs in runtime/deployment configuration or the owning adapter.
+- logical dependency readiness;
+- caller/run concurrency limits;
+- CPU capacity;
+- GPU/device capacity;
+- model residency;
+- VRAM/RAM pressure;
+- exclusive resources;
+- remote rate limits;
+- side-effect constraints.
 
-External MCP calls must be backed by configured connections and registered tool schemas. A workflow must not be able to invent an arbitrary MCP endpoint or tool and gain access merely by naming it.
+### Logical parallelism
 
-The runtime should not invent hidden semantics around an upstream service.
+Independent jobs may be logically parallel:
 
-## Execution model
+```text
+        ┌─ Job A ─┐
+input ──┤         ├─ join
+        └─ Job B ─┘
+```
 
-The first executor should prefer a DAG.
+### Physical scheduling
 
-Cycles, loops, recursion, and dynamic fan-out add substantial complexity and resource risk. They should not be accepted merely because a graph format can represent them.
+Logical parallelism does not guarantee simultaneous device execution.
 
-If looping is added later, it should have an explicit bounded construct such as:
+For example, two GPU-heavy jobs may be serialized while a CPU transform and remote MCP call run concurrently.
 
-- maximum iterations;
-- bounded collection size;
-- explicit exit condition;
-- cancellation support.
+Workflow semantics should not encode one specific GPU topology.
 
-## Side effects
+## Join
 
-Node metadata should make side effects visible before execution.
+`join` waits for a defined set of jobs/results.
 
-Examples of side effects:
+It should have explicit failure semantics, for example:
 
-- generating an asset;
-- changing product state;
-- calling a paid remote API;
-- sending a message;
-- writing to external storage;
-- starting or stopping a runtime.
+- fail if any required child fails;
+- collect partial results;
+- ignore explicitly optional children.
 
-The compiler should be able to identify side-effecting nodes before the run starts.
+The first implementation should keep these policies small and deterministic.
 
-A dry-run/compile operation should report them without executing them.
+## Race
 
-## Resource budgets
+`race` allows multiple candidate jobs to proceed and selects the first result meeting an explicit acceptance rule.
 
-A workflow should be rejected before execution if its declared or inferred bounds exceed policy.
+Conceptual example:
 
-Likely limits include:
+```text
+            ┌─ local model ───────┐
+request ────┼─ remote specialist ─┼─ race ─► selected result
+            └─ cached path ───────┘
+```
 
-- serialized workflow size;
-- node count;
-- edge count;
-- graph depth;
-- parallelism;
-- fan-out;
-- per-node timeout;
-- total run duration;
-- per-node input/output bytes;
-- total result size;
-- event/log volume.
+Race semantics must define:
 
-The exact defaults belong to implementation and tests, not this design document.
+- what counts as a winner;
+- whether failure can win;
+- what happens to unfinished losers;
+- whether losers are cancelled;
+- whether completed loser results may be retained for cache/provenance;
+- how already-completed side effects are treated.
+
+Cancellation of losers is not equivalent to rollback.
+
+## Interrupt control
+
+Interrupt is a first-class Runtime mechanism.
+
+Conceptual actions:
+
+- `stop`
+- `pause`
+- `resume`
+- `cancel`
+- inject bounded external input;
+- alter an unexecuted workflow path;
+- later, request rewind when the backend explicitly supports it.
+
+The Runtime should record both:
+
+1. when the interrupt was requested;
+2. when and where it was applied.
+
+This allows real-time UI to distinguish "stop requested" from "stopped".
+
+## Workflow and inference interaction
+
+The Runtime should support inference yielding to workflow work and later continuing.
+
+```text
+InferenceJob
+   ↓
+workflow decision / external need
+   ↓
+yield
+   ↓
+Job Scheduler
+   ├─ child job A
+   ├─ child job B
+   └─ child job C
+   ↓
+await / join / race
+   ↓
+bounded result injection
+   ↓
+InferenceJob resume
+```
+
+Result injection must be explicit. Large media should normally flow as handles/references instead of being copied repeatedly through text context.
+
+## Event and trace architecture
+
+Structured events should be the primary observability mechanism.
+
+```text
+Runtime components
+      │
+      ▼
+   Event Bus
+  ┌───┼───────────────┐
+  ▼   ▼               ▼
+logs  live stream   test probes
+                    / Studio
+```
+
+Potential event families:
+
+### Inference
+
+- `inference.started`
+- `prefill.started`
+- `prefill.completed`
+- `decode.iteration`
+- `token.generated`
+- `sampling.completed`
+- `inference.paused`
+- `inference.resumed`
+- `inference.completed`
+
+### Jobs
+
+- `job.submitted`
+- `job.queued`
+- `job.started`
+- `job.progress`
+- `job.waiting`
+- `job.completed`
+- `job.failed`
+- `job.cancelled`
+
+### Workflow
+
+- `workflow.started`
+- `workflow.node.ready`
+- `workflow.node.started`
+- `workflow.node.completed`
+- `workflow.completed`
+
+### Control
+
+- `interrupt.requested`
+- `interrupt.applied`
+- `race.started`
+- `race.winner_selected`
+- `join.completed`
+
+Event schemas should be stable enough for live UI and tests.
+
+## Logging levels and sensitive data
+
+Observability should be configurable.
+
+Suggested conceptual levels:
+
+1. lifecycle/state/timing;
+2. token and sampling information;
+3. model-exposed reasoning channel where intentionally available;
+4. deep backend debug probes.
+
+Normal operation must not log:
+
+- credentials;
+- arbitrary private provider payloads;
+- unbounded tensors;
+- unbounded media;
+- unrestricted filesystem contents.
+
+Event volume itself must be budgeted.
+
+## Capability registry
+
+A capability entry should eventually describe:
+
+- stable identifier;
+- version;
+- input schema;
+- output schema;
+- side effects;
+- idempotency;
+- cancellation support;
+- pause/resume support where meaningful;
+- resource class;
+- permission requirements;
+- bounded output characteristics;
+- availability.
+
+The registry is not permission by itself.
+
+## Resource management
+
+Resource management becomes important once inference and workflow jobs coexist.
+
+The Runtime should eventually reason about:
+
+- CPU;
+- RAM;
+- GPU device;
+- VRAM;
+- model residency;
+- I/O;
+- network/API concurrency;
+- external provider limits.
+
+The first implementation may use a simple scheduler, but the contracts should not assume unlimited physical parallelism.
+
+## Headless first
+
+Execution semantics must not depend on GUI state.
+
+A future visual interface may inspect:
+
+- current inference stage;
+- generated tokens;
+- active jobs;
+- queue state;
+- dependencies;
+- race participants;
+- resource use;
+- interrupt state;
+- event history.
+
+Canvas positions and visual metadata remain non-semantic.
 
 ## Error model
 
-Errors should be structured and stable.
+Prefer structured stable errors such as:
 
-Prefer errors such as:
-
-- `unsupported_schema_version`
-- `invalid_graph`
-- `unknown_node_type`
+- `unsupported_model`
+- `backend_unavailable`
+- `invalid_workflow`
+- `unknown_capability`
 - `invalid_reference`
-- `capability_unavailable`
 - `permission_denied`
 - `budget_exceeded`
-- `node_timeout`
-- `run_cancelled`
+- `resource_unavailable`
+- `job_timeout`
+- `job_cancelled`
+- `inference_interrupted`
 - `upstream_failure`
 
 Do not expose raw provider responses by default.
 
-## Adaptive workflows
+## Implementation foundation
 
-Adaptive graph changes are a later feature.
+Before implementation, evaluate `flamoris-net/flamoris-LLM` as a concrete foundation.
 
-The safe model is not "let the AI replace arbitrary runtime state".
+Potentially reusable areas include:
 
-A future patch operation should be constrained to explicit graph-edit operations against a known workflow/run revision, for example:
+- explicit model runtime boundary;
+- generation loop;
+- cache handling;
+- tokenizer/model contracts;
+- compute boundary;
+- CPU reference path;
+- OpenCL backend experiments;
+- test discipline.
 
-- add node;
-- remove an unexecuted node;
-- replace configuration of an unexecuted node;
-- add/remove dependency edge where valid;
-- update selected output binding.
+The new Runtime should not inherit model-specific code into unrelated workflow layers by accident.
 
-Already executed side effects must not be silently rewritten.
+A likely evolution is:
 
-Patch provenance should record:
+```text
+existing FLAMORIS LLM
+  └─ model / compute / inference foundation
+             │
+             ▼
+FLAMORIS AI Runtime
+  ├─ Inference Controller
+  ├─ Job Scheduler
+  ├─ Workflow Engine
+  ├─ Event Bus
+  ├─ Interrupt Control
+  └─ Capability System
+```
 
-- previous graph revision;
-- patch operations;
-- caller;
-- validation result;
-- resulting revision.
+## Runtime research before implementation
 
-## Persistence
+Before freezing the backend/inference interfaces, study representative runtimes/stacks including:
 
-The first implementation should not assume durable distributed execution.
+- `llama.cpp`;
+- Hugging Face Transformers;
+- vLLM;
+- TensorRT-LLM.
 
-A minimal in-process executor is a better starting point.
+Compare at least:
 
-If durable run persistence is added later, runtime persistence owns **runtime execution state only**. It must not become a copy of Agent conversations, Generation assets, or product documents.
+- prefill/decode structure;
+- KV/cache lifetime;
+- streaming;
+- sampler hooks;
+- cancellation;
+- pause/resume;
+- scheduler design;
+- continuous batching;
+- state mutation/rewind;
+- observability/statistics;
+- server API versus embedded-runtime control.
 
-## Non-goals for the initial implementation
+This research should produce a short decision record explaining which control points FLAMORIS must own directly.
 
+## Non-goals for the first implementation
+
+- distributed cluster scheduling;
 - arbitrary Python execution;
-- shell execution;
-- unrestricted HTTP requests;
-- arbitrary filesystem access;
-- credential transport inside workflow JSON;
-- distributed scheduler;
+- unrestricted shell execution;
+- unrestricted HTTP/filesystem authority;
 - plugin marketplace;
-- ComfyUI graph compatibility;
-- LangGraph/n8n compatibility;
-- long-lived Agent memory;
-- generation asset ownership;
-- product document ownership.
-
-Those may be revisited only when a concrete requirement and security model exist.
+- compatibility with every workflow format;
+- universal rewind support;
+- universal pause support across opaque remote providers;
+- long-term Agent memory;
+- training/fine-tuning infrastructure unless separately adopted.
