@@ -2,19 +2,26 @@
 
 ## Purpose
 
-FLAMORIS AI Runtime is intended to execute declarative workflow graphs authored by AI or other clients.
+FLAMORIS AI Runtime is intended to be a general processing layer underneath external AI callers and to execute the declarative workflow graphs they author.
 
-Its job is not to "be the AI". Its job is to provide a small, explicit, testable execution substrate where an AI can compose available capabilities without receiving ambient authority over the host.
+Its job is not to "be the AI". The planning intelligence remains outside the Runtime. ChatGPT, `flamoris-ai-agent`, Studio AI, or another Agent can decide what processing is needed and submit a workflow.
+
+The Runtime provides a small, explicit, testable execution substrate where that caller can compose available capabilities without receiving ambient authority over the host.
 
 The conceptual split is:
 
 ```text
-intent
-  ↓
-planner / Agent / client
-  ↓
-workflow IR
-  ↓
+ChatGPT / Agent / external AI
+  │
+  │ intent
+  ▼
+planner in the caller
+  │
+  │ workflow IR
+  ▼
+FLAMORIS AI Runtime
+  │
+  ▼
 validator
   ↓
 compiler / planner
@@ -24,7 +31,32 @@ bounded executor
 registered capabilities
   ↓
 results + provenance
+  │
+  ▼
+caller evaluates the result and decides the next step
 ```
+
+## Caller intelligence stays outside
+
+A persistent Agent is a natural caller, but it is not part of the Runtime itself.
+
+```text
+FLAMORIS AI Agent
+  ├─ identity
+  ├─ conversation
+  ├─ memory
+  ├─ goals
+  └─ policy
+       │
+       │ workflow IR
+       ▼
+FLAMORIS AI Runtime
+  └─ execution state only
+```
+
+This separation allows the same Runtime to serve ChatGPT, the FLAMORIS Agent, Studio AI, and other clients.
+
+It also means that adaptation does not require the Runtime itself to become an Agent. A caller can inspect a result and submit a new workflow. Later graph patching may optimize some cases, but the basic architecture already supports adaptive behavior outside the Runtime.
 
 ## Why a separate runtime?
 
@@ -143,6 +175,42 @@ MCP / API / CLI adapters
 
 The execution core should not know whether the workflow arrived over MCP, CLI, or tests.
 
+## Processing examples
+
+The intended layer is broad enough for ordinary multimodal AI processing.
+
+For example:
+
+```text
+image
+  ↓
+Vision
+  ↓
+algorithmic feature extraction
+  ↓
+external reasoning AI
+  ↓
+TTS
+  ↓
+audio response
+```
+
+Or:
+
+```text
+media input
+  ↓
+algorithm
+  ↓
+Vem
+  ↓
+external MCP capability
+  ↓
+result
+```
+
+The first graph looks like a normal AI application. The difference is that the caller AI may decide to construct that graph dynamically instead of a developer hard-wiring the pipeline in advance.
+
 ## Capability classes
 
 A single workflow may intentionally mix different execution styles:
@@ -156,6 +224,8 @@ FLAMORIS service ───────┘
 ```
 
 This mixing is one of the reasons to keep the workflow IR generic.
+
+The architecture goal is **open-ended composition, bounded execution**. The Runtime should not impose arbitrary product categories on registered capabilities. If two capabilities have valid contracts and the caller is allowed to use both, the workflow model should generally permit their composition. Execution policy still constrains permissions, side effects, credentials, network/filesystem access, cost/resource budgets, and runtime limits.
 
 The runtime should see all of them through one explicit capability model while preserving their different security and ownership properties:
 
