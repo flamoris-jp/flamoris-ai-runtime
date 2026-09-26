@@ -2,9 +2,9 @@
 
 ## Status
 
-**Phase A design proposal. Runtime implementation has not started.**
+**Phase A is merged; [Phase B implementation design](PHASE_B_DESIGN.md) is proposed for review. Runtime implementation has not started.**
 
-[Design Phases](DESIGN_PHASES.md) defines the three review gates and supersedes the old Phase 0–3 implementation sequence. This document records the C++ boundary and the questions Phase B must resolve, not final C++ interfaces.
+[Design Phases](DESIGN_PHASES.md) defines the three review gates and supersedes the old Phase 0–3 implementation sequence. This document records the Phase A C++ boundary and required Phase B questions. The linked Phase B proposal supplies the concrete decisions, evidence and acceptance-to-test mapping; no production interface or behavior is implemented.
 
 ## Core decision
 

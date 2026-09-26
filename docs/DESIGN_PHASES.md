@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-**Phase A architecture proposal for review. No runtime code, build system, or tests are implemented.**
+**Phase A was reviewed and merged via PR #4. Phase B is proposed for review in [its design index](PHASE_B_DESIGN.md). No runtime code, build system, or tests are implemented.**
 
 This plan replaces the earlier interleaved Phase 0–3 research/implementation roadmap. The three stages are sequential review gates: architecture, C++ implementation design, then implementation. A merged architecture proposal does not claim backend feasibility or authorize skipping the next gate.
 
@@ -24,6 +24,7 @@ The purpose is to settle observable semantics before choosing convenient impleme
 | [MCP Contract](MCP_CONTRACT.md) | Transport-facing projection of kernel semantics |
 | [Implementation Strategy](IMPLEMENTATION_STRATEGY.md) | C++ boundary and Phase B deliverables |
 | [Design Acceptance](DESIGN_ACCEPTANCE.md) | Cross-document scenarios and future test obligations |
+| [Phase B Design](PHASE_B_DESIGN.md) | Implementation-design index, evidence and qualification gates; does not override Phase A semantics |
 
 Detailed contracts govern their own domain; overview examples are explanatory. If documents conflict, fix the conflict rather than selecting whichever makes implementation easiest. Wire names and C++ types remain unfrozen until Phase B. Phase A semantic changes require review even when the wire schema is still draft.
 

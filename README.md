@@ -415,7 +415,7 @@ Inference   Workflow    Scheduler
 
 C++ does **not** mean every capability must run in-process. External AI, MCP, Generation, and other services remain registered external capabilities with their own authority.
 
-The exact minimum C++ standard, build toolchain, ABI/binding strategy, and backend integration details remain Phase B implementation-design decisions and must be based on runtime research and the reusable parts of `flamoris-net/flamoris-LLM`.
+The [Phase B design proposal](docs/PHASE_B_DESIGN.md) selects a C++20 library-first baseline and an evidence-backed first backend direction. Its toolchain, ownership, concurrency and integration contracts require review before implementation. No stable ABI or language binding is promised.
 
 See [Implementation Strategy](docs/IMPLEMENTATION_STRATEGY.md).
 
@@ -435,7 +435,7 @@ It already explores:
 
 The goal is not to copy it wholesale.
 
-The likely direction is to evolve reusable model/inference pieces into FLAMORIS AI Runtime, then add:
+Phase B uses the inspected foundation as a concept and test-methodology reference. Direct private-source migration requires separate publication and licensing clearance; none is copied in this proposal. The planned Runtime responsibilities include:
 
 - Inference Controller;
 - Job Scheduler;
@@ -447,7 +447,7 @@ The likely direction is to evolve reusable model/inference pieces into FLAMORIS 
 
 ## Runtime research before implementation
 
-Before freezing the first backend/inference contract, compare representative runtimes/stacks including:
+The [backend research ADR](docs/adr/0001-backend-control.md) compares pinned primary-source revisions of:
 
 - `llama.cpp`;
 - Hugging Face Transformers;
@@ -475,11 +475,11 @@ Work proceeds through three review gates:
 
 | Stage | Deliverable | Status |
 | --- | --- | --- |
-| Phase A: Architecture Design | Execution/state/resource/authorization/event/failure contracts and acceptance scenarios | Proposed for review |
-| Phase B: C++ Implementation Design | Runtime research, concept-to-type mapping, ownership, concurrency, backend interfaces and build/test ADRs | Not started |
+| Phase A: Architecture Design | Execution/state/resource/authorization/event/failure contracts and acceptance scenarios | Reviewed and merged via PR #4 |
+| Phase B: C++ Implementation Design | Runtime research, concept-to-type mapping, ownership, concurrency, backend interfaces and build/test ADRs | Proposed for review; see [design index](docs/PHASE_B_DESIGN.md) |
 | Phase C: Implementation | Reviewed contracts implemented in small, tested commits | Not started |
 
-[Design Phases](docs/DESIGN_PHASES.md) defines the gates and document authority. This replaces the earlier Phase 0–3 roadmap. Runtime research and private foundation inspection remain required before backend interfaces are frozen in Phase B.
+[Design Phases](docs/DESIGN_PHASES.md) defines the gates and document authority. This replaces the earlier Phase 0–3 roadmap. Phase B records current-source research and private foundation inspection; adapter feasibility and platform builds are explicit Phase C qualification gates.
 
 The Phase A baseline is a single Runtime process with bounded execution. Job completion includes a `finalizing` phase for child/resource cleanup; a terminal result may report explicitly transferred cleanup debt or unknown external outcomes. Trace replay only inspects events and cannot recover live execution after a process crash.
 
@@ -500,6 +500,7 @@ See:
 - [Implementation Strategy](docs/IMPLEMENTATION_STRATEGY.md)
 - [Design Phases and document map](docs/DESIGN_PHASES.md)
 - [Design Acceptance](docs/DESIGN_ACCEPTANCE.md)
+- [Phase B design and research index](docs/PHASE_B_DESIGN.md)
 
 ## FLAMORIS
 
@@ -537,7 +538,7 @@ FLAMORIS AI Runtime
 
 という位置です。
 
-開発は **Phase A：アーキテクチャ設計 → Phase B：C++実装設計 → Phase C：実装** の3段階で進め、各段階でレビューします。現在はPhase Aの設計提案で、本番コードはまだありません。
+開発は **Phase A：アーキテクチャ設計 → Phase B：C++実装設計 → Phase C：実装** の3段階で進め、各段階でレビューします。Phase AはPR #4でマージ済み、現在は[Phase Bの設計提案](docs/PHASE_B_DESIGN.md)です。本番コード・ビルド環境・実行テストはまだありません。
 
 推論中に別の処理が必要になれば、Inferenceをyield/pauseし、Vision、algorithm、MCP、外部AIなどをJobとして実行し、その結果を受け取って推論を続けられる構造を目指します。
 
@@ -563,9 +564,9 @@ pause / stop / child job / input injection
 
 という形を想定します。
 
-実装前には `llama.cpp`、Hugging Face Transformers、vLLM、TensorRT-LLMなどの一般的なRuntimeを調査し、prefill/decode、KV cache、streaming、cancel、scheduler、pause/resume、state rewind、observabilityの設計を比較します。
+Phase Bでは `llama.cpp`、Hugging Face Transformers、vLLM、TensorRT-LLMの一次資料を比較し、prefill/decode、KV cache、streaming、cancel、scheduler、pause/resume、state rewind、observabilityの制御点と制約を記録しました。最初はdeterministic fakeで契約を検証し、その後に埋め込み型llama.cppのCPU adapterを検証する設計です。実装済みのbackend対応を意味しません。
 
-また、既存の `flamoris-net/flamoris-LLM` はModel Runtime、generation loop、cache、compute、CPU/OpenCL実装を持っているため、AI Runtimeの下地として再利用可能性を調査します。
+既存の `flamoris-net/flamoris-LLM` も現行コードを調査しました。概念・テスト方針を参考にし、privateコードは移植していません。コードの再利用には公開権限とライセンスの確認が別途必要です。
 
 外側の `flamoris-ai-agent` はIdentity、Memory、Conversation、Personalityなどの永続的なAgent状態を担当し、AI Runtimeは実際にモデルと処理を動かす実行層を担当する想定です。
 
@@ -578,4 +579,3 @@ pause / stop / child job / input injection
 Code and documentation in this repository are licensed under the [Apache License 2.0](LICENSE), unless otherwise noted.
 
 AI models, model weights, datasets, media, and other non-code assets may use separate licenses. State their applicable licenses alongside those assets.
-

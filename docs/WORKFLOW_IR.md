@@ -424,4 +424,4 @@ Unsupported future schemas should be rejected deterministically rather than inte
 
 Phase A specifies the bounded semantics; Phase B defines exact schemas, compiler stages, C++ contracts and deterministic test seams; Phase C implements reviewed slices. The baseline covers DAG validation, explicit references, compiled plans, Job creation, basic join/race, effect/authority checks, Continuations and bounded structured observation.
 
-Event persistence and replay, advanced residency optimization, adaptive graph mutation and speculative replacement remain later slices. There are no dynamic loops, arbitrary code or durable distributed scheduling in the baseline. See [Design Phases](DESIGN_PHASES.md) and [Design Acceptance](DESIGN_ACCEPTANCE.md).
+In-memory inspection-only replay belongs to baseline acceptance (A32). Durable event persistence/recovery, advanced residency optimization, adaptive graph mutation and speculative replacement remain later extensions. There are no dynamic loops, arbitrary code or durable distributed scheduling in the baseline. See [Design Phases](DESIGN_PHASES.md) and [Design Acceptance](DESIGN_ACCEPTANCE.md).

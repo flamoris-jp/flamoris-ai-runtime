@@ -226,6 +226,11 @@ Record the conclusions in repository documentation or a design decision before i
 
 Follow [Design Phases](docs/DESIGN_PHASES.md) and its document authority map.
 
+The [Phase B design index](docs/PHASE_B_DESIGN.md) links the proposed toolchain,
+ownership, concurrency, backend, serialization, resource/paid/activation contracts
+and A01–A42 test map. Read the reviewed versions before Phase C work. They refine
+implementation choices and never override Phase A semantics or claim working code.
+
 1. Phase A: architecture contracts and failure/acceptance scenarios; no production code or build scaffold.
 2. Phase B: current `flamoris-LLM` and primary-source runtime research, then C++ types/interfaces, ownership, errors, concurrency, serialization and build/test ADRs; still no production runtime implementation.
 3. Phase C: implement reviewed contracts in logical, frequently committed slices with deterministic acceptance tests.
@@ -328,4 +333,3 @@ Never:
 Unless stated otherwise, code and documentation are Apache License 2.0.
 
 Models, weights, datasets, media, providers, and third-party components may use separate terms. Document them explicitly.
-
