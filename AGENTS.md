@@ -2,7 +2,7 @@
 
 This repository is part of the FLAMORIS ecosystem.
 
-FLAMORIS AI Runtime is currently a **design-stage repository** for a headless execution runtime that will accept AI-authored workflow IR, validate it, and execute it under explicit capability and resource boundaries.
+FLAMORIS AI Runtime is currently a **design-stage repository** for a headless processing/execution layer used by external AI callers such as ChatGPT, `flamoris-ai-agent`, Studio AI, or other Agents. Those callers author workflow IR; the Runtime validates and executes it under explicit capability and resource boundaries.
 
 Do not implement behavior based only on prior chat context. Read the current repository documentation first and keep planned behavior clearly separated from implemented behavior.
 
@@ -31,6 +31,19 @@ Do not duplicate authority from neighboring FLAMORIS repositories:
 - Studio and desktop products retain authority for their own state and documents.
 
 The runtime may call another service through an explicit adapter. It must not silently copy or become authoritative for that service's state.
+
+## Caller/runtime separation
+
+The planning intelligence stays outside this repository.
+
+Do not turn the Runtime into a persistent conversational Agent merely because Agents are expected callers.
+
+The default responsibility split is:
+
+- caller / Agent: intent, goals, identity, conversation, memory, planning, and next-step decisions;
+- Runtime: workflow admission, validation, execution, per-run state, cancellation, results, and execution provenance.
+
+The same Runtime should be usable by `flamoris-ai-agent`, ChatGPT, Studio AI, and other authorized clients.
 
 ## Core design rule
 
@@ -78,6 +91,10 @@ Examples of acceptable conceptual node families:
 - explicitly registered product/service capabilities
 
 Algorithmic processing is a first-class workflow use case and must not be treated as merely glue around model calls.
+
+Vision, speech recognition, TTS/voice generation, multimodal inference, embeddings/similarity, and other ordinary AI capabilities may also be exposed through registered capability families. The workflow model should be general enough to pass one capability's structured output into the next.
+
+The intended principle is **open-ended composition, bounded execution**. Do not add arbitrary product-level filters that prevent safe registered capabilities from being composed merely because they belong to different domains. Do preserve strict execution boundaries around permissions, credentials, side effects, resource use, filesystem/network access, and external services.
 
 External AI/API and external MCP execution must use configured, registered adapters/capabilities. Do not put raw credentials, arbitrary provider endpoints, or arbitrary MCP server URLs into portable workflow JSON.
 
