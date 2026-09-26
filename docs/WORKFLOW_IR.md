@@ -14,12 +14,16 @@ Keep these concepts separate:
 
 ```text
 Workflow IR
-   │ describes dependencies/control
+   │ declarative dependencies/control
    ▼
-Runtime execution plan
-   │
+Validator
    ▼
-Jobs
+Execution Plan Compiler
+   ▼
+Runtime Execution Plan
+   │ approved executable contract
+   ▼
+Jobs / Continuations
    │ scheduled according to resources
    ▼
 Capabilities / Inference
@@ -80,6 +84,42 @@ Conceptually:
 ```
 
 Exact names remain draft.
+
+## Compilation boundary
+
+Workflow IR is never scheduler state and should not be executed directly.
+
+The Runtime first validates the IR, resolves registered capabilities and bindings, applies caller/runtime limits, derives resource/effect information, and compiles an **Execution Plan**.
+
+Conceptually:
+
+```text
+Workflow IR
+  ↓
+schema / graph / reference validation
+  ↓
+capability resolution
+  ↓
+permission / effect / budget checks
+  ↓
+Execution Plan Compiler
+  ↓
+Execution Plan
+```
+
+The plan may contain:
+
+- resolved capability/version references;
+- normalized steps;
+- dependencies;
+- input/output bindings;
+- resource requirements and affinity hints;
+- effect sets;
+- side-effect boundaries;
+- runtime limits;
+- continuation points.
+
+The plan is Runtime-owned and may use internal identifiers that are not part of the portable Workflow IR schema.
 
 ## Nodes and jobs
 
@@ -282,6 +322,23 @@ The IR should not contain raw KV cache or backend pointers.
 
 Those belong to runtime execution state.
 
+## Continuations
+
+Workflow IR may describe control that can yield or wait, but it must not serialize raw Continuation objects, backend pointers, KV cache, GPU leases, or other live Runtime state.
+
+The compiler/runtime determines continuation points from validated workflow and capability semantics.
+
+A Continuation may later hold:
+
+- resume point;
+- waiting condition;
+- bounded result bindings;
+- backend/state reference where supported;
+- resource requirements and affinity hints;
+- deadline/cancellation linkage.
+
+This lets inference and workflow resume through a common Runtime mechanism without turning Workflow IR into a process snapshot format.
+
 ## References
 
 References should remain small and deterministic.
@@ -302,19 +359,24 @@ Large assets should normally remain owned by the capability/service that produce
 
 Output size is bounded.
 
-## Side effects
+## Effects and side-effect analysis
 
-Side-effect classification belongs to registered capability metadata, not to claims in workflow JSON.
+Effect classification belongs to registered capability metadata, not to claims in workflow JSON.
 
-Examples include:
+Effects are a composable set. Initial conceptual values include:
 
-- sending a message;
-- changing product state;
-- creating/publishing an asset;
-- starting/stopping a service;
-- calling a paid remote API.
+- `pure`;
+- `read`;
+- `write`;
+- `external`;
+- `destructive`;
+- `paid`.
 
-The validator/compiler should be able to identify side-effecting jobs before execution where possible.
+For example, an external paid generation capability may have `{ external, paid }`, while an issue-creation capability may have `{ external, write }`.
+
+The validator/compiler should derive a run-level effect summary before execution and mark side-effect boundaries in the Execution Plan.
+
+This allows authorization, confirmation, budget checks, retry policy, race policy, and event provenance to reason about effects without trusting workflow-authored claims.
 
 ## Interrupts and workflow changes
 
@@ -339,7 +401,7 @@ Conceptual metadata:
   "version": "1",
   "input_schema": {},
   "output_schema": {},
-  "side_effects": false,
+  "effects": ["read"],
   "idempotent": true,
   "cancellable": true,
   "pausable": false,
@@ -373,8 +435,10 @@ The first implementation should be intentionally small:
 - simple scheduler;
 - independent-node parallel readiness;
 - basic join;
-- basic race with explicit loser cancellation policy;
-- event emission;
+- basic race with explicit acceptance and loser policy;
+- effect analysis;
+- explicit continuation creation/resume;
+- event emission and bounded event journal;
 - no dynamic loops;
 - no arbitrary code;
 - no durable distributed scheduler.

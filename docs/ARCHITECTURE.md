@@ -90,6 +90,79 @@ The runtime kernel coordinates four tightly related concerns:
 
 These concerns are separate contracts, but they must cooperate without forcing every transition through an external request/response boundary.
 
+## Execution machines and continuation boundary
+
+Inference and workflow share one Runtime Kernel, but they should not collapse into one implementation object.
+
+The intended internal shape is:
+
+```text
+                    Runtime Kernel
+
+          ┌────────────┴─────────────┐
+          ▼                          ▼
+   Inference Machine          Workflow Machine
+          │                          │
+          └────── Continuation ──────┘
+                     │
+                    Jobs
+                     │
+                  Scheduler
+                     │
+              Resource Manager
+
+All state transitions emit structured Events.
+```
+
+The **Inference Machine** owns model-adjacent lifecycle and backend state transitions.
+
+The **Workflow Machine** owns compiled workflow control, dependency progression, joins/races, bindings, and plan state.
+
+A **Continuation** is the explicit bridge for resumable execution. It describes how execution may continue after a yield/wait without forcing Inference Machine and Workflow Machine into one implementation.
+
+A continuation may contain:
+
+- execution-machine identity;
+- resume point;
+- backend/state reference where supported;
+- waiting condition or child-job set;
+- result/input bindings;
+- resource requirements;
+- model/device/resource affinity hints;
+- deadline/cancellation linkage.
+
+A continuation should not normally retain a physical GPU lease while waiting. Resource leases belong to active scheduling; affinity survives as a hint so resumption can prefer a warm model/device when beneficial.
+
+## Workflow compilation
+
+Workflow IR is input to compilation, not scheduler state.
+
+```text
+Workflow IR
+    ↓
+Schema / graph / reference validation
+    ↓
+Capability resolution and authorization checks
+    ↓
+Execution Plan Compiler
+    ↓
+Execution Plan
+    ├─ steps
+    ├─ dependencies
+    ├─ bindings
+    ├─ resource requirements
+    ├─ effect sets
+    ├─ side-effect boundaries
+    ├─ limits
+    └─ continuation points
+    ↓
+Workflow Machine / Jobs / Scheduler
+```
+
+The scheduler must not directly interpret arbitrary Workflow JSON.
+
+The compiled plan is the Runtime-owned executable contract. This separates AI-authored or externally supplied declarative intent from the bounded structures used for execution.
+
 ## Model/backend layer
 
 A model backend should expose only the execution primitives the Runtime actually needs.
@@ -182,6 +255,22 @@ May include:
 - interrupt flags;
 - metrics.
 
+### Continuation state
+
+May include:
+
+- continuation ID and owning run/job;
+- owning execution machine;
+- resume point;
+- waiting condition;
+- state/backend reference where supported;
+- bounded resume bindings;
+- resource requirements and affinity hints;
+- deadline/cancellation linkage;
+- lifecycle status.
+
+Continuation state is active Runtime state, not durable Agent memory.
+
 ### Workflow run state
 
 May include:
@@ -235,6 +324,22 @@ Examples:
 
 The mapping must remain explicit enough for cancellation, tracing, provenance, and resource scheduling.
 
+### Execution Plan
+
+An Execution Plan is produced by the compiler after Workflow IR validation and capability resolution.
+
+It is distinct from both Workflow IR and live Job state.
+
+The plan should contain only Runtime-approved, bounded execution semantics. It may include resolved capability versions, dependencies, bindings, effect sets, resource requirements, limits, side-effect boundaries, and identified continuation points.
+
+### Continuation
+
+A Continuation is resumable execution state, not a Job subtype.
+
+A Job may yield and create/update a Continuation; when its waiting condition is satisfied, the scheduler may turn the continuation back into runnable work.
+
+This allows an InferenceJob to wait for Vision, algorithm, MCP, or other child work without treating every pause as an ad-hoc special case inside the inference implementation.
+
 ## Job lifecycle
 
 Conceptual common states:
@@ -263,7 +368,7 @@ Capability/job metadata should declare at least:
 - cancellable;
 - pausable/resumable;
 - idempotent;
-- side-effecting;
+- effect set;
 - resource class;
 - retry policy;
 - expected/maximum output size;
@@ -350,7 +455,7 @@ request ────┼─ remote specialist ─┼─ race ─► selected resu
 
 Race semantics must define:
 
-- what counts as a winner;
+- what counts as a winner, including an explicit acceptance rule where applicable;
 - whether failure can win;
 - what happens to unfinished losers;
 - whether losers are cancelled;
@@ -358,6 +463,8 @@ Race semantics must define:
 - how already-completed side effects are treated.
 
 Cancellation of losers is not equivalent to rollback.
+
+Later, race may support speculative execution where a fast provisional result is emitted before a stronger candidate finalizes. That requires explicit `provisional`, `final`, and `superseded` event/result semantics and is not part of the first race implementation.
 
 ## Interrupt control
 
@@ -463,6 +570,19 @@ Potential event families:
 
 Event schemas should be stable enough for live UI and tests.
 
+## Event journal and trace replay
+
+Structured events should optionally be retained as a bounded event journal.
+
+Two concepts must remain separate:
+
+- **trace replay** - replay/inspect the recorded event sequence without executing capabilities again;
+- **re-execution/retry** - submit work again under explicit runtime and side-effect rules.
+
+A trace replay must never recreate external writes, paid calls, destructive operations, or other side effects.
+
+This separation allows regression tests to verify lifecycle, dependency order, continuation behavior, resource allocation decisions, interrupts, and effect ordering even when model text is nondeterministic.
+
 ## Logging levels and sensitive data
 
 Observability should be configurable.
@@ -503,6 +623,33 @@ A capability entry should eventually describe:
 
 The registry is not permission by itself.
 
+## Effect model
+
+Capability effects should be represented as a composable set rather than one boolean or one mutually exclusive enum.
+
+Initial conceptual effects:
+
+- `pure` - no externally observable mutation;
+- `read` - reads data/state;
+- `write` - mutates state;
+- `external` - crosses an external service/network authority boundary;
+- `destructive` - deletion or similarly destructive mutation;
+- `paid` - may incur external cost.
+
+Examples:
+
+```text
+algorithm.resize          -> { pure }
+vision.describe           -> { read }
+mcp.github.create_issue   -> { external, write }
+generation.image          -> { external, paid }
+file.delete               -> { write, destructive }
+```
+
+The compiler should derive a run-level effect summary before execution so authorization, user confirmation, budget checks, and side-effect ordering can operate on machine-readable data.
+
+Workflow IR cannot self-declare itself safe; effect metadata comes from the registered capability.
+
 ## Resource management
 
 Resource management becomes important once inference and workflow jobs coexist.
@@ -519,6 +666,10 @@ The Runtime should eventually reason about:
 - external provider limits.
 
 The first implementation may use a simple scheduler, but the contracts should not assume unlimited physical parallelism.
+
+Model residency is a first-class scheduling input. The Resource Manager may track which logical model/backend is resident or warm, estimated memory pressure, and approximate eviction/reload cost. The scheduler may reorder otherwise-ready jobs when doing so preserves semantics and materially reduces model switching cost.
+
+Residency optimization must never override dependency order, effect ordering, fairness/budget limits, cancellation, or explicit priority policy.
 
 ## Headless first
 
@@ -556,6 +707,33 @@ Prefer structured stable errors such as:
 - `upstream_failure`
 
 Do not expose raw provider responses by default.
+
+## Implementation language and process boundary
+
+The intended Runtime Kernel implementation language is **C++**.
+
+This choice is architectural rather than cosmetic. The kernel is expected to own or closely coordinate:
+
+- decode/prefill lifecycle control;
+- model/backend state and cache lifetime;
+- low-latency interrupt points;
+- continuation state transitions;
+- scheduling and resource decisions;
+- native runtime/backend integration;
+- bounded event emission.
+
+The Runtime Kernel should remain headless and transport-independent.
+
+```text
+MCP adapter ─┐
+API adapter ─┼──► C++ Runtime Kernel
+CLI adapter ─┤
+bindings  ───┘
+```
+
+External capabilities do not need to be rewritten in C++. Generation, MCP, remote AI/API, and other services may remain out-of-process behind registered capability adapters.
+
+The exact minimum C++ standard, compiler/toolchain support, library layout, exception/error policy, ABI strategy, and optional language bindings are Phase 0 decisions. They must be based on current `flamoris-LLM` code and representative runtime research rather than guessed in advance.
 
 ## Implementation foundation
 

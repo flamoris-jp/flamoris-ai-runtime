@@ -79,7 +79,7 @@ Metadata may include:
 
 - capability identifier/version;
 - input/output schema;
-- side effects;
+- effect set;
 - idempotency;
 - cancellability;
 - pause/resume support;
@@ -236,6 +236,23 @@ Conceptually:
 
 Higher trace levels may be unavailable or restricted.
 
+## Trace replay versus re-execution
+
+If event-journal replay is exposed, **trace replay** must mean inspection/re-emission of retained structured events without invoking capabilities again.
+
+It is distinct from retry or re-execution.
+
+Conceptually, future surfaces may distinguish:
+
+```text
+trace.replay(run_id)
+run.retry(run_id)
+```
+
+Exact names are not frozen.
+
+Trace replay must not repeat paid calls, writes, destructive operations, external messages, or other side effects. Re-execution must pass normal authorization, effect, idempotency, and budget checks as a new execution attempt.
+
 ## Cancellation semantics
 
 Cancellation must be explicit:
@@ -252,6 +269,24 @@ Pause/resume is capability-specific.
 A backend that cannot safely preserve model state must report pause/resume as unsupported.
 
 The MCP surface must not pretend every remote provider has state-preserving pause.
+
+## Continuation visibility
+
+Continuation is an internal Runtime concept, not a requirement that every client manage resumable state manually.
+
+Status/event surfaces may expose bounded continuation metadata when useful for inspection, such as:
+
+- continuation ID;
+- owning run/job;
+- owning execution machine;
+- waiting reason;
+- resumable/unsupported state;
+- deadline;
+- resource/model affinity summary.
+
+Do not expose raw backend pointers, KV cache contents, credentials, or unrestricted process state.
+
+A normal caller should be able to submit a run and let the Runtime manage continuations automatically.
 
 ## Result handling
 

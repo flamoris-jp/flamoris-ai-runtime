@@ -139,6 +139,34 @@ An `InferenceJob` may retain model execution state such as token position, cache
 
 Not every job/backend must support pause, resume, rewind, or cancellation. These are capabilities, not assumptions.
 
+## Continuations
+
+A **Continuation** is the Runtime-owned description of work that can be resumed later.
+
+Keep the distinction explicit:
+
+```text
+Job
+  = work that is runnable, running, waiting, or terminal now
+
+Continuation
+  = the resumable execution state and resume contract for a future step
+```
+
+A continuation may include:
+
+- the owning execution machine;
+- resume point;
+- backend/model state reference where supported;
+- what result or event it is waiting for;
+- input/result bindings required on resume;
+- resource requirements and affinity hints;
+- deadline/cancellation linkage.
+
+A paused continuation should not normally hold a physical GPU lease indefinitely. The scheduler reacquires resources when the continuation becomes runnable again, while using model/device affinity as an optimization hint.
+
+Inference is not the only possible continuation source. The design should allow both the Inference Machine and Workflow Machine to yield resumable work through the same continuation contract.
+
 ## Parallel, join, and race
 
 Independent jobs may become runnable at the same time.
@@ -300,6 +328,30 @@ InferenceJob
 
 See [Workflow IR](docs/WORKFLOW_IR.md).
 
+## Workflow compilation
+
+Workflow IR is not executed directly by the scheduler.
+
+The intended path is:
+
+```text
+Workflow IR
+    ↓
+Validator
+    ↓
+Execution Plan Compiler
+    ↓
+Execution Plan
+    ↓
+Jobs / Continuations
+    ↓
+Scheduler
+```
+
+The compiler resolves registered capabilities, validates bindings and limits, derives resource requirements and effects, identifies side-effect boundaries and continuation points, and produces a bounded execution plan.
+
+This keeps AI-authored or externally supplied Workflow IR separate from the Runtime's executable scheduling contract.
+
 ## Security model
 
 The broad design principle remains:
@@ -321,6 +373,35 @@ The Runtime should validate and constrain:
 Model output does not grant permission by itself.
 
 Do not add arbitrary shell, unrestricted Python, ambient filesystem/network access, or embedded credentials as shortcuts.
+
+## Implementation language and kernel boundary
+
+The intended implementation language for the Runtime Kernel is **C++**.
+
+C++ is chosen for the model-adjacent core because the Runtime is expected to coordinate low-level inference control, backend state, cache lifetime, native model runtimes, scheduling, and GPU/resource-aware execution without forcing those control points through a higher-level service boundary.
+
+Conceptually:
+
+```text
+MCP / API / CLI / language bindings
+              │
+              ▼
+        C++ Runtime Kernel
+   ┌──────────┼───────────┐
+   ▼          ▼           ▼
+Inference   Workflow    Scheduler
+ Machine     Machine
+      \       /
+      Continuation
+              │
+       Resource Manager
+```
+
+C++ does **not** mean every capability must run in-process. External AI, MCP, Generation, and other services remain registered external capabilities with their own authority.
+
+The exact minimum C++ standard, build toolchain, ABI/binding strategy, and backend integration details remain Phase 0 decisions and must be based on runtime research and the reusable parts of `flamoris-net/flamoris-LLM`.
+
+See [Implementation Strategy](docs/IMPLEMENTATION_STRATEGY.md).
 
 ## Existing FLAMORIS LLM foundation
 
@@ -378,28 +459,34 @@ The purpose is not compatibility with all of them. It is to identify the smalles
 
 - compare existing runtimes;
 - inspect/reuse `flamoris-LLM`;
+- confirm the C++ kernel/toolchain strategy;
 - define inference lifecycle;
 - define backend capability contract;
-- define structured events.
+- define structured events;
+- define the Continuation and Execution Plan contracts.
 
-### Phase 1 - Inference controller
+### Phase 1 - Inference and continuation foundation
 
 - active inference state;
+- Inference Machine lifecycle;
 - prefill/decode control;
 - token/event streaming;
 - interrupt/cancel;
-- supported pause/resume;
+- supported pause/resume through explicit Continuations;
 - deterministic tests.
 
-### Phase 2 - Jobs and workflow
+### Phase 2 - Jobs, compiler, and workflow
 
 - Job lifecycle;
 - simple resource-aware scheduler;
-- Workflow IR validator/executor;
+- Workflow IR validator;
+- Execution Plan Compiler;
+- Workflow Machine execution;
+- effect analysis;
 - independent-job parallel readiness;
 - join;
-- race;
-- result injection back into inference.
+- basic race;
+- bounded result injection back into inference.
 
 ### Phase 3 - Interfaces and capabilities
 
@@ -426,6 +513,7 @@ See:
 - [Architecture](docs/ARCHITECTURE.md)
 - [Workflow IR](docs/WORKFLOW_IR.md)
 - [MCP Contract](docs/MCP_CONTRACT.md)
+- [Implementation Strategy](docs/IMPLEMENTATION_STRATEGY.md)
 
 ## FLAMORIS
 

@@ -57,7 +57,10 @@ Keep these concepts distinct:
 - **Workflow** - dependency/data/control description.
 - **Job** - scheduler-visible unit of active work.
 - **InferenceJob** - a stateful job that may preserve model execution state.
+- **Continuation** - resumable execution state plus the contract describing where, why, and with what bindings execution may resume.
+- **Execution Plan** - validated, compiled Runtime contract derived from Workflow IR before scheduling.
 - **Capability** - registered callable functionality.
+- **Effect set** - machine-readable effects such as `pure`, `read`, `write`, `external`, `destructive`, and `paid`; effects are composable, not a single enum.
 - **Event** - structured observable state transition or progress record.
 
 Do not collapse Workflow and Job into one abstraction.
@@ -158,6 +161,18 @@ Conceptual families may include:
 
 External AI/API and MCP execution must use configured, registered adapters. Do not embed raw credentials, arbitrary endpoints, or arbitrary MCP server URLs in portable workflow JSON.
 
+## Implementation language
+
+The intended Runtime Kernel implementation language is **C++**.
+
+Keep the model-adjacent execution core in C++ so inference lifecycle control, native backend integration, cache/state ownership, scheduling, and resource-aware execution can remain explicit and low overhead.
+
+Do not interpret this as a requirement to pull every capability into the C++ process. MCP, Generation, external AI/API, and other domain services remain external capabilities when that preserves authority boundaries.
+
+Do not freeze the exact C++ standard, compiler matrix, build system details, or public ABI from chat assumptions. Record those decisions during Phase 0 after inspecting `flamoris-net/flamoris-LLM` and representative runtimes.
+
+Language bindings or service adapters must sit outside the Runtime Kernel contract rather than changing core execution semantics.
+
 ## Existing FLAMORIS LLM foundation
 
 Before reimplementing model execution, inspect `flamoris-net/flamoris-LLM`.
@@ -203,15 +218,16 @@ Record the conclusions in repository documentation or a design decision before i
 
 Keep the first implementation small and reviewable.
 
-1. runtime research and decision record;
+1. runtime research and decision record, including the C++ kernel/toolchain boundary;
 2. evaluate/refactor the reusable `flamoris-LLM` foundation;
-3. define inference state/controller and structured event bus;
+3. define Inference Machine state/control, Continuation, and structured Event Bus;
 4. define Job lifecycle and a simple scheduler;
-5. add deterministic Workflow IR validation/execution;
-6. add interrupt/cancel and supported pause/resume behavior;
-7. add MCP/API/CLI adapters;
-8. add real local/external capabilities;
-9. optimize scheduling and adaptive workflows only after measured need.
+5. define deterministic Workflow IR validation and the Execution Plan Compiler;
+6. add the Workflow Machine and execute compiled plans rather than raw Workflow IR;
+7. add interrupt/cancel and supported pause/resume behavior through Continuations;
+8. add MCP/API/CLI adapters;
+9. add real local/external capabilities;
+10. add event journal/trace replay, residency-aware scheduling, and adaptive/speculative execution only after the simpler semantics are proven.
 
 Do not jump directly to distributed scheduling, a plugin marketplace, or a generic graph programming language.
 
@@ -254,7 +270,11 @@ When implementation begins:
 When code exists, prefer deterministic offline tests for:
 
 - inference lifecycle transitions;
+- continuation create/yield/resume/terminal transitions;
+- compiler determinism and invalid-plan rejection;
+- effect analysis and side-effect boundary ordering;
 - event ordering;
+- trace replay without side-effect re-execution;
 - interrupt request/application;
 - cancellation;
 - supported pause/resume;
