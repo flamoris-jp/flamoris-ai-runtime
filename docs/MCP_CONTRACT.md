@@ -71,7 +71,7 @@ Do not require the external caller to pre-author every internal job if the Runti
 
 Likewise, do not let model output become ambient permission to run arbitrary work.
 
-Every dispatched capability remains subject to registration, authorization, resource, and side-effect policy.
+Every dispatched capability remains subject to registration, authorization, resource, and side-effect policy. A direct inference request is normalized before admission to a minimal single-root Execution Plan with pinned model/backend contracts, effects, finite resource/cost/trace limits and an explicit bounded child-work envelope. It follows the same fingerprint, stale-plan, admission and dispatch rules as workflow submission; no direct-dispatch bypass exists.
 
 ## capabilities.list
 
@@ -291,7 +291,7 @@ Job identity remains stable across yield/resume. Cancellation, timeout, provenan
 
 ## Result handling
 
-Final results contain validated declared outputs, stable metadata and known effect/cleanup evidence. A not-yet-terminal result request returns explicit pending state; race winners and token streams are provisional observations until the Run terminal result is committed. Future speculative replacement is not implied.
+Final results contain validated declared outputs, stable metadata and known effect/cleanup evidence. A not-yet-terminal result request returns explicit pending state. After `race.winner_selected`, the winner is a committed, immutable intermediate result, while the Run terminal result remains pending through loser cleanup and finalization. Token streams may be provisional observations; they cannot replace the committed race winner. Speculative replacement is a deferred extension.
 
 Timeout or response loss after an external handoff may return `outcome_unknown` or a timeout with unknown-outcome metadata. Do not expose a success/cancelled claim merely because the HTTP/MCP request ended.
 
