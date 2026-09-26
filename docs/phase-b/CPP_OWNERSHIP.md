@@ -64,7 +64,8 @@ namespace and must not depend on a process counter alone.
 | Effect set → `EffectSet` | Value within validated capability/plan records | I after checked factory; closed known-bit mask rather than an unchecked enum cast | Canonical ordered string array | Reject empty, unknown, pure+other, destructive-without-write; aggregate only validated nonempty members |
 | Authorization context → `AuthorizationContext` | Run controller, bounded until terminal; authenticated principal initially provided by transport | C; current subject/tenant scopes, expiry, decision/confirmation references; secrets excluded | Internal; redacted decision projection only | Revocation prevents new dispatch/resume but does not remove cleanup authority; never export as a bearer token |
 | Authorization decision → `AuthorizationDecision` | One pending commit; bounded historical audit projection | I result with policy revision, concrete input/operation digest and scopes; C validates currency | Redacted wire | A previous allow cannot authorize a later dispatch/retry/resume; discard if relevant local revision changed |
-| Submission claim → `SubmissionClaim`, `SubmissionIndex` | Runtime admission index; pending bounded waiters then advertised dedup retention | C; scoped key/digest and reserved RunId; waiters use response channels, not Run pointers | Response wire; index internal/non-durable | Atomic key+ID claim; failed pre-Run admission shares rejection before removal; admitted claim not released by failure/timeout |
+| Pending admission → `PendingSubmission`, `PendingSubmissionId` | Runtime admission index, validation through decision delivery preparation and callback fencing | C; unique ID/generation and reserved RunId for each owner; optional keyed claim, bounded response slot | Internal; response wire | Unkeyed requests never enter SubmissionIndex; fresh Run on each successful admission; retire only after outstanding receipt ownership is closed/transferred |
+| Submission claim → `SubmissionClaim`, `SubmissionIndex` | Runtime admission index; pending bounded waiters then advertised dedup retention | C; explicit nonempty scoped key/digest and reserved RunId; waiters use response channels, not Run pointers | Response wire; index internal/non-durable | Atomic key+ID claim; failed pre-Run admission shares rejection before removal; admitted claim not released by failure/timeout |
 
 `JobRecord` uses a checked payload sum: initial input, active machine,
 Continuation, pending resume, cleanup-only references, or terminal metadata.
@@ -117,8 +118,8 @@ cannot be destroyed; it remains retained/contained, or the configured supervisor
 terminates the process when safe local containment is impossible.
 
 `CallbackTicket` is a discriminated value: pre-admission replies carry the
-instance, submission-claim and operation generation, never fabricated Job or
-attempt IDs; lifecycle observations carry instance, Run, Job, attempt/dispatch,
+instance, PendingSubmissionId and operation generation, plus optional keyed-claim
+identity/generation, never fabricated Job or attempt IDs; lifecycle observations carry instance, Run, Job, attempt/dispatch,
 operation and applicable suspension/backend/host/allocation generations;
 cleanup replies carry independent CleanupId/operation/allocation epochs, with
 Run provenance optional after retention expiry. A weak sink reference may

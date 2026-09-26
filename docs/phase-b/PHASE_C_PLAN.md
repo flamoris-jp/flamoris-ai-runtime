@@ -114,7 +114,8 @@ test does not close an acceptance case.
 
 - **Scope:** revocable current policy/capability projection, Run-local cumulative
   budget and confirmation checks; atomic scoped submission claim plus one reserved
-  Run ID; bounded same-digest waiters; admitted-claim retention; external
+  Run ID; independent fresh unkeyed PendingSubmission records; bounded keyed
+  same-digest waiters; admitted-claim retention; external
   PaidBudgetPort adapter contract, proof-of-no-handoff release, settlement,
   full paid-race `reserve_envelope`/`bind_attempt` funding gates with nested
   subset ownership, durable `arm_handoff`/ticket protocol, inventory/reconciliation and fail-closed
@@ -124,7 +125,8 @@ test does not close an acceptance case.
 - **Prerequisites:** C03. D fake storage is outside Runtime ownership so a new
   Runtime construction can test durable liabilities without recovering Runs.
 - **Tests / acceptance:** revoke at each boundary; simultaneous same/conflicting
-  digest; pre-Run rejection waiter release ordering; two Runs competing for one
+  digest for explicit keys, independent sequential/concurrent unkeyed submissions
+  and invalid present keys; pre-Run rejection waiter release ordering; two Runs competing for one
   tenant budget; lost reservation receipt; restart/unavailable/partial inventory;
   aggregate paid-race funding before any participant handoff, including failure
   of the last reservation; current handle/trace access. Close policy/port cases

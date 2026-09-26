@@ -223,6 +223,16 @@ Run input bindings and typed plan input slots; service handles never become
 plan constants merely because the caller used the direct request form. Both
 inputs use the same compiler pipeline.
 
+`idempotency_key` is optional by absence only. When present it must be a
+nonempty opaque UTF-8 string of at most 256 bytes; `null`, empty strings,
+non-string values and oversized keys reject before admission. Do not trim,
+case-fold or replace a missing key with a shared sentinel.
+An absent key disables submission deduplication: each accepted request gets a
+fresh Run identity even when its content/digest equals another request, whether
+sequential or concurrent. The digest can still support internal audit/content
+binding, but it never becomes a SubmissionIndex lookup key. Explicit keys use
+the atomic A27 claim contract in [Concurrency](CONCURRENCY.md).
+
 1. Bound and parse; reject duplicate keys/unknown version/keys and invalid values.
 2. Resolve declared types and all bindings against a captured immutable registry
    snapshot; expand no user-defined macros and acquire no external resources.

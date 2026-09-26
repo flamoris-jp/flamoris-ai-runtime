@@ -68,8 +68,9 @@ No controller waits holding a mutex across an external operation. See
 
 | Operation | Single authoritative point | Rejected/stale consequence |
 | --- | --- | --- |
-| Submission claim | Insert scoped key + canonical request digest + reserved Run identity in SubmissionIndex | Different digest conflicts; same digest attaches to the pending decision |
-| Run admission | Resolve that claim with one Run/root and all finite bookkeeping budgets | No runnable partial Run; notify duplicate waiters before releasing failed claim |
+| Keyed submission claim | Insert explicit scoped key + canonical request digest + reserved Run identity in SubmissionIndex | Different digest conflicts; same digest attaches to the pending decision |
+| Unkeyed submission preparation | Allocate a fresh bounded PendingSubmissionId + reserved Run identity without inserting or querying SubmissionIndex | Independent admission/rejection; equal digests never attach |
+| Run admission | Resolve the pending submission (and optional keyed claim) with one Run/root and all finite bookkeeping budgets | No runnable partial Run; notify keyed duplicate waiters before releasing failed claim |
 | Resource reservation | All-or-none incremental vector in ResourceManager, advance ledger revision | No partial local grant; uncertain external receipts remain accounted |
 | Dispatch/retry/resume | Final eligibility turn consumes prepared grants and budgets, commits running/attempt intent and a fenced outbound action | No useful work on a partially valid grant; retain queued resume payload or fail/clean up |
 | Yield | Safe-point evidence accepted; commit Continuation and waiting/paused state together | No resumable state fabricated from an unfinished native call |
@@ -86,7 +87,22 @@ the Run commit order; backend wall timestamps cannot override that order.
 
 ## Submission claims and bounded duplicates
 
-After canonical request validation and authentication, claim scope is
+Every validated request first has a bounded `PendingSubmission` owned by the
+Runtime admission index, with fresh `PendingSubmissionId`, reserved RunId,
+operation generation, deadline and response slot. This non-durable preparation
+record is not an admitted Run. Pre-admission callbacks use its ID/generation
+for both keyed and unkeyed requests; it is retired after decision delivery is
+prepared and outstanding replies are fenced/routed to cleanup.
+
+When the key is absent, do not query or insert `SubmissionIndex`, attach digest
+waiters, or synthesize a null/empty/digest key. Each request independently passes
+normal admission and budget checks and receives a fresh Run if accepted.
+Disconnect does not cancel its admission; a client retry without a key is another
+request and can produce another Run. The parser rejects present null/empty keys.
+All pending records/response slots remain charged and bounded on either path.
+
+For an explicit valid key, after canonical request validation and authentication,
+claim scope is
 `(subject, tenant, request_kind, idempotency_key)`. Its record contains digest,
 claim generation, reserved Run identity, pending/admitted decision, finite
 deadline, and bounded response slots. A reserved ID is not an admitted Run and
@@ -275,8 +291,9 @@ was already immutable. No unbounded per-Run tombstone is kept to receive callbac
 ## Callback fences and destruction
 
 Every observation is an owned value with a discriminated correlation ticket.
-Pre-admission tickets carry incarnation, claim/operation identity and claim
-generation, without a fabricated Job/Attempt. Lifecycle tickets require
+Pre-admission tickets carry incarnation, PendingSubmissionId and operation
+generation, plus keyed-claim identity/generation when applicable, without a
+fabricated Job/Attempt. Lifecycle tickets require
 Run/Job/attempt/operation identity and relevant segment/suspension generations.
 Cleanup tickets identify the independently retained cleanup/allocation/paid
 operation and applicable backend/host epochs; expired Run references are optional

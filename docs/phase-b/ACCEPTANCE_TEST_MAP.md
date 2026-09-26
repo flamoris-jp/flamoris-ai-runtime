@@ -467,6 +467,16 @@ stores, and construct a different Runtime instance identity.
   bookkeeping safely. After expiry/restart a new admission is possible, never a
   cross-restart exactly-once promise or proof that the old operation did not run.
 
+Unkeyed submission variants (same A27 boundary/doubles): submit identical content
+without a key twice, both sequentially and with both pending before admission.
+Assert distinct PendingSubmissionIds and distinct Run/root identities on success,
+zero SubmissionIndex entries/lookups or attached duplicate waiters, and independent
+resource/budget checks. Reject one owner while the other succeeds; late receipt or
+transport disconnect must not attach to or cancel the other. Repeat with an explicit
+key to recover the original one-Run claim behavior. Present null/empty/non-string/
+257-byte keys reject without Run events or resource acquisition; a 256-byte key
+is accepted subject to ordinary checks. Digest equality alone never deduplicates.
+
 ### A28 — inability to stop or contain
 
 - **Boundary / active doubles:** Job finalizer, backend lifetime and host containment;
