@@ -178,5 +178,5 @@ are transported later or a bounded trace contains explicit gaps.
 | Duplicate result/cancel/resume command | Same accepted outcome or stable stale/terminal response; never duplicate child, dispatch, or injection |
 | Resource release acknowledgement after terminal quarantine | Reconcile quarantine once using matching identity/epoch; do not reopen Job/Run |
 
-These cases, including fault injection at each commit boundary, become Stage C
-offline tests after Stage B specifies controllable clock/backend/adapter seams.
+These cases, including fault injection at each commit boundary, become Phase C
+offline tests after Phase B specifies controllable clock/backend/adapter seams.

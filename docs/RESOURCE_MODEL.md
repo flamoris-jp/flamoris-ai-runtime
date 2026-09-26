@@ -143,7 +143,7 @@ and does not put the Continuation in the scheduling queue or give it an executio
 
 Resource observations carry an origin, generation/epoch and freshness bound. Admission rejects
 unknown, stale or inconsistent required host/backend state. A free-memory estimate does not grant
-authority. The Stage B integration must define which authority can fence old dispatch and how.
+authority. The Phase B integration must define which authority can fence old dispatch and how.
 
 Every local dispatch, backend completion, state reference and release acknowledgement is correlated
 with its instance/attempt and relevant allocation/device generation. Late acknowledgements cannot

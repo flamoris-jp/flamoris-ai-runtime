@@ -2,7 +2,9 @@
 
 ## Status
 
-**Draft design. No schema is implemented or frozen yet.**
+**Phase A semantic design. No schema is implemented; wire representation is deferred to Phase B.**
+
+[Execution Model](EXECUTION_MODEL.md) and [State Machines](STATE_MACHINES.md) define execution semantics. [Design Phases](DESIGN_PHASES.md) defines the review gates.
 
 The Workflow IR describes dependencies, data flow, and bounded control inside FLAMORIS AI Runtime.
 
@@ -21,7 +23,7 @@ Validator
 Execution Plan Compiler
    ▼
 Runtime Execution Plan
-   │ approved normalized contract
+   │ normalized execution contract, never an authorization grant
    ▼
 Jobs
    │ scheduler-visible; may own Continuations while suspended
@@ -119,9 +121,11 @@ The plan may contain:
 - runtime limits;
 - statically known potential suspension sites and continuation policy.
 
-The plan is Runtime-owned and may use internal identifiers that are not part of the portable Workflow IR schema.
+The plan is Runtime-owned and immutable. It pins IR/compiler semantics, capability/schema/effect/control contracts and adapter revisions, with a canonical fingerprint. Same inputs, capability snapshot, compiler version and static limits produce the same normalized semantics or rejection. It may use internal identifiers outside the portable IR schema.
 
-The plan is not an authorization token. Capability availability, caller authorization, budget, and policy are revalidated at execution admission, and side-effecting dispatch is revalidated when required by policy. Cached/reused plans must not preserve stale permission.
+Each dispatch verifies applicable pins; contract changes yield `plan_stale`, never silent substitution. Availability changes do not rewrite the plan. Detailed version/policy handling follows [Authorization Model](AUTHORIZATION_MODEL.md).
+
+The plan is not an authorization token. Current pins/availability, caller authorization, concrete input scope, budgets and policy are checked at admission and every dispatch, retry and resume, with effect-specific checks before adapter handoff. Cached/reused plans must not preserve stale permission.
 
 Concrete Continuation instances are never compiled into the plan. They are runtime-owned state created when a scheduler-visible Job actually yields, including inference yields whose exact occurrence is only known during execution.
 
@@ -223,60 +227,28 @@ Validation should reject:
 - impossible dependency ordering;
 - fan-out beyond limits.
 
-The first implementation should prefer DAG execution.
+The baseline accepts bounded DAGs only. Validate node/edge/reference counts and nesting before expansion, require compatible binding schemas, and reject references to unavailable/non-predecessor outputs. Compilation includes reference-derived dependencies in cycle detection and readiness; a binding cannot bypass dependency order by omitting an explicit edge.
 
-## Await
+Every declared output must be type-compatible and reachable from admitted inputs or reachable producer nodes. Empty executable graphs are rejected in the baseline; identity transforms must be explicit registered operations. Control predicates and reference evaluation are bounded, total and free of hidden I/O. Exact wire grammar is a Phase B deliverable.
 
-A node/run may wait for one required job/result.
+For effects that can conflict, the compiler requires an explicit dependency/order or a registered contract proving disjoint scoped operations. The baseline rejects unordered potentially conflicting writes or read/write pairs when disjointness cannot be proven. Resource serialization alone does not choose their semantic order.
 
-Await semantics should be explicit around:
+## Await, join, and race
 
-- timeout;
-- cancellation;
-- failure;
-- result availability.
+The precise semantics are defined in [Execution Model](EXECUTION_MODEL.md):
 
-## Join
+| Operation | Baseline behavior |
+| --- | --- |
+| `await` | One-child `all_success`, with bounded deadline and explicit failure propagation |
+| `join.all_success` | Require every named child to succeed; first required failure cancels unfinished siblings |
+| `join.all_settled` | Wait for terminal outcomes and return typed success/failure values in declared order |
+| `race` | Fixed participants, bounded deterministic acceptance, first accepted success in Run commit order |
 
-`join` waits for a defined set of branches/jobs.
+Participants must be a nonempty, unique, closed child set. Unknown policies, unbounded acceptance and ownership violations are invalid. Acceptance cannot invoke capabilities or I/O. Group deadlines cannot extend the Run.
 
-Conceptual policies may include:
+Initial race loser policy is `cancel_unfinished`; loser cleanup stays owned even when the parent resumes with a winner. `write`/`destructive` races are excluded; paid races require aggregate worst-case cost reservation across all participants and attempts. Losing or cancelling is not rollback. Provisional result replacement and continuing losers for caching are deferred.
 
-- require all;
-- require selected named children;
-- collect successful children when explicitly allowed.
-
-The initial policy set should remain small and deterministic.
-
-## Race
-
-`race` selects the first candidate result meeting an explicit acceptance condition.
-
-Conceptually:
-
-```text
-            ┌─ local model ───────┐
-request ────┼─ remote specialist ─┼─ race -> selected result
-            └─ cached path ───────┘
-```
-
-Race must define:
-
-- participant set;
-- winner condition;
-- behavior when a participant fails;
-- overall timeout;
-- loser policy.
-
-Possible loser policies may include:
-
-- cancel unfinished losers;
-- allow losers to finish for cache/provenance;
-- retain already completed results.
-
-Cancellation must never be described as rollback of completed side effects.
-
-The exact JSON representation of race is intentionally deferred until the executor/job model is implemented.
+Failure recovery is a declared typed binding, never an implicit success value or a new branch invented by model output. Exact JSON encoding is designed and reviewed in Phase B **before** executor implementation.
 
 ## Parallelism and resource policy
 
@@ -334,7 +306,7 @@ The compiler may identify **potential suspension sites** and continuation policy
 
 The Runtime creates a Continuation only when a Job actually suspends. Runtime-defined inference yields may therefore create Continuations at control points whose concrete occurrence could not be known during compilation.
 
-Every Continuation is owned by exactly one waiting/paused Job and has no independent scheduler identity.
+Every Continuation is owned by exactly one waiting/paused Job and has no independent scheduler identity. On wake it is consumed atomically into that same queued Job’s pending resume payload. State lifetime and resource accounting survive this transfer; see [State Machines](STATE_MACHINES.md).
 
 A Continuation may hold:
 
@@ -357,7 +329,9 @@ Candidate forms:
 - `${nodes.node_id.output}`;
 - `${nodes.node_id.output.field}`.
 
-Do not embed a full scripting language in references.
+Do not embed a full scripting language in references. The baseline permits only finite validated input/node-output paths. Missing fields, incompatible types, cycles and references beyond declared producer schemas are errors. There is no environment-variable, credential, filesystem or network interpolation.
+
+Large service-owned handles are validated for owner/scope and size at binding and use. Materializing a remote object or reading mutable state is an explicit effectful capability, not hidden reference evaluation.
 
 ## Outputs
 
@@ -391,7 +365,7 @@ Initial validation rules:
 
 For example, local deterministic resize may be `{ pure }`, remote paid inference may be `{ external, paid }`, issue creation may be `{ external, write }`, and deletion may be `{ write, destructive }`.
 
-The validator/compiler should derive a run-level effect summary before execution and mark side-effect boundaries in the Execution Plan.
+The validator/compiler derives a conservative effect summary before execution, including possible dynamic children, optional branches and race losers, and marks side-effect boundaries. Aggregation validates each set first, removes `pure` while combining observable effects, and returns `{pure}` only for a nonempty all-pure composition. See [Authorization Model](AUTHORIZATION_MODEL.md) for the normative algebra and current authorization rules.
 
 This allows authorization, confirmation, budget checks, retry policy, race policy, and event provenance to reason about effects without trusting workflow-authored claims.
 
@@ -406,7 +380,13 @@ An interrupt may request:
 - bounded input injection;
 - change of an unexecuted branch.
 
-Later adaptive workflow patching should use explicit revisioned patch operations and must not silently rewrite completed side effects.
+Baseline plans are immutable. General graph patching, changed unexecuted branches and rewind are deferred; mention above describes future control intent, not a baseline mutation API. Later adaptive patching requires explicit revisioned validation and must not rewrite completed effects.
+
+## Dynamic inference child envelope
+
+An inference capability may request runtime-generated child work only inside a compiled envelope with pinned allowed capabilities, schemas, scopes/effects, depth/count/fan-out/attempt limits, cost/resources/output bounds, suspension policy and parent failure behavior. The Runtime validates and compiles each bounded child fragment before registration and normal dispatch checks. The parent and every fragment share cumulative Run limits and deadlines.
+
+Unknown or out-of-envelope requests fail closed or use an already declared typed error binding. No dynamic registration, endpoint, credential, detached child or limit reset is allowed. Repeated invalid proposals consume a finite budget. See [Execution Model](EXECUTION_MODEL.md).
 
 ## Capability metadata
 
@@ -440,24 +420,8 @@ Breaking execution-semantic changes require a schema-version change.
 
 Unsupported future schemas should be rejected deterministically rather than interpreted on a best-effort basis.
 
-## Initial implementation scope
+## Design-to-implementation scope
 
-The first implementation should be intentionally small:
+Phase A specifies the bounded semantics; Phase B defines exact schemas, compiler stages, C++ contracts and deterministic test seams; Phase C implements reviewed slices. The baseline covers DAG validation, explicit references, compiled plans, Job creation, basic join/race, effect/authority checks, Continuations and bounded structured observation.
 
-- DAG validation;
-- explicit references;
-- bounded inputs/outputs;
-- deterministic pure nodes;
-- job creation from nodes;
-- simple scheduler;
-- independent-node parallel readiness;
-- basic join;
-- basic race with explicit acceptance and loser policy;
-- effect analysis;
-- explicit continuation creation/resume;
-- event emission and bounded event journal;
-- no dynamic loops;
-- no arbitrary code;
-- no durable distributed scheduler.
-
-More adaptive behavior should follow only after the job/inference lifecycle is proven.
+Event persistence and replay, advanced residency optimization, adaptive graph mutation and speculative replacement remain later slices. There are no dynamic loops, arbitrary code or durable distributed scheduling in the baseline. See [Design Phases](DESIGN_PHASES.md) and [Design Acceptance](DESIGN_ACCEPTANCE.md).

@@ -217,7 +217,7 @@ Useful control primitives include:
 
 `race` is intentionally a runtime concept, not merely a UI feature. A future workflow may race a local model, a remote specialist, and a cached/retrieval path, then continue with the first result satisfying the configured success condition.
 
-Race loser behavior must be explicit. Possible policies include cancelling unfinished jobs, allowing them to finish for cache/provenance, or preserving selected side effects. The default must never silently replay or roll back side effects.
+Race loser behavior is explicit. The baseline uses cancel_unfinished and excludes write/destructive participants; continuing losers for cache/provenance and speculative replacement are later extensions. No policy silently replays or rolls back side effects. See [Execution Model](EXECUTION_MODEL.md).
 
 ## Observable inference
 
@@ -313,7 +313,7 @@ The compiler resolves registered capabilities, schemas, bindings, effects, limit
 
 Concrete Continuation instances remain live Runtime state and are created only when a Job actually yields. Inference may yield at runtime-defined control points that are not concrete Continuation instances in the compiled plan.
 
-Compilation can describe required authorization and policy constraints but cannot grant durable permission. The Runtime revalidates current capability availability, caller authorization, budget, and policy at execution admission, and revalidates side-effecting dispatch when policy requires it.
+Compilation describes authorization and policy requirements but grants no permission. The Runtime revalidates current capability pins/availability, caller authorization, concrete input scope, budget and policy at admission and every dispatch, retry and resume. Effect-specific checks apply before adapter handoff.
 
 This is particularly important when an AI generates Workflow IR: the AI may propose composition, while only the Runtime may turn validated composition into executable work, and only current Runtime policy may authorize execution.
 

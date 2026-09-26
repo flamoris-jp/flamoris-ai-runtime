@@ -356,7 +356,7 @@ The compiler resolves registered capabilities, validates bindings and limits, de
 
 Actual Continuation instances are created only at runtime. Inference may also yield at runtime-defined control points that were not enumerated as concrete Continuations during compilation.
 
-Compilation is not an authorization grant. The Runtime must revalidate current capability availability, caller authorization, budgets, and policy when admitting execution, and again immediately before dispatching side-effecting work where policy requires it. A cached/reused Execution Plan must not carry stale permission as executable authority.
+Compilation is not an authorization grant. The Runtime revalidates current capability pins/availability, caller authorization, concrete input scope, budgets and policy at admission and every dispatch, retry and resume. Effect-specific checks apply immediately before adapter handoff. A cached/reused Execution Plan never carries stale permission as executable authority.
 
 This keeps AI-authored or externally supplied Workflow IR separate from the Runtime's executable scheduling contract.
 

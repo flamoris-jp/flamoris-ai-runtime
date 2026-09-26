@@ -51,7 +51,7 @@ Compilation produces an immutable, versioned Execution Plan. It includes:
 
 A canonical plan fingerprint identifies these semantics; it excludes credentials,
 live handles, Continuations, and authorization grants. Canonicalization rules and
-the digest algorithm are Stage B decisions. Given the same input, capability
+the digest algorithm are Phase B decisions. Given the same input, capability
 snapshot, compiler version, and static limits, compilation MUST produce the same
 normalized semantics or rejection. Executing a plan must not silently resolve a
 pinned capability to a newer contract or adapter. Unavailable/incompatible pins
@@ -102,7 +102,7 @@ unbounded tool loop is permitted. Child deadlines never exceed ancestor limits.
 
 Suspension is legal only at an advertised machine/backend safe point where
 resumable state is valid and execution has quiesced. Backend preservation,
-offload, and rewind are capabilities to verify during Stage B research.
+offload, and rewind are capabilities to verify during Phase B research.
 
 The controller atomically commits the Job transition to `waiting` or `paused`
 and its Continuation. The record contains the owning Job, machine, suspension
@@ -137,7 +137,7 @@ The initial policy uses deterministic FIFO admission within a configured priorit
 class, a documented age bound against starvation, and stable Job identity
 as the last tie-breaker. Physical placement considers real accounting. Later
 residency optimization may reorder otherwise eligible Jobs only within fairness,
-deadline, dependency, and effect-order constraints. Stage B chooses the concrete
+deadline, dependency, and effect-order constraints. Phase B chooses the concrete
 queue algorithm and finite policy values.
 
 Control progression and cleanup must have bounded reserved capacity independent

@@ -3,7 +3,7 @@
 ## Status and authority
 
 **Phase A architecture contract; no Event Bus, journal, or replay engine is implemented.**
-This defines observable semantics; wire encoding and C++ representation belong to Stage B.
+This defines observable semantics; wire encoding and C++ representation belong to Phase B.
 The owning Run/Job controllers and resource ledger commit state. Events report those
 commits and adapter observations; receiving an event never independently mutates a Job.
 Structured events are the primary observation contract, with human-readable logs derived
@@ -11,7 +11,7 @@ from them. Execution correctness does not depend on an attached observer.
 
 ## Envelope and identities
 
-Each retained event has bounded structured fields:
+Each retained Run event has bounded structured fields:
 
 | Field | Purpose |
 | --- | --- |
@@ -29,6 +29,8 @@ backend/host generation so stale acknowledgements cannot release new allocations
 complete a later attempt. A Continuation inspection ID is provenance, not an independent
 Job or scheduling authority. Secrets, pointers and raw backend state are not event fields.
 Wall-clock order is never used to settle a race, deadline or cancellation.
+Pre-admission rejection is a bounded request response; optional security audit records
+use request correlation outside the Run stream and do not fabricate a Run/Job lifecycle.
 
 ## Commit order and visibility
 
@@ -107,7 +109,7 @@ commit. Optional token/debug telemetry may be sampled, coalesced or dropped acco
 the advertised policy; every loss is represented by counters/ranges in the next available
 bounded telemetry summary. Control records are never silently treated as dropped telemetry.
 When normal capacity is exhausted, stop admitting new work; retain reserved cleanup
-capacity and authoritative current state. Exact sizing and overflow tests belong to Stage B.
+capacity and authoritative current state. Exact sizing and overflow tests belong to Phase B.
 
 The retained history is bounded by count/bytes/time. Whole committed groups may age out,
 including control groups, once their active bookkeeping need is satisfied. A reader with

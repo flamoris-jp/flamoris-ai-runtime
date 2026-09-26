@@ -145,7 +145,7 @@ Validate at least:
 - concurrency/fan-out bounds;
 - timeout/cancellation rules.
 
-Compilation may perform static policy analysis, but it is not durable authorization. Revalidate current capability availability, caller authorization, budgets, and policy at execution admission, and revalidate side-effecting dispatch when required by policy. Cached Execution Plans must never act as permission tokens.
+Compilation may perform static policy analysis, but it is not durable authorization. Revalidate current capability pins/availability, caller authorization, concrete inputs, budgets and policy at admission and every dispatch, retry and resume. Apply effect-specific checks before adapter handoff. Cached Execution Plans must never act as permission tokens.
 
 Do not add arbitrary shell, unrestricted Python, ambient filesystem/network access, or credential injection as shortcuts.
 
