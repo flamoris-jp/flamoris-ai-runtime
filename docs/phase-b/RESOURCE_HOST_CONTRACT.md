@@ -76,6 +76,8 @@ not distributed two-phase commit:
    capability/state/host freshness checks; consume the prepared grants together with
    child/attempt/cost/event eligibility. Publish no runnable worker command if any part
    fails. A successful commit records the attempt and exact lease/receipt identities.
+   For a paid race, the full participant/attempt funding barrier must already be open;
+   an individually funded participant cannot bypass an incomplete group reservation.
 4. Backend allocation/load occurs only within that complete envelope. Each acknowledged
    physical allocation consumes its reserved portion atomically; unexpected growth needs
    a new full incremental admission before allocating. If the backend cannot bound growth,
@@ -88,6 +90,9 @@ Host revocation and a committed worker command follow the fencing rules below. A
 change after the serialized commitment may request stop but cannot retract a completed
 external effect. For paid work, the separately durable handoff protocol is in
 [Paid Budget Contract](PAID_BUDGET_CONTRACT.md).
+That contract reserves the race's complete monetary liability before any participant
+dispatch, while physical resource vectors are admitted per eligible Job; full race
+funding never promises simultaneous physical execution.
 
 Capacity for each pool is `unique resident + unmaterialized reservations + uncertainty`.
 Revoked/expired leases never subtract bytes. Resource observation with overlapping

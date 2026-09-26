@@ -207,13 +207,21 @@ trusted contracts, or rejects it. Deployment can tighten the profile.
 | Each Job, `J` | 16 |
 | Each attempted dispatch including denial/retry, `A` | 12 |
 | Each suspension/wake/discard cycle, `S` | 8 |
-| Each accepted control command, `C` | 8 |
+| Each command admitted for control processing, `C`, including later rejection | 8 |
 | Each join/race/group decision, `G` | 8 |
 | Each bounded resource operation/acknowledgement episode, `R` | 8 |
 | Each dynamic-fragment proposal including rejection, `D` | 8 |
 | Each cleanup record, `Q`, with at most `U` post-terminal updates | `4 + 2*U`, including closure |
 
 Thus `N = 32 + 16J + 12A + 8S + 8C + 8G + 8R + 8D + (4+2U)Q`.
+Charge `C` before recording any requested/applied/rejected command events;
+unsupported controls are not a free event-producing path. If normal command
+capacity is exhausted, return a bounded pre-processing request error without a
+new Run event. The Run/Job base allowances separately reserve one coalesced
+terminating stop/cancel sequence per owner and internal deadline/cleanup progress;
+ordinary controls cannot consume those slots or prevent an authorized terminal
+cancel request from being processed. Repeated terminal cancel requests return
+the same bounded receipt without another event sequence.
 Fan-out barrier actions consume the corresponding Job/suspension/resource
 budgets, not just the one command budget. Activity projection updates belong to
 the causing obligation's slots. Partial acquisitions/transfer acknowledgements

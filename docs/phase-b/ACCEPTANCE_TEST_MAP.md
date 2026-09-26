@@ -408,7 +408,9 @@ stores, and construct a different Runtime instance identity.
   race whose aggregate permitted participants/attempts cost exceeds Run or tenant
   bounds. Include affordable non-write race as a control. Reserve all permitted
   participant/attempt maxima, then reject or lose the acknowledgement of the final
-  required reservation to test the group funding gate.
+  required reservation to test the group funding gate. Nest a paid race and
+  bind funded dynamic/retry slots; lose a bind acknowledgement, repeat the same
+  binding, then attempt a changed digest/attempt.
 - **State / events:** invalid race rejects before any participant dispatch with
   typed plan/policy/budget error. No inference that only the eventual winner costs
   money; aggregate maximum includes losers and permitted attempts. No participant
@@ -416,7 +418,9 @@ stores, and construct a different Runtime instance identity.
   certified; failure of the last reservation leaves adapter call count zero.
 - **Resources:** rejection creates no lease, allocation or provider operation;
   rollback any provisional bookkeeping/paid reservation only with no-handoff
-  proof. A permitted race reserves the full bounded authorized liability.
+  proof. A permitted race reserves the full bounded authorized liability;
+  nested subsets and repeated bind acknowledgements never charge twice, and
+  a conflicting binding cannot arm or consume a different slot.
 
 ### A25 — accepted write with lost response
 

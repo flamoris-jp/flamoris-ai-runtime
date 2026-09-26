@@ -116,7 +116,8 @@ test does not close an acceptance case.
   budget and confirmation checks; atomic scoped submission claim plus one reserved
   Run ID; bounded same-digest waiters; admitted-claim retention; external
   PaidBudgetPort adapter contract, proof-of-no-handoff release, settlement,
-  durable `arm_handoff`/ticket protocol, inventory/reconciliation and fail-closed
+  full paid-race `reserve_envelope`/`bind_attempt` funding gates with nested
+  subset ownership, durable `arm_handoff`/ticket protocol, inventory/reconciliation and fail-closed
   behavior. Async preparation receipts
   never become independently spendable grants; final local dispatch checks commit
   together under the control executor.
