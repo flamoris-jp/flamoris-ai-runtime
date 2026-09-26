@@ -107,11 +107,16 @@ Run may retain explicit uncertain-loser and quarantine metadata.
 Targeted Job pause affects that Job, not its children. Child results may arrive
 while it is paused; they satisfy its retained wait condition without resuming it.
 
-A Run pause is a barrier over its entire current subtree. The controller first
-checks that every in-flight workload operation advertises a safe pause/quiescence path;
-otherwise it rejects the request as unsupported without closing the Run gate.
-On acceptance it closes new-dispatch/child-creation gates and requests safe-point
-pauses. Already-completing Jobs may become terminal during the barrier. Remaining
+A Run pause is a barrier over its entire current subtree. In one serialized Run
+control commit, the controller validates every current in-flight workload
+operation's safe pause/quiescence path, closes new-dispatch and child-creation
+gates, and records a pause-barrier generation with the target subtree snapshot.
+Unsupported validation rejects the whole command without applying any gate or
+pause flag. Child creation/dispatch that committed before this commit belongs to
+the snapshot; proposals after it cannot enter the barrier. On acceptance the
+controller requests safe-point pauses for the captured targets. Already-committed
+completions and later completion of captured in-flight work may settle during the
+barrier; no new useful work or child can dispatch. Remaining
 queued/waiting Jobs become paused with their start/resume state preserved.
 The Run is not reported `paused` until the whole workload subtree is quiescent. Pending
 pause has its own bounded request deadline; timeout rejects the pause, clears
