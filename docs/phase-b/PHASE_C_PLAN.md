@@ -8,10 +8,10 @@ The reviewed Phase A contracts remain semantic authority. A discovered semantic
 defect requires a documented, reviewed deviation and affected acceptance updates
 before implementing a different behavior.
 
-Use the current reviewed main at each slice, read `AGENTS.md`, and inspect current
-dependencies rather than assuming an earlier PR has merged. Each slice should
-produce a focused PR with tests, documentation of actually implemented behavior,
-and meaningful single-purpose commits. Do not auto-merge. The ordering below
+Use the reviewed main, read `AGENTS.md`, and inspect current dependencies.
+Issue #9 supersedes the original per-slice PR delivery policy: implement all
+slices on one branch, retain slice boundaries as focused commits and internal
+test/review gates, and open one final PR for consolidated review. Do not auto-merge. The ordering below
 allows preparation in parallel, but a dependent slice must not invent an interface
 or silently substitute a pending design.
 
@@ -309,7 +309,7 @@ profile for each actual run.
 
 ## Completion recording and stop conditions
 
-Each slice PR records its reviewed source revision, scope, implemented acceptance
+Each slice evidence record records its reviewed source revision, scope, implemented acceptance
 IDs, exact commands actually available at that revision, results and unmet
 integration gates. Commands are added when the real build layout exists; this
 design does not advertise hypothetical setup commands as current instructions.

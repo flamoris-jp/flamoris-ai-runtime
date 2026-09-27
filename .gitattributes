@@ -1,0 +1,5 @@
+# Checksummed upstream dependency bytes must survive Windows checkout unchanged.
+third_party/catch2/catch_amalgamated.hpp -text
+third_party/catch2/catch_amalgamated.cpp -text
+third_party/catch2/LICENSE.txt -text
+third_party/nlohmann/json.hpp -text
