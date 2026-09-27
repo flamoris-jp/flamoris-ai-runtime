@@ -20,8 +20,8 @@ but it never becomes the owner of native state.
 | Value or operation | Owner and contract |
 | --- | --- |
 | `ModelDefinition` | Immutable registered weights/artifact, architecture, revision and compatible processor/tokenizer identity; no arbitrary path/download from a plan |
-| `ProcessorDefinition` | Immutable registered input preprocessing and output decoding semantics, model binding, revision and compatibility fingerprint; references a `TokenizerDefinition` when text tokenization is required |
-| `TokenizerDefinition` | Immutable registered vocabulary/merge or token mapping and model binding, normalization and pre-tokenization rules, special token IDs and policy, BOS/EOS behavior, template revision, encode/decode semantics and compatibility fingerprint |
+| `ProcessorDefinition` | Immutable registered chat/prompt template revision, modality input preprocessing, output postprocessing, model binding and compatibility fingerprint; references a `TokenizerDefinition` when text tokenization is required. A template change updates the processor identity without changing the tokenizer identity |
+| `TokenizerDefinition` | Immutable registered vocabulary/merge or token mapping and model binding, normalization and pre-tokenization rules, special token IDs and policy, BOS/EOS behavior, encode/decode semantics and compatibility fingerprint; the same tokenizer may be referenced by different processor templates |
 | `ExecutionProfile` | Supported model family, controls, numeric precision, limits and compute requirements; initial causal-text profile is narrow and explicit |
 | `ComputeImplementation` | CPU reference or OpenCL native operations and allocation receipts; no independent inference loop or Job authority |
 | `NativeModelWorker` | Exclusive mutable model/session access, bounded command queue, callback fencing and actual quiescence/release evidence |
