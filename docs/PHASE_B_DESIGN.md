@@ -17,51 +17,45 @@ tests, service, wire implementation or deployment configuration. The words
 
 | Design question | Phase B document |
 | --- | --- |
-| Why this first backend? What do current runtimes actually expose? | [Backend research ADR](adr/0001-backend-control.md) |
+| Why native execution? What can comparative runtime research teach us? | [Backend research ADR](adr/0001-backend-control.md) |
 | Which C++/build/test/platform baseline? | [Toolchain ADR](adr/0002-cpp-toolchain.md) |
 | Who owns each object, reference and callback? | [C++ ownership](phase-b/CPP_OWNERSHIP.md) |
 | Where do races linearize, and how is control capacity bounded? | [Concurrency](phase-b/CONCURRENCY.md) |
 | How are inputs, plans, errors and events bounded and versioned? | [Errors and serialization](phase-b/ERROR_SERIALIZATION.md) |
-| Which model state and control points must the adapter preserve? | [Backend contract](phase-b/BACKEND_CONTRACT.md) |
+| Which native execution state and control points do we own? | [Backend contract](phase-b/BACKEND_CONTRACT.md) |
 | When may resource capacity be reserved, reused or released? | [Resource/host contract](phase-b/RESOURCE_HOST_CONTRACT.md) |
-| How can a non-durable Runtime enforce a hard paid budget? | [Durable paid-budget contract](phase-b/PAID_BUDGET_CONTRACT.md) |
+| How might an optional strict-cost integration work? | [Durable paid-budget contract](phase-b/PAID_BUDGET_CONTRACT.md) |
 | Who starts the process or loads a model? | [Activation contract](phase-b/ACTIVATION_CONTRACT.md) |
 | How will every Phase A obligation be tested offline? | [A01–A42 test map](phase-b/ACCEPTANCE_TEST_MAP.md) |
 | In what dependency order should code be written? | [Phase C slices](phase-b/PHASE_C_PLAN.md) |
 
 Each document owns its implementation detail only. It cannot relax the Phase A
-state machine, effect algebra, resource/paid accounting, current authorization,
+state machine, effect algebra, resource accounting and optional paid integration, current authorization,
 bounded observation, or neighboring-service authority. Cross-document conflicts
 must be fixed before implementing the affected slice. There is no stable public
 or plugin ABI in this proposal.
 
 ## Selected direction
 
-- C++20 with ordinary ownership and bounded typed results; a library-first,
-  headless Kernel. The toolchain ADR specifies the proposed CI matrix and pins.
-- One Runtime construction per process, enforced before workers/native calls;
-  a new construction after failure/shutdown needs a fresh process. Its root owns
-  global native init/log/free lifetime through final worker/callback quiescence.
-  One control executor initially owns all per-Run commits, Scheduler,
-  resource ledger and local policy projections. Workers own native state and I/O;
-  only value observations return to the controller. This keeps dispatch, barrier,
-  resource and event decisions locally atomic without a coroutine framework.
-- Deterministic fake backend first, then an embedded llama.cpp **CPU** adapter
-  under explicit conformance tests. This selects an integration direction, not
-  validated backend support, GPU readiness or universal model compatibility.
-- Private foundation research informs independent model/tokenizer/state and
-  parity-test design. No private source/test migration or publication is approved
-  by this proposal. No private code, paths or host topology are included.
-- Always-on process activation is the initial deployment model, with cold loading
-  owned by an ordinary admitted Job. On-demand host activation is a separately
-  specified, conformance-gated option. Submit permission never implies service
-  activation permission.
-- An external durable paid authority reserves bounded liability and records
-  possible handoff before provider execution. Restart cannot refund uncertainty,
-  restore a Run, or turn a trace into an execution log.
-- In-memory observation and inspection-only replay are baseline work. Durable
-  journal recovery, state migration, universal rewind, speculative result
-  replacement and distributed scheduling remain outside this implementation plan.
+- C++20, headless single-user Kernel. FLAMORIS owns native model execution,
+  model-neutral state, resource lifetime and workflow control. CPU reference is
+  the correctness oracle; OpenCL is the first native accelerated compute path.
+- One control executor initially commits Run/Job, scheduler, ledger and event
+  transitions. Workers own native state and I/O. This is an implementation
+  choice, not a permanent one-Runtime-construction-per-process rule.
+- Deterministic fake first, then native CPU incremental execution, then OpenCL
+  and CPU/OpenCL parity. Causal text is the initial execution profile, not the
+  universal state definition. Existing private `flamoris-LLM` informs concepts
+  and test methodology; source migration needs publication/provenance clearance.
+- Third-party runtimes/providers are comparative research or registered Workflow
+  external capabilities. There is no interchangeable inference backend adapter.
+- Always-on process activation initially; cold model loading belongs to an
+  admitted Job. On-demand host activation is a separately qualified option.
+- Finite Run limits and current capability authorization remain mandatory.
+  Durable Paid Budget Authority is an optional future strict-cost profile and
+  not a baseline completion gate; tenant accounting/isolation is out of scope.
+- In-memory observation/replay is inspection only. Durable Run recovery,
+  universal rewind and distributed scheduling remain outside this phase.
 
 ## Evidence and qualification boundaries
 
@@ -74,11 +68,11 @@ backend conformance or service API behavior. This task makes no live-host claim.
 
 | Remaining qualification | Gate before enabling the relevant capability | Does not block |
 | --- | --- | --- |
-| Native context/state/stop behavior on a pinned model and CPU build | Real-backend slice proves complete state tuple, allocation bounds, pause/cancel and cleanup; unsupported controls stay disabled | Offline domain, scheduler, compiler and fake-backend implementation |
+| FLAMORIS native CPU state/stop behavior on a pinned model | Native CPU slice proves profile-specific complete state, allocation bounds, pause/cancel and cleanup; unsupported controls stay disabled | Offline domain, scheduler, compiler and fake-backend implementation |
 | GPU or cross-process host arbitration | Verify enforceable host envelope/fencing and backend-specific memory/stop behavior; a free-memory sample or local lock is insufficient | CPU fake/reference semantics and non-device work |
-| Hard paid-provider integration | Durable authority conformance, complete inventory and provider-enforced maximum liability; no concrete service/DB selected | Non-paid work and offline multi-instance fake budget tests |
+| Optional strict-cost paid-provider integration | Durable authority conformance, complete inventory and provider-enforced maximum liability; no concrete service/DB selected | Baseline native and ordinary registered capability work |
 | On-demand process activation | Host gateway start/dedup/drain/reconcile conformance, including admission race | Always-on Runtime design and model-loading tests |
-| Private source reuse | Explicit source-publication rights and licensing/provenance review | Independently written interfaces and public-backend integration |
+| Private source reuse | Explicit source-publication rights and licensing/provenance review | Independently written interfaces and native implementation |
 | Real toolchain/dependency builds | Pin dependencies, run clean configure/build/CTest and platform jobs in first Phase C slice | Review of the proposed build/test decisions |
 
 These are explicit feature-enablement gates, not claims of successful integration

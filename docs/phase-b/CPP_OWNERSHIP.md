@@ -13,8 +13,7 @@ for implementation. Values crossing a boundary own their bounded data. Mutable
 aggregates have one owner, normally `unique_ptr` or direct containment.
 `shared_ptr<const T>` is allowed for immutable plans, registry snapshots and
 bounded immutable result buffers; it is not permission for shared mutable Jobs.
-The only shared mutable delivery exception is the bounded `DeliveryGate` atomic
-state described below; it cannot expose or mutate domain records.
+Any shared mutable native context must have an explicit owner and proven lifetime.
 Use local references/spans only inside a synchronous call whose owner remains
 alive. Never retain `string_view`, JSON element references or backend buffer
 pointers in a command or event.
@@ -44,16 +43,13 @@ checked unsigned 64-bit storage; exhaustion rejects creation/dispatch before
 wraparound. A Job identity includes its owning Run, and a Run includes the
 runtime incarnation. Wire IDs are opaque bounded strings; clients must not
 derive authority, ordering or future IDs from their spelling. Test ID sources
-are injected. External durable tenant/operation identities have their separate
-namespace and must not depend on a process counter alone.
+are injected. Optional future strict-cost identities have their own separately reviewed namespace.
 
 ## Runtime and execution mapping
 
 | Concept → proposed type | Owner and lifetime | Mutation / valid references / thread | Serialization | Cleanup and invariants |
 | --- | --- | --- | --- | --- |
-| Process construction → `ProcessRuntimeGuard` | One process-wide composition-root guard; successful claim remains spent until process exit | Atomic factory claim before any executor/native creation; later/concurrent construction rejected without touching existing owners | Internal | Exactly one Runtime construction per process; failed start/shutdown do not reset it; no host-wide resource authority |
-| Native global lifetime → `NativeBackendLifetime` | Sole Runtime composition root; first native use through quiescent final teardown | Designated backend worker performs init/log/free once; immutable config and stable bounded callback context; Resource Manager tracks its process-owned overhead separately | Internal | First admitted Job triggers bounded init but never owns persistent global bytes/handles; free and settle once after all native sessions/models/calls stop; uncertain partial init requires containment |
-| Runtime instance → `RuntimeInstance` | Composition root under ProcessRuntimeGuard, creation through completed shutdown | C; owns executor, indices, workers/ports; exports command and observation interfaces | Instance ID/status wire; object internal | Stop admission, drain/contain, quiesce callbacks/workers before destroying ports; restart never recovers Jobs |
+| Runtime instance → `RuntimeInstance` | FLAMORIS native composition root, creation through completed shutdown | C; owns executor, indices, workers/ports; exports command and observation interfaces | Instance ID/status wire; object internal | Stop admission, drain/contain, quiesce callbacks/workers before destroying ports; restart never recovers Jobs |
 | Run → `RunController`, `RunRecord` | Runtime Run index; admitted lifetime plus bounded observation retention | C; owns Job tree, immutable plan/input references, budgets and gates; outside references are `RunId` | Status/result wire; record internal | Drop workload ownership only after all Jobs terminal and debt transferred; terminal intent immutable |
 | Job → `JobRecord`, `JobController` | Exactly one Run controller; parent `JobId` except root; bounded post-terminal provenance | C; JobController is a mutation capability used only in Run commits, not a second owner; Scheduler keeps IDs | Status wire; live record internal | One lifecycle and payload alternative; descendants settle before parent terminal; stable ID across yield/resume/retry |
 | Attempt → `AttemptRecord` | Job; one active attempt, bounded historical outcomes | C; backend/adapter messages name `AttemptId` and `DispatchGeneration` | Redacted outcome/effect evidence wire | A retry creates a new attempt only on the explicit Phase A retry path after the previous attempt is stopped and reconciled; pause/resume segments preserve attempt identity |
@@ -66,7 +62,7 @@ namespace and must not depend on a process counter alone.
 | Scheduler → `Scheduler` | Runtime instance | C; bounded readiness queues of Run/Job IDs, not owning pointers or Continuations | Policy/status projection only | Removing a queue entry cannot release retained memory; selection is a proposal subject to final current checks |
 | Capability Registry snapshot → `CapabilitySnapshot`, `CapabilityPin` | Registry publishes immutable snapshots; compile/Run pin applicable entries | I snapshots, C active pointer; logical adapter revision and schema/effect/control fingerprints | Redacted discovery/pins wire; endpoints internal | Retire snapshots after references expire; changed unrelated entries do not stale a plan; pins never grant invocation authority |
 | Effect set → `EffectSet` | Value within validated capability/plan records | I after checked factory; closed known-bit mask rather than an unchecked enum cast | Canonical ordered string array | Reject empty, unknown, pure+other, destructive-without-write; aggregate only validated nonempty members |
-| Authorization context → `AuthorizationContext` | Run controller, bounded until terminal; authenticated principal initially provided by transport | C; current subject/tenant scopes, expiry, decision/confirmation references; secrets excluded | Internal; redacted decision projection only | Revocation prevents new dispatch/resume but does not remove cleanup authority; never export as a bearer token |
+| Authorization context → `AuthorizationContext` | Run controller, bounded until terminal; authenticated principal initially provided by transport | C; current single-user subject and capability scopes, expiry, decision/confirmation references; secrets excluded | Internal; redacted decision projection only | Revocation prevents new dispatch/resume but does not remove cleanup authority; never export as a bearer token |
 | Authorization decision → `AuthorizationDecision` | One pending commit; bounded historical audit projection | I result with policy revision, concrete input/operation digest and scopes; C validates currency | Redacted wire | A previous allow cannot authorize a later dispatch/retry/resume; discard if relevant local revision changed |
 | Pending admission → `PendingSubmission`, `PendingSubmissionId` | Runtime admission index, validation through decision delivery preparation and callback fencing | C; unique ID/generation and reserved RunId for each owner; optional keyed claim, bounded response slot | Internal; response wire | Unkeyed requests never enter SubmissionIndex; fresh Run on each successful admission; retire only after outstanding receipt ownership is closed/transferred |
 | Submission claim → `SubmissionClaim`, `SubmissionIndex` | Runtime admission index; pending bounded waiters then advertised dedup retention | C; explicit nonempty scoped key/digest and reserved RunId; waiters use response channels, not Run pointers | Response wire; index internal/non-durable | Atomic key+ID claim; failed pre-Run admission shares rejection before removal; admitted claim not released by failure/timeout |
@@ -86,7 +82,6 @@ non-owning IDs resolved inside the owning Run, avoiding C++ ownership cycles.
 | Resource Manager → `ResourceManager` | Runtime instance; ledger survives individual Run retention | C; owns reservations, leases, allocations and cleanup records; only it changes local accounting | Redacted ledger snapshots/revisions wire | Never infer host exclusivity or physical release from an expired C++ object |
 | Resource requirement → `ResourceRequirement` | Immutable plan/dispatch proposal | I; bounded vector of resource classes, peak increments, affinity and host generation constraints | Semantic plan wire | Requirements are not grants; validate checked arithmetic before admission |
 | Host envelope → `HostEnvelope` | Resource Manager; validity interval/generation | C replaces from authenticated host observations; references stable host grant identity | Redacted grant metadata | Expiry/revocation blocks affected useful work; the host authority, not the Kernel, controls other services |
-| Process native overhead → `RuntimeOverheadRecord` | Resource Manager from first native-init preparation through proven shutdown release or containment; root holds native global state | C converts separately reserved global allowance to unique allocation/uncertainty on native materialization; W supplies bounded evidence; later Runs reference no Job ownership | Internal; bounded process status projection | Charge physical capacity once and configured Runtime/host overhead ceiling, outside initiating Run quota; terminal Job and model eviction do not free it; partial/unknown init stays charged |
 | Model residency → `ModelResidencyRecord` | Resource Manager, load request through acknowledged release | C bookkeeping absent/loading/resident/releasing/unknown; existing admitted Job/attempt owns load operation, W owns native holder | Redacted status only | No scheduler identity; shared consumers wait until residency confirmed; loading/resident bytes stay charged |
 | Admission gate → `AdmissionGate` | Runtime instance through shutdown | C; configured accepting/draining/closed state; external callers submit value requests | Status projection only | Closing admission does not terminate a native writer or free any resource |
 | Process activation → `ActivationRecord` | Optional host activation gateway outside Kernel, bounded cold-start/idle-shutdown operation | Host authority owns ActivationKey/generation and process status; Kernel observes readiness through ports | Host-scoped status projection | Not a Run/Job or Kernel-owned process control; submit permission cannot grant host activation |
@@ -96,11 +91,6 @@ non-owning IDs resolved inside the owning Run, avoiding C++ ownership cycles.
 | Allocation → `AllocationRecord` | Resource Manager until acknowledged physical release | C ledger, W owns actual backend allocation holder; refer by AllocationId and epoch | Redacted physical-accounting projection | Shared allocation counted once; last logical reference schedules cleanup, never decrements physical bytes by itself |
 | State reference → `StateReference` | Move-only Job payload descriptor; references Resource Manager allocation/state record | C moves descriptor; backend validity identified by model/config/backend/state generations; W accesses native holder only under grant | Internal; no native pointer or serialized KV | Continuation→pending→active preserves allocation identity; loss of validity fails resume and transfers cleanup |
 | Quarantine/cleanup → `CleanupRecord` | Resource Manager after explicit transfer; may outlive Run stream | C; CleanupId, operation/allocation/epoch, bounded evidence and reconciliation authority | Redacted debt/reconciliation projection | Remains charged until matched proof; terminal Job cannot receive new state/results; expired stream never stops ledger cleanup |
-| Paid Budget Authority adapter → `PaidBudgetAdapter` | Runtime composition root, pending calls through shutdown | External I/O W; C receives typed durable receipt/settlement with ledger revision and stable identities | Protocol values only; adapter/internal credentials never wire | Reservations belong to external durable authority; adapter destruction or Runtime restart cannot release liability |
-| Provider delivery → `DeliveryGate`, `DeliveryGateId`, `NoSendProof` | Runtime delivery registry from before arm; linked to Attempt/pending dispatch, transferred to CleanupRecord when lifecycle retires; workers retain bounded strong gate references until quiescent | Immutable binding plus atomic one-shot state; C commits dispatch, C/W arbitrate close versus send with compare-exchange; no Run pointers | Gate internal; authenticated bounded proof/identity protocol only | Closed is absorbing; only closed can prove no-send; send-claimed holds liability even before I/O; retain through accounting acknowledgement/transfer and all callbacks; destructor never refunds |
-| Durable receipt → `PaidReservationReceipt` | C attempt bookkeeping plus external authoritative ledger | I evidence: TenantBudgetId, OperationId, AttemptId, DurableReservationId, maximum liability, revision | Redacted receipt reference | Validate tenant/attempt/payload binding; unavailable/uncertain receipt prevents paid handoff |
-| Paid race funding → `RaceFundingPreparation` | Run controller, from queued coordinator preparation until group future-dispatch gates close | C; fixed participant/operation/attempt-slot maxima and durable receipts; nested groups reference disjoint funded subsets | Internal; bounded funding status only | No participant dispatch before the full group is funded; no independent scheduling identity or simultaneous physical-capacity promise |
-| Future paid liability → `FundingSlotId` | External durable reservation plus bounded Run bookkeeping | I identity/envelope; authority binds once to concrete operation/attempt/input through revision-checked `bind_attempt` | Redacted reservation protocol values | Unbound slots are not live Jobs/Attempts; bind/retry/nesting cannot debit twice; unused release needs irrevocable no-handoff proof |
 | Event envelope/group → `EventEnvelope`, `EventGroup`, `EventGroupBuilder` | C builder before commit; bounded Run observation buffer owns immutable groups after commit | C allocates seq/group IDs; I committed group, bounded copies/shared const projection | Versioned wire | Reserve full group capacity first; commit state/group together; subscribers never mutate live state; retire complete groups |
 | Failure/error → `ErrorEnvelope`, `ErrorCode`, `Result<T>` | Owned value at request/Job/result boundary | I once emitted; bounded safe cause-code list and authorized references | Versioned wire | Expected failures are values; sanitize before events/queues; external outcome independent of local failure |
 | Clocks/deadlines → `MonotonicClock`, `Deadline`, `CleanupDeadline` | Runtime injects clock; Run/Job owns absolute deadline values | Clock read on C for arbitration; monotonic offset values; no system clock ordering | Durations/offsets wire; native time points internal | Child≤ancestor, queue/pause/retry never reset deadline; cleanup has separate budget; checked duration arithmetic |
@@ -108,9 +98,9 @@ non-owning IDs resolved inside the owning Run, avoiding C++ ownership cycles.
 | Callback delivery → `CallbackTicket`, `OperationObservation`, `CompletionSink` | Runtime sink plus worker-owned ticket; until worker/callback quiescence | W submits owned values; weak sink entry may fail closed; C validates all identities/generations | Internal | No raw Run/Job capture; stale lifecycle observations may still carry matched cleanup evidence |
 | Retained observation → `RunObservationRecord`, `ObservationCursor` | Runtime until advertised stream closure/retention expiry | C appends bounded reconciliation, I snapshots with watermark | Wire | Terminal does not mean EOS; closure capacity reserved; no late append after stream closure |
 
-Detailed ports and acknowledgement preconditions are in
-[Resource/Host](RESOURCE_HOST_CONTRACT.md), [Paid Budget](PAID_BUDGET_CONTRACT.md)
-and [Activation](ACTIVATION_CONTRACT.md). These tables do not replace those
+Detailed baseline ports are in [Resource/Host](RESOURCE_HOST_CONTRACT.md)
+and [Activation](ACTIVATION_CONTRACT.md). The [Paid Budget](PAID_BUDGET_CONTRACT.md)
+profile is optional. These tables do not replace those
 protocols with smart-pointer reference counts.
 
 ## RAII, callbacks and failure-safe destruction
@@ -137,13 +127,11 @@ lifecycle data cannot resurrect it; release/cost evidence is routed to matching
 ledger records. Closing a sink without a worker-quiescence protocol is forbidden:
 rejecting a callback does not prove the worker stopped touching native memory.
 
-The factory enforces one Runtime construction per process; a second creation
-(including after shutdown/failure) requires a new process. The process guard is
-not a shared Job singleton. NativeBackendLifetime outlives every native handle
-and callback. Its persistent ledger owner is the process-scoped RuntimeOverheadRecord,
-independent of the first Job's lease/quota; a first-use failure does not transfer
-uncertain global bytes back to the Job. Its exact init/free/log teardown order is in
-[Backend Contract](BACKEND_CONTRACT.md).
+A Runtime owns its workers, model/session holders, callbacks and ledger records
+through confirmed quiescence and release. A process-scoped native compute context,
+if later needed, has a separately specified owner and usage references. No
+llama.cpp-derived global init/free or permanent one-construction guard belongs
+to the baseline. An uncertain allocation remains accounted or contained.
 
 Runtime shutdown closes admission, fixes the drain deadline, stops remaining
 work, transfers accounted debt, stops/join workers when possible, seals callback

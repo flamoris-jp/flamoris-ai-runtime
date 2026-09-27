@@ -7,11 +7,7 @@ The proposed types are responsibilities, not production declarations or a stable
 
 ## One control executor, independent workers
 
-The baseline permits one RuntimeInstance construction per process, enforced by
-an atomic ProcessRuntimeGuard claim before any worker/native initialization.
-The claim stays spent after failure or shutdown; reconstruction needs a fresh
-process. It is independent of host/resource authority. That sole instance has
-one `ControlExecutor` thread. It owns
+The initial Runtime instance has one `ControlExecutor` thread. It owns
 all Run controllers, Job records, the Scheduler, ResourceManager ledger,
 SubmissionIndex, current capability/policy projections, timer heap, and retained
 observation records. Each Run therefore has a serialized control order. Shared
@@ -32,8 +28,7 @@ The control thread releases the inbox mutex before processing. Worker queues
 use the same simple pattern; no callbacks execute while a queue mutex is held.
 `std::jthread`/stop requests express cooperative thread shutdown, not evidence
 that native inference has stopped. No coroutine framework, lock-free queue, or
-mutable domain singleton is required. A DeliveryGate uses one narrow atomic
-state for worker send versus control/worker close; its registry owns lifetime.
+mutable domain singleton is required. The optional strict-cost profile may add its own one-shot delivery gate.
 The [ownership map](CPP_OWNERSHIP.md) specifies
 destruction responsibility; [backend contracts](BACKEND_CONTRACT.md) specify
 actual quiescence.
@@ -74,13 +69,13 @@ No controller waits holding a mutex across an external operation. See
 
 | Operation | Single authoritative point | Rejected/stale consequence |
 | --- | --- | --- |
-| Runtime construction | ProcessRuntimeGuard atomically changes unused to permanently claimed before creating workers/native state | Concurrent/later construction rejects with no init/log/free side effects |
+| Runtime construction | Create independent instance-owned control/worker/ledger state | Shared compute contexts, if any, require a separate lifetime contract |
 | Keyed submission claim | Insert explicit scoped key + canonical request digest + reserved Run identity in SubmissionIndex | Different digest conflicts; same digest attaches to the pending decision |
 | Unkeyed submission preparation | Allocate a fresh bounded PendingSubmissionId + reserved Run identity without inserting or querying SubmissionIndex | Independent admission/rejection; equal digests never attach |
 | Run admission | Resolve the pending submission (and optional keyed claim) with one Run/root and all finite bookkeeping budgets | No runnable partial Run; notify keyed duplicate waiters before releasing failed claim |
 | Resource reservation | All-or-none incremental vector in ResourceManager, advance ledger revision | No partial local grant; uncertain external receipts remain accounted |
 | Dispatch/retry/resume | Final eligibility turn consumes prepared grants and budgets, commits running/attempt intent and a fenced outbound action | No useful work on a partially valid grant; retain queued resume payload or fail/clean up |
-| Paid delivery close/send | DeliveryGate compare-exchange chooses absorbing no-send closure or one send claim after dispatch commit | Close wins: no provider call; send wins: retain liability, no local no-send proof |
+
 | Yield | Safe-point evidence accepted; commit Continuation and waiting/paused state together | No resumable state fabricated from an unfinished native call |
 | Wake | Consume owner/suspension generation into same Job's PendingResume and queue | Duplicate wake cannot consume again |
 | Run pause | Validate every target, close both gates, assign barrier generation and capture target set together | Unsupported target rejects without changing flags/gates |
@@ -336,16 +331,13 @@ Orderly shutdown is:
    the configured drain deadline. Continue control/cleanup processing.
 2. Drain eligible admitted work only within that deadline, then issue stop to
    remaining Jobs; invalidate resume paths and stop new segments.
-3. Close all still-unclaimed delivery gates and retain registry/cleanup-owned
-   gates, endpoints, resource/paid adapters and executor while workers acknowledge
-   quiescence, release/containment, and ledger reconciliation. Claimed/unknown
-   gates never become no-send proofs during shutdown.
-4. When native operations quiesce, destroy native sessions/models and perform
-   root-owned global free/log detachment on the designated worker, retaining
-   callback storage through the last possible callback. Then stop/join workers
-   outside the control thread, drain final observations and close endpoints.
-   Follow [native lifetime ordering](BACKEND_CONTRACT.md); the construction guard
-   remains spent even on failure or completed shutdown.
+3. Retain endpoints, resource records and executor while native workers prove
+   quiescence, release or safe containment. Optional paid integrations maintain
+   their own effect/outcome obligations under their separate contract.
+4. Destroy native sessions/models on their owner after last callback, then
+   stop/join workers outside the control thread and drain final observations.
+   An optional shared OpenCL context outlives all of its users; no global
+   llama.cpp teardown or permanent construction guard is imposed.
 5. Publish remaining bounded closure records, close observers and timer sources,
    then destroy controllers, ledger and executor on their designated owners.
 
@@ -353,7 +345,7 @@ A native call that misses cleanup time cannot be detached and freed. If safe
 containment is impossible, keep its memory/context and report stuck state to
 the configured supervisor; do not join it on the control thread or fabricate
 terminal events. Process termination loses non-durable Runs; restart uses a new
-incarnation and requires host/budget reconciliation. No destructor sends a paid
+incarnation and requires host/resource reconciliation. No destructor sends a paid
 request, resets a host device, or restores state from replay.
 
 ## Deterministic test hooks
