@@ -17,6 +17,8 @@ LifecycleEvent event(std::string kind, JobId job, std::uint64_t generation = 0) 
     value.kind = std::move(kind);
     value.job = job;
     value.generation = generation;
+    if (generation && value.kind.starts_with("interrupt."))
+        value.command_id = CommandId{generation};
     return value;
 }
 LifecycleEvent changed(JobId job, JobState from, JobState to, std::optional<ErrorCode> code = {}) {
@@ -280,6 +282,15 @@ struct RunController::Impl {
         for (auto &value : group.events) {
             value.sequence = ++next;
             value.monotonic_offset = static_cast<std::uint64_t>(clock.now().count());
+            if (const auto *owner = find(value.job); owner && value.kind != "run.state_changed") {
+                if (!value.attempt_id && owner->attempt)
+                    value.attempt_id = AttemptId{owner->attempt};
+                if (!value.dispatch_generation && owner->dispatch_generation)
+                    value.dispatch_generation = DispatchGeneration{owner->dispatch_generation};
+                if (!value.external_outcome &&
+                    owner->external_outcome != ExternalOutcome::not_applicable)
+                    value.external_outcome = owner->external_outcome;
+            }
         }
         auto prepared = store.prepare(std::move(group), storage, reservation);
         if (!prepared)
@@ -452,24 +463,28 @@ Result<DispatchTicket> RunController::dispatch(JobId id, DispatchChecks checks) 
         return deny(ErrorCode::budget_exceeded);
     const auto attempt = job->attempt == 0 ? 1 : job->attempt;
     DispatchTicket ticket{id, attempt, job->dispatch_generation + 1};
-    auto result =
-        impl_->commit({event("resource.granted", id, ticket.dispatch_generation),
-                       changed(id, JobState::queued, JobState::running),
-                       event("attempt.dispatch_committed", id, ticket.dispatch_generation)},
-                      [&]() noexcept {
-                          if (job->attempt == 0)
-                              ++impl_->attempts;
-                          job->attempt = attempt;
-                          ++job->dispatch_generation;
-                          if (job->pending) {
-                              job->active_reference = job->pending->payload.state_reference;
-                              job->active_version = job->pending->payload.state_version;
-                              job->pending.reset();
-                          }
-                          job->state = JobState::running;
-                          job->in_flight = true;
-                          job->cleanup_pending = true;
-                      });
+    std::vector<LifecycleEvent> events{
+        event("resource.granted", id, ticket.dispatch_generation),
+        changed(id, JobState::queued, JobState::running),
+        event("attempt.dispatch_committed", id, ticket.dispatch_generation)};
+    for (auto &value : events) {
+        value.attempt_id = AttemptId{ticket.attempt};
+        value.dispatch_generation = DispatchGeneration{ticket.dispatch_generation};
+    }
+    auto result = impl_->commit(std::move(events), [&]() noexcept {
+        if (job->attempt == 0)
+            ++impl_->attempts;
+        job->attempt = attempt;
+        ++job->dispatch_generation;
+        if (job->pending) {
+            job->active_reference = job->pending->payload.state_reference;
+            job->active_version = job->pending->payload.state_version;
+            job->pending.reset();
+        }
+        job->state = JobState::running;
+        job->in_flight = true;
+        job->cleanup_pending = true;
+    });
     if (!result)
         return Result<DispatchTicket>::failure(result.error());
     return Result<DispatchTicket>::success(ticket);
@@ -860,7 +875,11 @@ Result<void> RunController::complete(DispatchTicket ticket, ExternalOutcome outc
         return rejected();
     if (impl_->due(*job))
         return request_stop(job->id, ErrorCode::job_timeout);
-    return impl_->commit({changed(job->id, job->state, JobState::finalizing)}, [&]() noexcept {
+    auto observed = event("attempt.outcome", job->id, ticket.dispatch_generation);
+    observed.external_outcome = outcome;
+    auto transition = changed(job->id, job->state, JobState::finalizing);
+    transition.external_outcome = outcome;
+    return impl_->commit({std::move(observed), std::move(transition)}, [&]() noexcept {
         job->in_flight = false;
         job->external_outcome = outcome;
         impl_->clear_payload(*job);
@@ -915,9 +934,12 @@ Result<void> RunController::observe_stopped(DispatchTicket ticket, StopEvidence 
     if (evidence.external_outcome == ExternalOutcome::unknown &&
         stop_target(cause) == JobState::cancelled)
         cause = ErrorCode::outcome_unknown;
+    auto observed = event("execution.stopped", job->id, ticket.dispatch_generation);
+    observed.external_outcome = evidence.external_outcome;
+    auto transition = changed(job->id, job->state, JobState::finalizing, cause);
+    transition.external_outcome = evidence.external_outcome;
     return impl_->commit(
-        {event("execution.stopped", job->id, ticket.dispatch_generation),
-         changed(job->id, job->state, JobState::finalizing, cause)},
+        {std::move(observed), std::move(transition)},
         [&]() noexcept {
             job->in_flight = false;
             job->failure = cause;
@@ -984,7 +1006,7 @@ Result<void> RunController::check_deadlines() {
     return expire_pause_barrier();
 }
 Result<void> RunController::retry(DispatchTicket ticket, TimePoint not_before, bool authorized,
-                                  bool stopped, bool reconciled) {
+                                  bool stopped, bool reconciled, ExternalOutcome previous_outcome) {
     auto *job = impl_->find(ticket.job);
     if (!impl_->current(ticket) || !job || job->state != JobState::running || !authorized ||
         !stopped || !reconciled || !job->pauses.empty() || !impl_->dispatch_open ||
@@ -995,15 +1017,19 @@ Result<void> RunController::retry(DispatchTicket ticket, TimePoint not_before, b
     if (job->attempt == std::numeric_limits<std::uint64_t>::max() ||
         impl_->attempts >= impl_->limits.attempts)
         return rejected(ErrorCode::budget_exceeded);
-    return impl_->commit({event("attempt.retry_admitted", job->id, job->attempt + 1),
-                          changed(job->id, job->state, JobState::queued)},
-                         [&]() noexcept {
-                             ++job->attempt;
-                             ++impl_->attempts;
-                             job->in_flight = false;
-                             job->state = JobState::queued;
-                             job->not_before = not_before;
-                         });
+    auto admitted = event("attempt.retry_admitted", job->id, job->attempt + 1);
+    admitted.attempt_id = AttemptId{job->attempt + 1};
+    auto outcome = event("attempt.outcome", job->id, ticket.dispatch_generation);
+    outcome.external_outcome = previous_outcome;
+    return impl_->commit(
+        {std::move(outcome), std::move(admitted), changed(job->id, job->state, JobState::queued)},
+        [&]() noexcept {
+            ++job->attempt;
+            ++impl_->attempts;
+            job->in_flight = false;
+            job->state = JobState::queued;
+            job->not_before = not_before;
+        });
 }
 
 ManualControlExecutor::ManualControlExecutor(std::size_t normal, std::size_t mandatory)

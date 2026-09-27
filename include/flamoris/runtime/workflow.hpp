@@ -17,6 +17,7 @@ struct WorkflowInvocation {
     bool coordinating{};
     std::uint64_t max_attempts{1};
     std::uint64_t backoff_ms{};
+    std::optional<ChildEnvelope> child_envelope;
 };
 struct WorkflowAdvance {
     std::vector<WorkflowInvocation> invocations;

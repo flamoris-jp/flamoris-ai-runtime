@@ -313,7 +313,8 @@ Result<WorkflowAdvance> WorkflowMachine::advance(DispatchTicket ticket) {
                                       deadline,
                                       control(*node.step),
                                       node.step->max_attempts,
-                                      node.step->backoff_ms});
+                                      node.step->backoff_ms,
+                                      node.step->child_envelope});
         if (control(*node.step))
             new_frames.push_back(std::make_unique<Impl::Frame>(JobId{}, node.step, std::move(input),
                                                                node.step->members));

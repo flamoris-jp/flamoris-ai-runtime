@@ -12,6 +12,10 @@ Job nor its event watermark. Ordinary control capacity is separate from the
 reserved stopping/finalization allowance. Results are observations; they cannot
 dispatch another Job by being replayed.
 
+Committed event values retain the applicable attempt, dispatch generation and
+command identifiers. Accepted external outcomes are captured before the state
+commit, including uncertain stopped operations; projections do not infer them.
+
 Suspension preserves Job and attempt identity. A continuation is consumed into
 the same Job's pending resume payload once, with monotonic suspension and dispatch
 generations. Temporary capacity denial leaves the payload owned and retained.
@@ -44,11 +48,21 @@ outer nodes. The current implementation advances topological waves; it does not
 promise immediate dispatch of a downstream node while an independent member of
 the current wave remains unfinished.
 
+An invocation copies its exact compiled child envelope and structural node path.
+Repeated local names in separate groups cannot select another group's authority.
+Schema-permitted optional references are resolved against the accepted value;
+an absent concrete field rejects binding before a dependent Job is registered.
+
 Each invocation retains its compiled attempt limit and backoff. A retry is a
 controller transition on the existing Job only after current authorization and
 explicit provider stop/outcome evidence pass `authorize_retry`; the original
 deadline and provider operation key remain fixed. An error name alone never
 supplies that evidence.
+
+`runtime_retry_tests.cpp` drives registered providers, current policy and actual
+host acknowledgements through RuntimeInstance. It checks a confirmed transient
+retry, exact backoff, current revocation, the unchanged absolute deadline and
+refusal to retry an unknown non-idempotent effect.
 
 All-success propagates required failures and cancels remaining children.
 All-settled preserves declared participant order and typed error envelopes. Race

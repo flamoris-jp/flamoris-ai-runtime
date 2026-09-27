@@ -171,7 +171,8 @@ class RunController {
     Result<void> finalize(JobId);
     Result<void> check_deadlines();
     Result<void> retry(DispatchTicket, TimePoint not_before, bool explicitly_authorized,
-                       bool previous_stopped, bool reconciled);
+                       bool previous_stopped, bool reconciled,
+                       ExternalOutcome previous_outcome = ExternalOutcome::not_applicable);
 
     // Deterministic preparation failure seam, consumed before any mutation.
     void fail_next_preparation() noexcept;

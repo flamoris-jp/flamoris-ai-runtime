@@ -49,7 +49,8 @@ CapabilitySnapshot registry() {
     return result;
 }
 std::shared_ptr<const ExecutionPlan> compile(JsonValue::Array nodes, std::string output_node,
-                                             bool retry = false) {
+                                             bool retry = false,
+                                             std::optional<CapabilitySnapshot> configured = {}) {
     JsonValue request = JsonValue::Object{
         {"schema_version", "flamoris.submit/1"},
         {"kind", "workflow"},
@@ -65,7 +66,7 @@ std::shared_ptr<const ExecutionPlan> compile(JsonValue::Array nodes, std::string
         {"input_values", JsonValue::Object{}}};
     auto encoded = canonical_json(request);
     REQUIRE(encoded);
-    auto capabilities = registry();
+    auto capabilities = configured ? std::move(*configured) : registry();
     if (retry) {
         auto &contract = capabilities.capabilities.at("algorithm.echo");
         contract.retry_permitted = true;
@@ -141,6 +142,70 @@ TEST_CASE(
     REQUIRE(completed.value().completed_output ==
             JsonValue{JsonValue::Object{{"result", "finished"}}});
     f.terminal_running(ticket, *completed.value().completed_output);
+}
+
+TEST_CASE("B-SUB01 absent optional output binding fails before dependent Job admission") {
+    auto capabilities = registry();
+    auto optional = capabilities.capabilities.at("algorithm.echo");
+    optional.identifier = "algorithm.optional";
+    optional.output_schema = {};
+    optional.output_schema.kind = ValueSchema::Kind::object;
+    optional.output_schema.properties["text"] =
+        capabilities.capabilities.at("algorithm.echo").output_schema;
+    capabilities.capabilities.emplace(optional.identifier, std::move(optional));
+    const auto submission =
+        R"({"schema_version":"flamoris.submit/1","kind":"workflow","workflow":{"schema_version":"flamoris.workflow/0.1","workflow":{"id":"optional-binding"},"inputs":{},"nodes":[{"id":"source","type":"algorithm.optional","with":{"text":{"literal":"input"}}},{"id":"dependent","type":"algorithm.echo","with":{"text":{"ref":{"source":"node","name":"source","path":["text"]}}}}],"edges":[],"outputs":{"result":{"ref":{"source":"node","name":"dependent","path":[]}}},"limits":{}},"input_values":{}})";
+    auto compiled = Compiler{}.compile_submission(submission, capabilities);
+    REQUIRE(compiled);
+    Fixture f(compiled.value().plan);
+    auto first = f.advance(f.run->root());
+    REQUIRE(first.invocations.size() == 1);
+    REQUIRE(first.invocations.front().node == "source");
+    f.terminal(first.invocations.front().job, JsonValue::Object{});
+    REQUIRE(f.run->snapshot().jobs.size() == 2);
+    auto parent = f.dispatch(f.run->root());
+    const auto watermark = f.run->snapshot().watermark;
+    auto failed = f.machine->advance(parent);
+    REQUIRE_FALSE(failed);
+    REQUIRE(failed.error().code() == ErrorCode::invalid_reference);
+    REQUIRE(f.run->snapshot().jobs.size() == 2);
+    REQUIRE(f.run->snapshot().watermark == watermark);
+    REQUIRE(f.run->job(parent.job).value().state == JobState::running);
+}
+
+TEST_CASE("A07 nested duplicate local node names retain their exact child authority envelope") {
+    auto capabilities = registry();
+    capabilities.capabilities.at("algorithm.echo").inference = true;
+    auto pin = fingerprint_capability(capabilities.capabilities.at("algorithm.echo"));
+    REQUIRE(pin);
+    ChildEnvelope narrow{"narrow", "1", {pin.value()}, 2, 1, 1, 128};
+    ChildEnvelope wide{"wide", "2", {pin.value()}, 4, 2, 2, 256};
+    capabilities.child_policies.emplace(narrow.identifier, narrow);
+    capabilities.child_policies.emplace(wide.identifier, wide);
+    auto left = leaf("same");
+    auto right = leaf("same");
+    std::get<JsonValue::Object>(left.data)["child_policy"] = narrow.identifier;
+    std::get<JsonValue::Object>(right.data)["child_policy"] = wide.identifier;
+    Fixture f(
+        compile({group("left", "all_success", {left}), group("right", "all_success", {right})},
+                "right", false, std::move(capabilities)));
+    auto parents = f.advance(f.run->root());
+    REQUIRE(parents.invocations.size() == 2);
+    auto left_invocation = f.advance(parents.invocations[0].job).invocations.front();
+    auto right_invocation = f.advance(parents.invocations[1].job).invocations.front();
+    REQUIRE(left_invocation.node == "left/same");
+    REQUIRE(right_invocation.node == "right/same");
+    REQUIRE(left_invocation.child_envelope);
+    REQUIRE(right_invocation.child_envelope);
+    REQUIRE(left_invocation.child_envelope->identifier == narrow.identifier);
+    REQUIRE(right_invocation.child_envelope->identifier == wide.identifier);
+    REQUIRE(left_invocation.child_envelope->max_children == narrow.max_children);
+    REQUIRE(right_invocation.child_envelope->max_children == wide.max_children);
+    REQUIRE(left_invocation.child_envelope->max_attempts == narrow.max_attempts);
+    REQUIRE(right_invocation.child_envelope->max_attempts == wide.max_attempts);
+    REQUIRE(f.machine->invocation(left_invocation.job)->child_envelope->revision ==
+            narrow.revision);
+    REQUIRE(f.machine->invocation(right_invocation.job)->child_envelope->revision == wide.revision);
 }
 
 TEST_CASE("A20 A21 nested join Jobs own member subtrees and all-settled returns declared order") {

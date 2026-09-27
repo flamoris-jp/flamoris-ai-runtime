@@ -70,6 +70,62 @@ TEST_CASE("B-LIFE01 complete transition table and move-only continuation ownersh
     REQUIRE(fixture.run->snapshot().watermark == before);
 }
 
+TEST_CASE(
+    "A29 committed events preserve command attempt dispatch and external outcome provenance") {
+    Fixture f;
+    auto first = f.start();
+    REQUIRE(f.run->pause_job(first.job, 42));
+    REQUIRE(f.run->suspend(first, payload(), {true, true}));
+    REQUIRE(f.run->resume_job(first.job, 42, true));
+    auto resumed = f.run->dispatch(first.job, allowed);
+    REQUIRE(resumed);
+    REQUIRE(resumed.value().attempt == first.attempt);
+    REQUIRE(resumed.value().dispatch_generation != first.dispatch_generation);
+    REQUIRE(f.run->complete(resumed.value(), ExternalOutcome::confirmed_success));
+    bool saw_command = false;
+    bool saw_first = false;
+    bool saw_resumed = false;
+    bool saw_outcome = false;
+    for (const auto &group : f.run->events()) {
+        for (const auto &record : group.events) {
+            if (record.kind == "run.state_changed") {
+                REQUIRE_FALSE(record.attempt_id);
+                REQUIRE_FALSE(record.dispatch_generation);
+            } else if (record.kind == "attempt.dispatch_committed") {
+                REQUIRE(record.attempt_id == AttemptId{first.attempt});
+                REQUIRE(record.dispatch_generation);
+                saw_first |= record.dispatch_generation->value() == first.dispatch_generation;
+                saw_resumed |=
+                    record.dispatch_generation->value() == resumed.value().dispatch_generation;
+            } else if (record.kind.starts_with("interrupt.")) {
+                REQUIRE(record.command_id == CommandId{42});
+                saw_command = true;
+            } else if (record.kind == "attempt.outcome") {
+                REQUIRE(record.attempt_id == AttemptId{first.attempt});
+                REQUIRE(record.dispatch_generation ==
+                        DispatchGeneration{resumed.value().dispatch_generation});
+                REQUIRE(record.external_outcome == ExternalOutcome::confirmed_success);
+                saw_outcome = true;
+            }
+        }
+    }
+    REQUIRE(saw_command);
+    REQUIRE(saw_first);
+    REQUIRE(saw_resumed);
+    REQUIRE(saw_outcome);
+
+    Fixture unknown;
+    auto stopped = unknown.start();
+    REQUIRE(unknown.run->request_stop(stopped.job));
+    REQUIRE(unknown.run->observe_stopped(stopped, {true, false, ExternalOutcome::unknown}));
+    const auto &stopping = unknown.run->events().back();
+    REQUIRE(stopping.events.front().kind == "execution.stopped");
+    REQUIRE(stopping.events.front().attempt_id == AttemptId{stopped.attempt});
+    REQUIRE(stopping.events.front().dispatch_generation ==
+            DispatchGeneration{stopped.dispatch_generation});
+    REQUIRE(stopping.events.front().external_outcome == ExternalOutcome::unknown);
+}
+
 TEST_CASE("A08 A09 suspended state moves once into same queued Job then current dispatch") {
     Fixture f;
     const auto first = f.start();
@@ -292,7 +348,14 @@ TEST_CASE("B-RETRY01 retry preserves Job deadline while fencing previous attempt
     Fixture f;
     auto old = f.start();
     REQUIRE_FALSE(f.run->retry(old, 1s, true, false, true));
-    REQUIRE(f.run->retry(old, 1s, true, true, true));
+    REQUIRE(f.run->retry(old, 1s, true, true, true, ExternalOutcome::confirmed_failure));
+    const auto &retry_events = f.run->events().back().events;
+    REQUIRE(retry_events[0].kind == "attempt.outcome");
+    REQUIRE(retry_events[0].attempt_id == AttemptId{old.attempt});
+    REQUIRE(retry_events[0].dispatch_generation == DispatchGeneration{old.dispatch_generation});
+    REQUIRE(retry_events[0].external_outcome == ExternalOutcome::confirmed_failure);
+    REQUIRE(retry_events[1].kind == "attempt.retry_admitted");
+    REQUIRE(retry_events[1].attempt_id == AttemptId{old.attempt + 1});
     REQUIRE(f.root().state == JobState::queued);
     REQUIRE_FALSE(f.run->dispatch(old.job, allowed));
     REQUIRE(f.clock.advance(1s));

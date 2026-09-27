@@ -54,6 +54,9 @@ struct LifecycleEvent {
     std::uint64_t monotonic_offset{};
     std::optional<RunActivity> run_from;
     std::optional<RunActivity> run_to;
+    std::optional<AttemptId> attempt_id;
+    std::optional<DispatchGeneration> dispatch_generation;
+    std::optional<CommandId> command_id;
 };
 
 struct EventGroup {
