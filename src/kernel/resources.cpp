@@ -309,7 +309,8 @@ Result<ExecutionLease> ResourceManager::commit_dispatch(const ResourceTicket &ti
                                                         const ResourceDispatchGuard &guard,
                                                         TimePoint now) {
     auto *r = reservation(ticket);
-    if (!r || r->aborted || r->quiescent || r->quarantined || r->lease)
+    if (!r || r->aborted || r->quiescent || r->quarantined || r->native_stopped ||
+        r->host_release || r->lease)
         return failure<ExecutionLease>(ErrorCode::state_unavailable, ErrorStage::dispatch);
     if (!guard.authorized)
         return failure<ExecutionLease>(ErrorCode::permission_denied, ErrorStage::dispatch);
@@ -345,7 +346,8 @@ Result<ExecutionLease> ResourceManager::commit_dispatch(const ResourceTicket &ti
 }
 Result<AllocationIdentity> ResourceManager::next_allocation_identity(const ResourceTicket &ticket) {
     auto *r = reservation(ticket);
-    if (!r || !r->lease || r->aborted || r->quiescent || r->quarantined)
+    if (!r || !r->lease || r->aborted || r->quiescent || r->quarantined || r->native_stopped ||
+        r->host_release)
         return failure<AllocationIdentity>(ErrorCode::state_unavailable);
     if (allocations_.size() >= limits_.allocations || !counter_available(next_allocation_))
         return failure<AllocationIdentity>(ErrorCode::resource_unavailable);
@@ -398,6 +400,114 @@ Result<void> ResourceManager::materialized(const ResourceTicket &ticket,
     ++revision_;
     return Result<void>::success();
 }
+Result<void> ResourceManager::materialization_complete(const ResourceTicket &ticket,
+                                                       std::span<const AllocationIdentity> manifest,
+                                                       TimePoint now) {
+    auto *r = reservation(ticket);
+    if (!r || !r->lease || !lease_current(*r->lease, now) || manifest.size() > limits_.allocations)
+        return failure<void>(ErrorCode::state_unavailable);
+    std::vector<AllocationIdentity> canonical(manifest.begin(), manifest.end());
+    auto order = [](const auto &a, const auto &b) { return a.allocation < b.allocation; };
+    std::sort(canonical.begin(), canonical.end(), order);
+    if (std::adjacent_find(canonical.begin(), canonical.end()) != canonical.end())
+        return failure<void>(ErrorCode::invalid_request);
+    if (r->initial_materialization_complete)
+        return r->initial_manifest == canonical ? Result<void>::success()
+                                                : failure<void>(ErrorCode::invalid_request);
+    std::size_t present = 0;
+    for (const auto &a : allocations_)
+        if (a.origin == ticket.reservation && !a.released) {
+            if (!a.materialized ||
+                std::find(canonical.begin(), canonical.end(), a.identity) == canonical.end())
+                return failure<void>(ErrorCode::state_unavailable);
+            ++present;
+        }
+    if (present != canonical.size())
+        return failure<void>(ErrorCode::state_unavailable);
+    r->initial_manifest = std::move(canonical);
+    r->initial_materialization_complete = true;
+    ++revision_;
+    return Result<void>::success();
+}
+Result<void> ResourceManager::request_host_release(const ResourceTicket &ticket,
+                                                   OperationId operation) {
+    auto *r = reservation(ticket);
+    if (!r || !operation.valid() || !r->grant.valid() || r->outcome != HostOutcome::acknowledged)
+        return failure<void>(ErrorCode::state_unavailable, ErrorStage::cleanup);
+    if (r->host_release) {
+        if (*r->host_release != operation)
+            return failure<void>(ErrorCode::invalid_request, ErrorStage::cleanup);
+        return Result<void>::success();
+    }
+    r->host_release = operation;
+    ++revision_;
+    try {
+        auto sent = host_.release(operation, ticket, r->grant);
+        if (!sent) {
+            if (sent.error().external_outcome() == ExternalOutcome::not_dispatched)
+                r->host_release.reset();
+            return sent;
+        }
+    } catch (...) {
+        return Result<void>::failure(ErrorEnvelope::make(
+            ErrorCode::outcome_unknown, ErrorStage::cleanup, ExternalOutcome::unknown,
+            RetryDisposition::reconciliation_required));
+    }
+    return Result<void>::success();
+}
+std::optional<OperationId>
+ResourceManager::host_release_operation(const ResourceTicket &ticket) const noexcept {
+    const auto *r = reservation(ticket);
+    return r ? r->host_release : std::nullopt;
+}
+bool ResourceManager::reservation_settled(const ResourceTicket &ticket) const noexcept {
+    const auto *r = reservation(ticket);
+    return r && (r->aborted || r->quiescent);
+}
+void ResourceManager::settle_execution(ReservationRecord &r, TimePoint now) noexcept {
+    if (!r.native_stopped || !r.host_released || (!r.remaining.empty() && !r.unmaterialized_absent))
+        return;
+    if (r.quiescent || r.aborted)
+        return;
+    r.remaining = {};
+    if (r.lease)
+        r.quiescent = true;
+    else
+        r.aborted = true;
+    if (r.unmaterialized_absent)
+        for (auto &a : allocations_)
+            if (a.origin == r.ticket.reservation && !a.materialized)
+                a.released = true;
+    ++revision_;
+    reconcile_cleanup(now);
+}
+Result<void> ResourceManager::observe_host_release(const HostReleaseReceipt &receipt,
+                                                   TimePoint now) {
+    auto *r = reservation(receipt.ticket);
+    if (!r || r->host_release != receipt.operation || r->grant != receipt.grant)
+        return failure<void>(ErrorCode::state_unavailable, ErrorStage::cleanup);
+    if (receipt.outcome != HostOutcome::acknowledged)
+        return Result<void>::failure(ErrorEnvelope::make(
+            ErrorCode::outcome_unknown, ErrorStage::cleanup, ExternalOutcome::unknown,
+            RetryDisposition::reconciliation_required));
+    if (!r->host_released) {
+        r->host_released = true;
+        ++revision_;
+    }
+    settle_execution(*r, now);
+    return Result<void>::success();
+}
+Result<void> ResourceManager::native_quiesced(const ResourceTicket &ticket, ContainmentProof proof,
+                                              bool unmaterialized_absent_confirmed, TimePoint now) {
+    auto *r = reservation(ticket);
+    if (!r || !proof_valid(proof))
+        return failure<void>(ErrorCode::cleanup_failed, ErrorStage::cleanup);
+    r->native_stopped = true;
+    r->unmaterialized_absent = r->unmaterialized_absent || unmaterialized_absent_confirmed;
+    ++revision_;
+    settle_execution(*r, now);
+    return Result<void>::success();
+}
 bool ResourceManager::lease_quiescent(const ExecutionLease &lease) const noexcept {
     auto *r = reservation(lease.ticket);
     return r && r->lease == lease && r->quiescent;
@@ -405,13 +515,15 @@ bool ResourceManager::lease_quiescent(const ExecutionLease &lease) const noexcep
 bool ResourceManager::lease_current(const ExecutionLease &lease, TimePoint now) const noexcept {
     auto *r = reservation(lease.ticket);
     return r && r->lease == lease && !r->aborted && !r->quiescent && !r->quarantined &&
-           now < r->request.deadline &&
+           !r->native_stopped && !r->host_release && now < r->request.deadline &&
            fresh(envelope(lease.ticket.resource), lease.ticket.host_epoch, now);
 }
 bool ResourceManager::ready_for_use(const ExecutionLease &lease, TimePoint now) const noexcept {
     auto *r = reservation(lease.ticket);
     return r && r->lease == lease && !r->aborted && !r->quiescent && !r->quarantined &&
-           r->remaining.empty() && now < r->request.deadline &&
+           !r->native_stopped && !r->host_release &&
+           (r->remaining.empty() || r->initial_materialization_complete) &&
+           now < r->request.deadline &&
            fresh(envelope(lease.ticket.resource), lease.ticket.host_epoch, now);
 }
 Result<void> ResourceManager::abort_preparation(const ResourceTicket &ticket,
@@ -423,10 +535,16 @@ Result<void> ResourceManager::abort_preparation(const ResourceTicket &ticket,
     if (r->aborted)
         return Result<void>::success();
     if (!proven_no_external_acquisition && r->outcome != HostOutcome::rejected) {
+        if (r->reconciliation_requested)
+            return failure<void>(ErrorCode::outcome_unknown, ErrorStage::cleanup);
+        r->reconciliation_requested = true;
         try {
             auto result = host_.reconcile(ticket.operation, ticket, r->grant);
-            if (!result)
+            if (!result) {
+                if (result.error().external_outcome() == ExternalOutcome::not_dispatched)
+                    r->reconciliation_requested = false;
                 return result;
+            }
         } catch (...) {
             return Result<void>::failure(ErrorEnvelope::make(
                 ErrorCode::outcome_unknown, ErrorStage::cleanup, ExternalOutcome::unknown,
@@ -453,6 +571,9 @@ Result<void> ResourceManager::quiesced(const QuiescenceEvidence &evidence, TimeP
         return failure<void>(ErrorCode::cleanup_failed, ErrorStage::cleanup);
     r->remaining = {};
     r->quiescent = true;
+    r->native_stopped = true;
+    r->host_released = true;
+    r->unmaterialized_absent = evidence.unmaterialized_absent_confirmed;
     if (evidence.unmaterialized_absent_confirmed) {
         for (auto &a : allocations_)
             if (a.origin == r->ticket.reservation && !a.materialized)

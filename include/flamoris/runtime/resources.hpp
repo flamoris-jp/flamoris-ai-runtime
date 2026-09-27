@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace flamoris::runtime {
@@ -94,6 +95,12 @@ struct HostAcquisition {
     RuntimeInstanceId instance;
     OperationId grant;
     HostOutcome outcome{HostOutcome::unknown};
+};
+struct HostReleaseReceipt {
+    OperationId operation;
+    ResourceTicket ticket;
+    OperationId grant;
+    HostOutcome outcome{HostOutcome::acknowledged};
 };
 class HostAuthorityPort {
   public:
@@ -194,6 +201,16 @@ class ResourceManager {
                                            TimePoint now);
     Result<AllocationIdentity> next_allocation_identity(const ResourceTicket &);
     Result<void> materialized(const ResourceTicket &, AllocationIdentity, const ResourceVector &);
+    // The native owner reports the complete initial allocation manifest. Any unused
+    // admitted growth/scratch headroom remains reserved until genuine quiescence.
+    Result<void> materialization_complete(const ResourceTicket &,
+                                          std::span<const AllocationIdentity>, TimePoint now);
+    Result<void> request_host_release(const ResourceTicket &, OperationId);
+    Result<void> observe_host_release(const HostReleaseReceipt &, TimePoint now);
+    Result<void> native_quiesced(const ResourceTicket &, ContainmentProof,
+                                 bool unmaterialized_absent_confirmed, TimePoint now);
+    std::optional<OperationId> host_release_operation(const ResourceTicket &) const noexcept;
+    bool reservation_settled(const ResourceTicket &) const noexcept;
     bool lease_quiescent(const ExecutionLease &) const noexcept;
     bool lease_current(const ExecutionLease &, TimePoint now) const noexcept;
     bool ready_for_use(const ExecutionLease &, TimePoint now) const noexcept;
@@ -234,6 +251,13 @@ class ResourceManager {
         bool quiescent{};
         bool aborted{};
         bool quarantined{};
+        bool initial_materialization_complete{};
+        std::vector<AllocationIdentity> initial_manifest{};
+        std::optional<OperationId> host_release{};
+        bool host_released{};
+        bool native_stopped{};
+        bool unmaterialized_absent{};
+        bool reconciliation_requested{};
     };
     struct AllocationRecord {
         AllocationIdentity identity;
@@ -265,6 +289,7 @@ class ResourceManager {
     const AllocationRecord *find_allocation(AllocationIdentity) const noexcept;
     ResourceVector run_usage(RunId) const noexcept;
     void reconcile_cleanup(TimePoint now) noexcept;
+    void settle_execution(ReservationRecord &, TimePoint now) noexcept;
     bool fresh(const EnvelopeRecord *, HostEpoch, TimePoint) const noexcept;
     RuntimeInstanceId instance_;
     HostAuthorityPort &host_;

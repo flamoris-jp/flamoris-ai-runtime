@@ -17,6 +17,7 @@ class ManualHost final : public HostAuthorityPort {
     bool available{true};
     bool throw_after_acquire{};
     bool throw_reconcile{};
+    bool throw_after_release{};
     Result<void> request_envelope(LogicalResourceId, RuntimeInstanceId) override {
         ++envelope_requests;
         return result();
@@ -33,6 +34,8 @@ class ManualHost final : public HostAuthorityPort {
     }
     Result<void> release(OperationId operation, const ResourceTicket &, OperationId) override {
         releases.push_back(operation);
+        if (throw_after_release)
+            throw std::runtime_error("private host diagnostics");
         return result();
     }
     Result<void> reconcile(OperationId operation, const ResourceTicket &, OperationId) override {

@@ -385,3 +385,92 @@ TEST_CASE("A28 in-flight native work without reported allocation retains reserva
     REQUIRE(f.observation.changes.size() == 2);
     REQUIRE(f.observation.changes.back().resolved);
 }
+TEST_CASE("C03 complete allocation manifest retains conservative scratch headroom",
+          "[resources][manifest]") {
+    Fixture f;
+    auto [ticket, lease] = f.start(f.request(1, 1, resources(10, 1)));
+    auto first = f.manager.next_allocation_identity(ticket),
+         second = f.manager.next_allocation_identity(ticket);
+    REQUIRE(first);
+    REQUIRE(second);
+    REQUIRE(f.manager.materialized(ticket, first.value(), resources(3)));
+    std::vector<AllocationIdentity> missing{first.value()};
+    REQUIRE_FALSE(f.manager.materialization_complete(ticket, missing, 0ns));
+    REQUIRE_FALSE(f.manager.ready_for_use(lease, 0ns));
+    REQUIRE(f.manager.materialized(ticket, second.value(), resources(2)));
+    std::vector<AllocationIdentity> manifest{second.value(), first.value()};
+    SECTION("missing, duplicate, and foreign identities cannot certify initial materialization") {
+        REQUIRE_FALSE(f.manager.materialization_complete(ticket, missing, 0ns));
+        manifest = {first.value(), first.value()};
+        REQUIRE_FALSE(f.manager.materialization_complete(ticket, manifest, 0ns));
+        manifest = {first.value(), f.id(100)};
+        REQUIRE_FALSE(f.manager.materialization_complete(ticket, manifest, 0ns));
+        REQUIRE(f.manager.snapshot(f.device).reserved == resources(5));
+        REQUIRE_FALSE(f.manager.ready_for_use(lease, 0ns));
+    }
+    SECTION("the manifest completes readiness while upper-bound memory remains charged") {
+        REQUIRE(f.manager.materialization_complete(ticket, manifest, 0ns));
+        REQUIRE(f.manager.ready_for_use(lease, 0ns));
+        REQUIRE(f.manager.snapshot(f.device).resident == resources(5));
+        REQUIRE(f.manager.snapshot(f.device).reserved == resources(5));
+        REQUIRE_FALSE(f.manager.reserve(f.request(2, 2, resources(1, 1)), 0ns));
+        REQUIRE(f.manager.materialization_complete(ticket, manifest, 0ns));
+        auto scratch = f.manager.next_allocation_identity(ticket);
+        REQUIRE(scratch);
+        REQUIRE(f.manager.materialized(ticket, scratch.value(), resources(1)));
+        REQUIRE(f.manager.ready_for_use(lease, 0ns));
+        REQUIRE(f.manager.snapshot(f.device).resident == resources(6));
+        REQUIRE(f.manager.snapshot(f.device).reserved == resources(4));
+        REQUIRE_FALSE(f.manager.materialized(ticket, f.id(100), resources(5)));
+        f.manager.fence(f.device);
+        REQUIRE_FALSE(f.manager.materialization_complete(ticket, manifest, 1ns));
+        REQUIRE_FALSE(f.manager.ready_for_use(lease, 1ns));
+    }
+}
+TEST_CASE("C03 ledger owns release correlation across throwing host handoff and retired Run",
+          "[resources][host-release][fault]") {
+    Fixture f;
+    auto [ticket, lease] = f.start(f.request(1, 1, resources(7, 1)));
+    REQUIRE(f.manager.materialized(ticket, f.id(1), resources(3)));
+    std::array manifest{f.id(1)};
+    REQUIRE(f.manager.materialization_complete(ticket, manifest, 0ns));
+    REQUIRE(f.manager.native_quiesced(ticket, ContainmentProof::worker_quiesced, true, 1ns));
+    REQUIRE_FALSE(f.manager.reservation_settled(ticket));
+    REQUIRE(f.manager.snapshot(f.device).reserved == resources(4));
+    f.host.throw_after_release = true;
+    auto sent = f.manager.request_host_release(ticket, OperationId{10});
+    REQUIRE_FALSE(sent);
+    REQUIRE(sent.error().external_outcome() == ExternalOutcome::unknown);
+    REQUIRE(f.manager.host_release_operation(ticket) == OperationId{10});
+    REQUIRE(f.manager.request_host_release(ticket, OperationId{10}));
+    REQUIRE(f.host.releases.size() == 1);
+    REQUIRE_FALSE(f.manager.request_host_release(ticket, OperationId{11}));
+    REQUIRE_FALSE(f.manager.observe_host_release({OperationId{11}, ticket, lease.host_grant}, 2ns));
+    REQUIRE_FALSE(f.manager.observe_host_release({OperationId{10}, ticket, OperationId{999}}, 2ns));
+    REQUIRE(f.manager.observe_host_release({OperationId{10}, ticket, lease.host_grant}, 3ns));
+    REQUIRE(f.manager.reservation_settled(ticket));
+    REQUIRE(f.manager.lease_quiescent(lease));
+    REQUIRE(f.manager.snapshot(f.device).executing.empty());
+    REQUIRE(f.manager.snapshot(f.device).reserved.empty());
+    REQUIRE(f.manager.snapshot(f.device).resident == resources(3));
+    REQUIRE(f.manager.observe_host_release({OperationId{10}, ticket, lease.host_grant}, 4ns));
+    REQUIRE(f.host.releases.size() == 1);
+}
+TEST_CASE("C03 acquired preparation can release before any Job dispatch",
+          "[resources][host-release]") {
+    Fixture f;
+    auto ticket = f.manager.reserve(f.request(1, 1, resources(7, 1)), 0ns);
+    REQUIRE(ticket);
+    REQUIRE(f.manager.acquired(
+        {ticket.value(), f.instance, OperationId{2}, HostOutcome::acknowledged}));
+    REQUIRE(f.manager.request_host_release(ticket.value(), OperationId{3}));
+    REQUIRE(f.manager.observe_host_release({OperationId{3}, ticket.value(), OperationId{2}}, 1ns));
+    REQUIRE_FALSE(f.manager.reservation_settled(ticket.value()));
+    REQUIRE(
+        f.manager.native_quiesced(ticket.value(), ContainmentProof::worker_quiesced, true, 2ns));
+    REQUIRE(f.manager.reservation_settled(ticket.value()));
+    REQUIRE(f.manager.snapshot(f.device).reserved.empty());
+    REQUIRE(f.manager.retire_settled() == 1);
+    REQUIRE_FALSE(
+        f.manager.observe_host_release({OperationId{3}, ticket.value(), OperationId{2}}, 3ns));
+}
