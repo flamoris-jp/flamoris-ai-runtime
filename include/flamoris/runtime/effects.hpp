@@ -9,12 +9,21 @@
 
 namespace flamoris::runtime {
 
-enum class Effect : std::uint8_t { pure = 1, read = 2, write = 4, external = 8, destructive = 16, paid = 32 };
+enum class Effect : std::uint8_t {
+    pure = 1,
+    read = 2,
+    write = 4,
+    external = 8,
+    destructive = 16,
+    paid = 32
+};
 class EffectSet final {
-public:
+  public:
     [[nodiscard]] static Result<EffectSet> from_mask(std::uint8_t mask) noexcept;
-    [[nodiscard]] static Result<EffectSet> from_names(std::span<const std::string_view> names) noexcept;
-    [[nodiscard]] static Result<EffectSet> from_names(std::initializer_list<std::string_view> names) noexcept {
+    [[nodiscard]] static Result<EffectSet>
+    from_names(std::span<const std::string_view> names) noexcept;
+    [[nodiscard]] static Result<EffectSet>
+    from_names(std::initializer_list<std::string_view> names) noexcept {
         return from_names(std::span<const std::string_view>(names.begin(), names.size()));
     }
     [[nodiscard]] static Result<EffectSet> aggregate(std::span<const EffectSet> members) noexcept;
@@ -23,8 +32,9 @@ public:
     }
     [[nodiscard]] std::uint8_t mask() const noexcept { return mask_; }
     [[nodiscard]] std::vector<std::string_view> names() const;
-    bool operator==(const EffectSet&) const = default;
-private:
+    bool operator==(const EffectSet &) const = default;
+
+  private:
     explicit EffectSet(std::uint8_t mask) noexcept : mask_(mask) {}
     std::uint8_t mask_;
 };

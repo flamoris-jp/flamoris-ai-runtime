@@ -25,3 +25,8 @@ temp/
 .cache/
 
 # Language- and runtime-specific ignores belong in each generated repository.
+
+# Local CMake state and dependency caches
+/build/
+/CMakeUserPresets.json
+/.deps/

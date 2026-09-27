@@ -26,15 +26,17 @@ TEST_CASE("A06 effect algebra rejects every invalid bit set and composes pure me
     REQUIRE_FALSE(EffectSet::from_names({"pure", "pure"}));
     REQUIRE_FALSE(EffectSet::from_names({"read", "future"}));
     REQUIRE(EffectSet::aggregate(std::array{pure, pure}).value() == pure);
-    for (unsigned a = 1; a < 64; ++a) for (unsigned b = 1; b < 64; ++b) {
-        const auto x = EffectSet::from_mask(static_cast<std::uint8_t>(a));
-        const auto y = EffectSet::from_mask(static_cast<std::uint8_t>(b));
-        if (!x || !y) continue;
-        auto xy = EffectSet::aggregate(std::array{x.value(), y.value()});
-        auto yx = EffectSet::aggregate(std::array{y.value(), x.value()});
-        REQUIRE(xy);
-        REQUIRE(xy.value() == yx.value());
-    }
+    for (unsigned a = 1; a < 64; ++a)
+        for (unsigned b = 1; b < 64; ++b) {
+            const auto x = EffectSet::from_mask(static_cast<std::uint8_t>(a));
+            const auto y = EffectSet::from_mask(static_cast<std::uint8_t>(b));
+            if (!x || !y)
+                continue;
+            auto xy = EffectSet::aggregate(std::array{x.value(), y.value()});
+            auto yx = EffectSet::aggregate(std::array{y.value(), x.value()});
+            REQUIRE(xy);
+            REQUIRE(xy.value() == yx.value());
+        }
 }
 
 TEST_CASE("checked identities and counters reject overflow and malformed wire versions") {
@@ -74,8 +76,9 @@ TEST_CASE("Result owns move-only values and reports the checked alternative") {
 
 TEST_CASE("error values contain only bounded Runtime classifications") {
     const std::array causes{ErrorCode::upstream_failure, static_cast<ErrorCode>(999)};
-    auto error = ErrorEnvelope::make(ErrorCode::job_timeout, ErrorStage::execution,
-        ExternalOutcome::unknown, RetryDisposition::policy_eligible, ErrorReason::none, causes);
+    auto error =
+        ErrorEnvelope::make(ErrorCode::job_timeout, ErrorStage::execution, ExternalOutcome::unknown,
+                            RetryDisposition::policy_eligible, ErrorReason::none, causes);
     REQUIRE(error.code() == ErrorCode::job_timeout);
     REQUIRE(error.external_outcome() == ExternalOutcome::unknown);
     REQUIRE(error.retry_disposition() == RetryDisposition::reconciliation_required);
@@ -83,7 +86,10 @@ TEST_CASE("error values contain only bounded Runtime classifications") {
     REQUIRE(error.message().size() <= 256);
     std::array<ErrorCode, 9> many{};
     REQUIRE(ErrorEnvelope::make(ErrorCode::upstream_failure, ErrorStage::execution,
-        ExternalOutcome::unknown, RetryDisposition::prohibited, ErrorReason::none, many).cause_codes().size() == 8);
+                                ExternalOutcome::unknown, RetryDisposition::prohibited,
+                                ErrorReason::none, many)
+                .cause_codes()
+                .size() == 8);
     REQUIRE(ErrorEnvelope::make(static_cast<ErrorCode>(1000)).code() == ErrorCode::internal_error);
 }
 

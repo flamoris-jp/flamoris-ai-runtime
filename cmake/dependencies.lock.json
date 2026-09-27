@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "configure_network": false,
+  "vendored": [
+    {
+      "name": "Catch2",
+      "version": "3.8.1",
+      "license": "BSL-1.0",
+      "source": "https://github.com/catchorg/Catch2/tree/v3.8.1",
+      "files": {
+        "third_party/catch2/catch_amalgamated.hpp": "8730587447e16531b832407bbf66959e97ad09af445adc118d2df13689dfecab",
+        "third_party/catch2/catch_amalgamated.cpp": "d90d5101269efb3bba00729b8cf14d44a6e6d9b695f9e5c9b4a71345a3bceb99",
+        "third_party/catch2/LICENSE.txt": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+      }
+    },
+    {
+      "name": "nlohmann/json",
+      "version": "3.12.0",
+      "license": "MIT",
+      "source": "https://github.com/nlohmann/json/tree/v3.12.0",
+      "files": {
+        "third_party/nlohmann/json.hpp": "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63"
+      }
+    }
+  ],
+  "openssl": {
+    "linux": {
+      "version": "3.0.13",
+      "ubuntu_package": "3.0.13-0ubuntu3.15",
+      "snapshot": "https://snapshot.ubuntu.com/ubuntu/20260828T000000Z",
+      "packages": {
+        "libssl3t64_3.0.13-0ubuntu3.15_amd64.deb": "3d0955bc049bbcca0f4c3e78a3a8b994593d96db7d84f4320217224433844534",
+        "libssl-dev_3.0.13-0ubuntu3.15_amd64.deb": "cefc6371d90d953a4cbb35d72d871f057e4b961a3107186f67fe96a88040cdb8"
+      },
+      "libcrypto_sha256": "6a66c3ba6b3749aacc9497973fff00f6ba61c703ba7015d0d7ab3fd9510974b6"
+    },
+    "windows": {
+      "version": "3.6.4",
+      "source": "actions/runner-images win22/20260920.314",
+      "qualification": "pending Windows CI; image version pinned"
+    }
+  },
+  "ci_images": {
+    "ubuntu-24.04": "20260920.314.1",
+    "windows-2022": "20260920.314.1"
+  },
+  "compilers": {
+    "gcc": "13.3.0",
+    "clang": "18.1.3",
+    "windows_vs": "17.14.37710.0",
+    "windows_compiler_patch": "record and qualify from pinned CI image"
+  },
+  "format": "18.1.3",
+  "tidy": "18.1.3",
+  "local_build_tools": {
+    "cmake": "3.28.3",
+    "ninja": "1.11.1"
+  },
+  "optional_opencl": {
+    "headers": "3.0~2023.12.14-1",
+    "loader": "2.3.2-1build1",
+    "pocl": "5.0-2.1build3",
+    "qualification": "actual CPU ICD parity is separate from physical GPU qualification"
+  }
+}
