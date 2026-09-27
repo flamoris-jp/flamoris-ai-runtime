@@ -155,7 +155,8 @@ struct Fixture {
     std::shared_ptr<Provider> provider = std::make_shared<Provider>();
     CapabilitySnapshot registry;
     std::unique_ptr<RuntimeInstance> runtime;
-    explicit Fixture(std::shared_ptr<Claims> claims = {}) {
+    explicit Fixture(std::shared_ptr<Claims> claims = {},
+                     std::function<void(RuntimeConfiguration &)> configure = {}) {
         RuntimeConfiguration config;
         config.instance = {121, 1};
         config.clock = clock;
@@ -178,6 +179,9 @@ struct Fixture {
         registration.run_resource_limit[ResourceKind::adapter] = 8;
         registration.run_resource_limit[ResourceKind::execution] = 8;
         config.registrations.push_back(registration);
+        if (configure)
+            configure(config);
+        registry = config.capabilities;
         auto created = RuntimeInstance::create(std::move(config));
         REQUIRE(created);
         runtime = std::move(created).value();
@@ -195,11 +199,11 @@ struct Fixture {
         envelope.reconciled_inventory = true;
         REQUIRE(runtime->observe_host_envelope(envelope));
     }
-    RunResult finish(RunId id) {
+    RunResult finish(RunId id, AuthorizationContext context = caller()) {
         for (unsigned turn = 0; turn < 10000; ++turn) {
             host->respond(*runtime);
             REQUIRE(runtime->poll());
-            auto result = runtime->result(caller(), id);
+            auto result = runtime->result(context, id);
             REQUIRE(result);
             if (!result.value().pending)
                 return result.value();
@@ -356,4 +360,115 @@ TEST_CASE(
             RunActivity::cancelled);
     REQUIRE(fixture.provider->calls == 1);
     REQUIRE_FALSE(fixture.runtime->submit(caller(), workflow(false)));
+}
+
+TEST_CASE("C12 terminal retention returns bounded Run capacity to admission") {
+    Fixture fixture({}, [](RuntimeConfiguration &config) {
+        config.max_runs = 1;
+        config.submissions.retention_ms = 10;
+    });
+    fixture.envelope();
+    auto first = fixture.runtime->submit(caller(), workflow(false));
+    REQUIRE(first);
+    REQUIRE_FALSE(fixture.finish(first.value().id).error);
+    REQUIRE_FALSE(fixture.runtime->submit(caller(), workflow(false)));
+    fixture.clock->ticks = 11000000;
+    REQUIRE(fixture.runtime->poll());
+    REQUIRE_FALSE(fixture.runtime->status(caller(), first.value().id));
+    auto second = fixture.runtime->submit(caller(), workflow(false));
+    REQUIRE(second);
+    REQUIRE(second.value().id != first.value().id);
+    REQUIRE_FALSE(fixture.finish(second.value().id).error);
+    REQUIRE(fixture.provider->calls == 2);
+}
+
+TEST_CASE("C12 adapter retirement floor preserves an older pending admission") {
+    auto first_claim = std::make_shared<Claims>();
+    Fixture fixture({}, [first_claim](RuntimeConfiguration &config) {
+        config.max_runs = 1;
+        config.submissions.retention_ms = 10;
+        config.submission_preparation_hook = [first_claim](PendingSubmissionId id, bool owner) {
+            if (id.value() == 1 && owner)
+                first_claim->arrive(true);
+        };
+    });
+    fixture.envelope();
+    auto pending = std::async(std::launch::async,
+                              [&] { return fixture.runtime->submit(caller(), workflow(false)); });
+    struct ReleaseClaim {
+        std::shared_ptr<Claims> claim;
+        ~ReleaseClaim() { claim->release(); }
+    } release_claim{first_claim};
+    const bool claimed = first_claim->await(1, 0);
+    if (!claimed)
+        first_claim->release();
+    REQUIRE(claimed);
+    auto newer = fixture.runtime->submit(caller(), workflow(false));
+    if (!newer)
+        first_claim->release();
+    REQUIRE(newer);
+    auto completed = fixture.finish(newer.value().id);
+    fixture.clock->ticks = 11000000;
+    auto progressed = fixture.runtime->poll();
+    first_claim->release();
+    auto older = pending.get();
+    REQUIRE_FALSE(completed.error);
+    REQUIRE(progressed);
+    REQUIRE(older);
+    REQUIRE(older.value().id.value() < newer.value().id.value());
+    REQUIRE_FALSE(fixture.finish(older.value().id).error);
+    REQUIRE(fixture.provider->calls == 2);
+}
+
+TEST_CASE("A35 production stored result rechecks current handle access and producer identity") {
+    Fixture fixture({}, [](RuntimeConfiguration &config) {
+        auto &contract = config.capabilities.capabilities.at("algorithm.echo");
+        contract.output_schema.service_handle_type = "registered.asset/1";
+        contract.handle_validator_revision = "asset-validator/1";
+        contract.handle_validator = [](const JsonValue &value, std::string_view, std::uint64_t) {
+            if (std::get<std::string>(value.data) != "opaque-handle")
+                return Result<ValidatedHandleAccess>::failure(
+                    ErrorEnvelope::make(ErrorCode::permission_denied));
+            return Result<ValidatedHandleAccess>::success({"owner", "object.a", 50});
+        };
+        config.policy.access.insert(AccessSurface::handle);
+        config.policy.object_scopes.insert("object.a");
+    });
+    auto context = caller();
+    context.access.insert(AccessSurface::handle);
+    context.object_scopes.insert("object.a");
+    fixture.envelope();
+    auto admitted = fixture.runtime->submit(context, workflow(false, "opaque-handle"));
+    REQUIRE(admitted);
+    REQUIRE_FALSE(fixture.finish(admitted.value().id, context).error);
+    auto without_handle = context;
+    without_handle.access.erase(AccessSurface::handle);
+    REQUIRE_FALSE(fixture.runtime->result(without_handle, admitted.value().id));
+    auto without_scope = context;
+    without_scope.object_scopes.clear();
+    REQUIRE_FALSE(fixture.runtime->result(without_scope, admitted.value().id));
+    auto revoked = context;
+    revoked.revoked = true;
+    REQUIRE_FALSE(fixture.runtime->result(revoked, admitted.value().id));
+    REQUIRE(fixture.runtime->result(context, admitted.value().id));
+    PolicySnapshot policy;
+    policy.revision = 2;
+    policy.capabilities = context.capabilities;
+    policy.permitted_effects = context.permitted_effects;
+    policy.access = context.access;
+    REQUIRE(fixture.runtime->replace_policy(policy));
+    REQUIRE_FALSE(fixture.runtime->result(context, admitted.value().id));
+    policy.revision = 3;
+    policy.object_scopes = context.object_scopes;
+    REQUIRE(fixture.runtime->replace_policy(policy));
+    REQUIRE(fixture.runtime->result(context, admitted.value().id));
+    auto changed = fixture.registry;
+    changed.capabilities.at("algorithm.echo").handle_validator_revision = "asset-validator/2";
+    REQUIRE(fixture.runtime->replace_capabilities(changed));
+    REQUIRE_FALSE(fixture.runtime->result(context, admitted.value().id));
+    REQUIRE(fixture.runtime->replace_capabilities(fixture.registry));
+    REQUIRE(fixture.runtime->result(context, admitted.value().id));
+    fixture.clock->ticks = 50000000;
+    REQUIRE_FALSE(fixture.runtime->result(context, admitted.value().id));
+    REQUIRE(fixture.provider->calls == 1);
 }

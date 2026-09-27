@@ -44,6 +44,7 @@ struct WorkflowMachine::Impl {
         std::optional<std::size_t> winner;
         std::optional<JsonValue> selected_output;
         bool decision_committed{};
+        std::size_t cancellation_cursor{};
         Frame(JobId job, const PlanStep *source, JsonValue::Object local,
               const std::vector<PlanStep> &steps)
             : owner(job), group(source), inputs(std::move(local)) {
@@ -113,6 +114,21 @@ struct WorkflowMachine::Impl {
             return Result<void>::success();
         return reject();
     }
+    Result<void> progress_decision(Frame &frame) {
+        if (frame.winner) {
+            while (frame.cancellation_cursor < frame.nodes.size()) {
+                const auto index = frame.cancellation_cursor;
+                const auto &node = frame.nodes[index];
+                if (index != *frame.winner && node.job && !node.settled) {
+                    auto stopped = controller.request_stop(*node.job);
+                    if (!stopped)
+                        return stopped;
+                }
+                ++frame.cancellation_cursor;
+            }
+        }
+        return wake(frame);
+    }
     Result<void> settle(Frame &frame) {
         auto owner = controller.job(frame.owner);
         if (!owner)
@@ -121,7 +137,7 @@ struct WorkflowMachine::Impl {
             owner.value().state == JobState::finalizing)
             return Result<void>::success();
         if (frame.decision_committed)
-            return Result<void>::success();
+            return progress_decision(frame);
         const auto policy = frame.group ? frame.group->group_policy : "all_success";
         if (policy == "race") {
             for (std::size_t i = 0; i < frame.nodes.size(); ++i) {
@@ -138,13 +154,7 @@ struct WorkflowMachine::Impl {
                 frame.winner = i;
                 frame.selected_output = std::move(result);
                 frame.decision_committed = true;
-                for (std::size_t loser = 0; loser < frame.nodes.size(); ++loser)
-                    if (loser != i && frame.nodes[loser].job && !frame.nodes[loser].settled) {
-                        auto stopped = controller.request_stop(*frame.nodes[loser].job);
-                        if (!stopped)
-                            return stopped;
-                    }
-                return wake(frame);
+                return progress_decision(frame);
             }
             const bool all = std::all_of(frame.nodes.begin(), frame.nodes.end(),
                                          [](const auto &node) { return node.settled; });
@@ -362,7 +372,7 @@ Result<void> WorkflowMachine::accept_result(JobId job, JsonValue result) {
     if (!state || state.value().state != JobState::succeeded)
         return reject();
     if (node->settled)
-        return node->result && *node->result == result ? Result<void>::success() : reject();
+        return node->result && *node->result == result ? impl_->settle(*frame) : reject();
     auto valid = validate_value(result, node->step->output_schema);
     if (!valid)
         return Result<void>::failure(valid.error());
@@ -384,7 +394,7 @@ Result<void> WorkflowMachine::accept_failure(JobId job, ErrorEnvelope error) {
     if (!state || !is_terminal(state.value().state) || state.value().state == JobState::succeeded)
         return reject();
     if (node->settled)
-        return Result<void>::success();
+        return impl_->settle(*frame);
     node->error = error;
     node->settled = true;
     return impl_->settle(*frame);

@@ -85,3 +85,9 @@ every enclosing child envelope cap that same depth; entering a fragment neither
 subtracts the level from a newly declared policy nor renews its allowance. Every
 proposal checks its concrete child depth before compilation/admission, so a leaf
 at the ceiling is permitted and another child beyond it is rejected.
+
+`authorize_known_inputs` checks current admission authority and recursively
+resolves literal and supplied-input bindings through each lexical group's input
+map. Fully known leaves receive the normal concrete scope, confirmation and typed
+handle checks. Bindings that need a node result remain deferred to current
+dispatch validation; the admission pass never fabricates a dependent value.

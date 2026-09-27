@@ -377,3 +377,74 @@ TEST_CASE("A35 returned handles recheck current scope expiry and union alternati
     registry.capabilities.clear();
     REQUIRE(gate.check_retained_result_handles(c, p, pin, text, registry, "historic text", 3));
 }
+
+TEST_CASE("A04 concrete admission follows known lexical group inputs and defers node outputs",
+          "[authorization][A04][A07]") {
+    auto capability = cap();
+    ValueSchema text;
+    text.kind = ValueSchema::Kind::string;
+    text.max_bytes = 64;
+    capability.input_schema.properties["target"] = text;
+    capability.input_schema.required.insert("target");
+    capability.object_scope_fields = {"target"};
+    auto handle = text;
+    handle.service_handle_type = "registered.asset/1";
+    ValueSchema choice;
+    choice.kind = ValueSchema::Kind::union_value;
+    choice.variants = {text, handle};
+    capability.input_schema.properties["asset"] = choice;
+    capability.input_schema.required.insert("asset");
+    capability.handle_validator_revision = "asset/1";
+    capability.handle_validator = [](const JsonValue &value, std::string_view, std::uint64_t) {
+        if (std::get<std::string>(value.data) != "registered")
+            return Result<ValidatedHandleAccess>::failure(
+                ErrorEnvelope::make(ErrorCode::permission_denied));
+        return Result<ValidatedHandleAccess>::success({"local", "object.a", 50});
+    };
+    CapabilitySnapshot registry;
+    registry.capabilities.emplace(capability.identifier, capability);
+    const auto pin = fingerprint_capability(capability).value();
+    PlanStep group;
+    group.id = "group";
+    group.type = "control.join";
+    group.inputs["bound"].reference = Reference{Reference::Source::input, "supplied", {}};
+    PlanStep child;
+    child.id = "member";
+    child.type = capability.identifier;
+    child.capability_pin = pin;
+    child.inputs["target"].reference =
+        Reference{Reference::Source::input, "bound", {std::string("target")}};
+    child.inputs["asset"].reference =
+        Reference{Reference::Source::input, "bound", {std::string("asset")}};
+    group.members = {child};
+    ExecutionPlan plan;
+    plan.pins = {pin};
+    plan.steps = {group};
+    JsonValue::Object inputs{
+        {"supplied", JsonValue::Object{{"target", "object.a"}, {"asset", "registered"}}}};
+    AuthorizationGate gate;
+    auto c = context();
+    auto p = policy();
+    REQUIRE(gate.authorize_known_inputs(c, p, plan, registry, inputs, 1, 90));
+    REQUIRE_FALSE(gate.authorize_known_inputs(c, p, plan, registry, inputs, 50, 90));
+    std::get<JsonValue::Object>(inputs.at("supplied").data)["target"] = "object.b";
+    REQUIRE_FALSE(gate.authorize_known_inputs(c, p, plan, registry, inputs, 1, 90));
+    std::get<JsonValue::Object>(inputs.at("supplied").data).erase("target");
+    auto missing = gate.authorize_known_inputs(c, p, plan, registry, inputs, 1, 90);
+    REQUIRE_FALSE(missing);
+    REQUIRE(missing.error().code() == ErrorCode::invalid_reference);
+    plan.steps.front().inputs["bound"].reference->source = Reference::Source::node;
+    REQUIRE(gate.authorize_known_inputs(c, p, plan, registry, inputs, 1, 90));
+    // A fully known literal leaf remains checked even when another group input is deferred.
+    auto &known_child = plan.steps.front().members.front();
+    known_child.inputs["target"] = Binding{JsonValue("object.b"), {}};
+    known_child.inputs["asset"] = Binding{{}, Reference{Reference::Source::input, "asset", {}}};
+    plan.steps.front().inputs["asset"] =
+        Binding{{}, Reference{Reference::Source::input, "asset", {}}};
+    inputs["asset"] = "registered";
+    REQUIRE_FALSE(gate.authorize_known_inputs(c, p, plan, registry, inputs, 1, 90));
+    known_child.inputs["target"] = Binding{JsonValue("object.a"), {}};
+    REQUIRE(gate.authorize_known_inputs(c, p, plan, registry, inputs, 1, 90));
+    c.access.erase(AccessSurface::handle);
+    REQUIRE_FALSE(gate.authorize_known_inputs(c, p, plan, registry, inputs, 1, 90));
+}

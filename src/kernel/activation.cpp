@@ -270,6 +270,14 @@ Result<std::uint64_t> AdmissionGate::prepare_idle_stop(std::uint64_t expected_ep
     ++epoch_;
     return Result<std::uint64_t>::success(epoch_);
 }
+Result<std::uint64_t> AdmissionGate::begin_drain() {
+    if (state_ != AdmissionGateState::accepting)
+        return Result<std::uint64_t>::success(epoch_);
+    if (epoch_ == std::numeric_limits<std::uint64_t>::max())
+        return fail<std::uint64_t>(ErrorCode::resource_unavailable);
+    state_ = AdmissionGateState::draining;
+    return Result<std::uint64_t>::success(++epoch_);
+}
 Result<void> AdmissionGate::shutdown_confirmed(ContainmentProof proof) {
     if (state_ != AdmissionGateState::draining ||
         (proof != ContainmentProof::worker_quiesced &&

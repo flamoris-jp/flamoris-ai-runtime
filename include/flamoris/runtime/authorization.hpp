@@ -55,6 +55,11 @@ class AuthorizationGate {
     Result<void> authorize_plan_admission(const AuthorizationContext &, const PolicySnapshot &,
                                           const ExecutionPlan &, const CapabilitySnapshot &,
                                           std::uint64_t now_ms) const;
+    // Resolves only literal/root-input bindings through lexical group inputs. Node outputs defer.
+    Result<void> authorize_known_inputs(const AuthorizationContext &, const PolicySnapshot &,
+                                        const ExecutionPlan &, const CapabilitySnapshot &,
+                                        const JsonValue::Object &inputs, std::uint64_t now_ms,
+                                        std::uint64_t deadline_ms) const;
     Result<AuthorizationDecision> check(const AuthorizationContext &, const PolicySnapshot &,
                                         const ExecutionPlan &, const CapabilitySnapshot &,
                                         const AuthorizationRequest &) const;

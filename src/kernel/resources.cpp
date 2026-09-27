@@ -268,7 +268,10 @@ Result<ResourceTicket> ResourceManager::reserve(const ResourceRequest &request, 
     ++next_reservation_;
     ++revision_;
     try {
-        auto queued = host_.acquire(ticket, request.incremental, request.deadline);
+        auto queued = host_.acquire(ticket, request.incremental,
+                                    request.acquisition_deadline
+                                        ? std::min(request.deadline, *request.acquisition_deadline)
+                                        : request.deadline);
         if (!queued) {
             if (queued.error().external_outcome() == ExternalOutcome::not_dispatched) {
                 reservations_.back().remaining = {};
@@ -318,7 +321,8 @@ Result<ExecutionLease> ResourceManager::commit_dispatch(const ResourceTicket &ti
         return failure<ExecutionLease>(ErrorCode::plan_stale, ErrorStage::dispatch);
     if (!guard.eligible || !guard.state_valid)
         return failure<ExecutionLease>(ErrorCode::state_unavailable, ErrorStage::dispatch);
-    if (now >= r->request.deadline)
+    if (now >= r->request.deadline ||
+        (r->request.acquisition_deadline && now >= *r->request.acquisition_deadline))
         return failure<ExecutionLease>(ErrorCode::job_timeout, ErrorStage::dispatch);
     if (!fresh(envelope(ticket.resource), ticket.host_epoch, now) ||
         r->outcome != HostOutcome::acknowledged)

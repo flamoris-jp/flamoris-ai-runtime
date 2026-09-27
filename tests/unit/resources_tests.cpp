@@ -474,3 +474,22 @@ TEST_CASE("C03 acquired preparation can release before any Job dispatch",
     REQUIRE_FALSE(
         f.manager.observe_host_release({OperationId{3}, ticket.value(), OperationId{2}}, 3ns));
 }
+TEST_CASE("C03 acquisition deadline cannot shorten an already committed execution lifetime",
+          "[resources][deadline]") {
+    Fixture f;
+    auto request = f.request(1, 1, resources(1, 1));
+    request.acquisition_deadline = 5ns;
+    auto [ticket, lease] = f.start(request);
+    REQUIRE(f.host.acquisitions.back().deadline == 5ns);
+    REQUIRE(f.manager.materialized(ticket, f.id(1), resources(1)));
+    REQUIRE(f.manager.ready_for_use(lease, 100ns));
+    REQUIRE_FALSE(f.manager.ready_for_use(lease, 900ns));
+    auto late = f.request(2, 2, resources(1, 1));
+    late.acquisition_deadline = 5ns;
+    auto pending = f.manager.reserve(late, 0ns);
+    REQUIRE(pending);
+    REQUIRE(f.manager.acquired(
+        {pending.value(), f.instance, OperationId{10}, HostOutcome::acknowledged}));
+    REQUIRE_FALSE(f.manager.commit_dispatch(pending.value(), {true, true, true, true}, 5ns));
+    REQUIRE(f.manager.snapshot(f.device).reserved == resources(1, 1));
+}

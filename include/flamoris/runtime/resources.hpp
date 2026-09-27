@@ -78,6 +78,7 @@ struct ResourceRequest {
     ResourceVector run_limit;
     TimePoint deadline{};
     std::vector<AllocationIdentity> shared;
+    std::optional<TimePoint> acquisition_deadline{};
     bool operator==(const ResourceRequest &) const = default;
 };
 struct ResourceTicket {

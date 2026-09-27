@@ -98,6 +98,72 @@ Result<void> AuthorizationGate::authorize_plan_admission(const AuthorizationCont
             ErrorEnvelope::make(ErrorCode::internal_error, ErrorStage::admission));
     }
 }
+Result<void> AuthorizationGate::authorize_known_inputs(
+    const AuthorizationContext &context, const PolicySnapshot &policy, const ExecutionPlan &plan,
+    const CapabilitySnapshot &registry, const JsonValue::Object &inputs, std::uint64_t now,
+    std::uint64_t deadline) const {
+    try {
+        auto admission = authorize_plan_admission(context, policy, plan, registry, now);
+        if (!admission)
+            return admission;
+        if (now >= deadline)
+            return Result<void>::failure(
+                ErrorEnvelope::make(ErrorCode::run_timeout, ErrorStage::admission));
+        std::size_t nodes = 0, bindings = 0;
+        std::function<Result<void>(const std::vector<PlanStep> &, const JsonValue::Object &,
+                                   unsigned)>
+            visit = [&](const std::vector<PlanStep> &steps, const JsonValue::Object &known,
+                        unsigned depth) -> Result<void> {
+            if (depth > 32)
+                return Result<void>::failure(ErrorEnvelope::make(ErrorCode::invalid_workflow));
+            for (const auto &step : steps) {
+                if (++nodes > 256)
+                    return Result<void>::failure(ErrorEnvelope::make(ErrorCode::invalid_workflow));
+                JsonValue::Object concrete;
+                bool complete = true;
+                for (const auto &[name, binding] : step.inputs) {
+                    if (++bindings > 4096)
+                        return Result<void>::failure(
+                            ErrorEnvelope::make(ErrorCode::invalid_workflow));
+                    if (binding.reference &&
+                        (binding.reference->source == Reference::Source::node ||
+                         !known.contains(binding.reference->name))) {
+                        if (depth == 0 && binding.reference->source == Reference::Source::input)
+                            return Result<void>::failure(
+                                ErrorEnvelope::make(ErrorCode::invalid_reference));
+                        complete = false;
+                        continue;
+                    }
+                    auto value = resolve_binding(binding, known, {});
+                    if (!value)
+                        return Result<void>::failure(value.error());
+                    concrete.emplace(name, std::move(value).value());
+                }
+                if (step.capability_pin && complete) {
+                    AuthorizationRequest request;
+                    request.boundary = AuthorizationBoundary::admission;
+                    request.capability = step.capability_pin->identifier;
+                    request.concrete_inputs = concrete;
+                    request.now_ms = now;
+                    request.deadline_ms = deadline;
+                    auto decision = check(context, policy, plan, registry, request);
+                    if (!decision)
+                        return Result<void>::failure(decision.error());
+                }
+                if (!step.members.empty()) {
+                    auto children = visit(step.members, concrete, depth + 1);
+                    if (!children)
+                        return children;
+                }
+            }
+            return Result<void>::success();
+        };
+        return visit(plan.steps, inputs, 0);
+    } catch (...) {
+        return Result<void>::failure(
+            ErrorEnvelope::make(ErrorCode::internal_error, ErrorStage::admission));
+    }
+}
 Result<AuthorizationDecision> AuthorizationGate::check(const AuthorizationContext &context,
                                                        const PolicySnapshot &policy,
                                                        const ExecutionPlan &plan,

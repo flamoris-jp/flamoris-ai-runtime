@@ -1,4 +1,5 @@
 #include "catch_amalgamated.hpp"
+#include "flamoris/runtime/native_registration.hpp"
 #include "flamoris/runtime/runtime.hpp"
 #include <atomic>
 #include <mutex>
@@ -128,6 +129,8 @@ struct Fixture {
             n.options.max_output_tokens = 4;
             n.options.sampling.literal_grammar = "Hi";
             r.native = n;
+            registry.capabilities.at(cap.identifier).native_pins = expected_native_pins(n).value();
+            config.capabilities = registry;
             r.prompt_field = "text";
             r.requirements[ResourceKind::ram] = 1048576;
             r.run_resource_limit[ResourceKind::ram] = 4194304;

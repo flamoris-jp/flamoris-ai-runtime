@@ -107,6 +107,7 @@ class AdmissionGate {
     Result<void> settle_claim(std::uint64_t claim);
     Result<std::uint64_t> prepare_idle_stop(std::uint64_t expected_epoch, const IdleSnapshot &);
     Result<void> shutdown_confirmed(ContainmentProof);
+    Result<std::uint64_t> begin_drain();
     AdmissionGateState state() const noexcept { return state_; }
     std::uint64_t epoch() const noexcept { return epoch_; }
     std::size_t pending_claims() const noexcept { return claims_.size(); }

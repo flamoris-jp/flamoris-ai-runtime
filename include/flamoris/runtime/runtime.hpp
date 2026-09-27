@@ -3,6 +3,7 @@
 #include "flamoris/runtime/inference.hpp"
 #include "flamoris/runtime/registered_adapter.hpp"
 #include "flamoris/runtime/resources.hpp"
+#include "flamoris/runtime/runtime_supervisor.hpp"
 #include "flamoris/runtime/submission.hpp"
 #include <functional>
 #include <memory>
@@ -19,6 +20,11 @@ struct RuntimeRegistration {
     std::string prompt_field{"prompt"};
 };
 using RuntimeHostRelease = HostReleaseReceipt;
+struct RuntimeDrainSnapshot {
+    bool admission_closed{}, drain_expired{}, cleanup_expired{}, settled{};
+    std::size_t active_workers{}, nonterminal_jobs{}, unresolved_resources{};
+    std::optional<TimePoint> drain_deadline, cleanup_deadline;
+};
 struct RuntimeConfiguration {
     RuntimeInstanceId instance;
     std::shared_ptr<MonotonicClock> clock;
@@ -32,7 +38,9 @@ struct RuntimeConfiguration {
         native_worker_factory;
     std::function<void(PendingSubmissionId, bool owner)> submission_preparation_hook;
     std::vector<RuntimeRegistration> registrations;
-    std::size_t max_runs{32}, normal_commands{128}, mandatory_commands{128}, max_workers{16};
+    Duration drain_timeout{std::chrono::seconds(5)}, cleanup_timeout{std::chrono::seconds(5)};
+    std::size_t max_runs{32}, normal_commands{128}, mandatory_commands{128}, max_workers{16},
+        max_native_workers{128};
 };
 // One actor owns lifecycle, scheduling, policy, submission and resource decisions.
 // Provider/native work occurs outside that actor; transport methods exchange owned values.
@@ -67,13 +75,16 @@ class RuntimeInstance final : public RuntimeCommandPort {
     // Closes admission and requests cancellation. Native destruction/join is outside
     // the control thread; absent host release keeps lifecycle finalizing/accounted.
     Result<void> shutdown();
+    Result<RuntimeDrainSnapshot> drain_status();
+    std::weak_ptr<RuntimeCleanupEndpoint> cleanup_endpoint() const noexcept;
     Result<std::uint64_t> admission_epoch();
     Result<std::uint64_t> prepare_idle_stop(std::uint64_t expected_epoch);
     Result<void> fence_admission();
 
   private:
     struct Impl;
-    explicit RuntimeInstance(std::unique_ptr<Impl>);
-    std::unique_ptr<Impl> impl_;
+    explicit RuntimeInstance(std::shared_ptr<Impl>, RuntimeRetentionSlot);
+    std::shared_ptr<Impl> impl_;
+    RuntimeRetentionSlot retention_slot_;
 };
 } // namespace flamoris::runtime

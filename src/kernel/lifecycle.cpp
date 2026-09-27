@@ -140,7 +140,7 @@ struct RunController::Impl {
     std::size_t commands{};
     bool dispatch_open{true};
     bool children_open{true};
-    bool failure_injected{};
+    std::optional<std::size_t> preparation_failure_after;
     bool run_stopping{};
     bool healthy{true};
     std::uint64_t barrier_generation{};
@@ -261,9 +261,12 @@ struct RunController::Impl {
                         std::uint64_t reservation = 0) {
         if (!healthy)
             return rejected(ErrorCode::invariant_violation);
-        if (failure_injected) {
-            failure_injected = false;
-            return rejected(ErrorCode::budget_exceeded);
+        if (preparation_failure_after) {
+            if (*preparation_failure_after == 0) {
+                preparation_failure_after.reset();
+                return rejected(ErrorCode::budget_exceeded);
+            }
+            --*preparation_failure_after;
         }
         const bool project_activity =
             storage != EventStorageClass::reconciliation && storage != EventStorageClass::telemetry;
@@ -408,7 +411,10 @@ Result<void> RunController::commit_observation(EventGroup group, EventStorageCla
 bool RunController::ticket_is_current(const DispatchTicket &ticket) const noexcept {
     return impl_->current(ticket);
 }
-void RunController::fail_next_preparation() noexcept { impl_->failure_injected = true; }
+void RunController::fail_next_preparation() noexcept { fail_preparation_after(0); }
+void RunController::fail_preparation_after(std::size_t successful_preparations) noexcept {
+    impl_->preparation_failure_after = successful_preparations;
+}
 
 Result<JobId> RunController::register_child(JobId parent, Deadline deadline, bool pausable) {
     auto *owner = impl_->find(parent);

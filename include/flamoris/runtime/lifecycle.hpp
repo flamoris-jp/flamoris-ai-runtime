@@ -176,6 +176,7 @@ class RunController {
 
     // Deterministic preparation failure seam, consumed before any mutation.
     void fail_next_preparation() noexcept;
+    void fail_preparation_after(std::size_t successful_preparations) noexcept;
 
   private:
     struct Impl;
