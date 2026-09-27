@@ -1,0 +1,22 @@
+{
+  "schema_version": "flamoris.submit/1",
+  "kind": "workflow",
+  "workflow": {
+    "schema_version": "flamoris.workflow/0.1",
+    "workflow": {"id": "identity-example"},
+    "inputs": {},
+    "nodes": [
+      {
+        "id": "echo",
+        "type": "algorithm.identity",
+        "with": {"text": {"literal": "Hello, FLAMORIS"}}
+      }
+    ],
+    "edges": [],
+    "outputs": {
+      "result": {"ref": {"source": "node", "name": "echo", "path": []}}
+    },
+    "limits": {}
+  },
+  "input_values": {}
+}
