@@ -74,7 +74,7 @@ TEST_CASE("B-SER01 SAX rejects duplicate decoded keys invalid Unicode bounds and
           "{\"x\":9007199254740992}", "{\"x\":-9007199254740992}", "{\"x\":\"\\ud800\"}",
           "{\"x\":0} trailing", "{/*comment*/\"x\":0}", "[]"})
         REQUIRE_FALSE(parse_bounded_json(input));
-    REQUIRE_FALSE(parse_bounded_json(std::string("{\"x\":\"") + char(0xff) + "\"}"));
+    REQUIRE_FALSE(parse_bounded_json(std::string("{\"x\":\"") + "\xff" + "\"}"));
     REQUIRE_FALSE(parse_bounded_json("\xef\xbb\xbf{}"));
     REQUIRE(parse_bounded_json("{\"x\":9007199254740991,\"y\":-0,\"z\":5e-324}"));
     JsonBounds b;
