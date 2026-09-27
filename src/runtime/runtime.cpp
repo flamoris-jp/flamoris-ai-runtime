@@ -1023,8 +1023,8 @@ struct RuntimeInstance::Impl final : RunObservationLookupPort,
             std::size_t retained = 0;
             for (const auto &[id, active_run] : runs) {
                 (void)id;
-                for (const auto &[job, driver] : active_run->drivers) {
-                    (void)job;
+                for (const auto &[active_job_id, driver] : active_run->drivers) {
+                    (void)active_job_id;
                     if (driver.native || driver.preparing_native.valid() ||
                         driver.closing_native.valid())
                         ++retained;
