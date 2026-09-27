@@ -44,6 +44,12 @@ outer nodes. The current implementation advances topological waves; it does not
 promise immediate dispatch of a downstream node while an independent member of
 the current wave remains unfinished.
 
+Each invocation retains its compiled attempt limit and backoff. A retry is a
+controller transition on the existing Job only after current authorization and
+explicit provider stop/outcome evidence pass `authorize_retry`; the original
+deadline and provider operation key remain fixed. An error name alone never
+supplies that evidence.
+
 All-success propagates required failures and cancels remaining children.
 All-settled preserves declared participant order and typed error envelopes. Race
 acceptance evaluates only validated terminal successes; separate observations use
@@ -63,6 +69,15 @@ Deterministic offline evidence is in `tests/acceptance/lifecycle_tests.cpp`,
 compiler, controller, EventStore, Scheduler and WorkflowMachine. Fake clocks and
 manually acknowledged native/resource evidence control external timing; a fake
 lifecycle outcome does not replace the controller being tested.
+
+The transition predicate is checked for every state pair. A separate operation
+matrix builds each state through production controller histories and attempts
+inapplicable queue, dispatch, suspension, wake, completion, stopped-observation,
+finalize, retry and child-registration operations; rejected operations preserve
+the snapshot and watermark. Guard-specific tests cover timeout equality, current
+resume denial, preparation failure, pause barrier timeout and cleanup evidence.
+Control-request rejection events are tested separately from rejected lifecycle
+proposals, since an admitted unsupported command intentionally records rejection.
 
 With the documented toolchain installed, run:
 
