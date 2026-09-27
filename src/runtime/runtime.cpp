@@ -1187,28 +1187,34 @@ struct RuntimeInstance::Impl final : RunObservationLookupPort,
             stop(run, d, charged.error());
             return;
         }
-        auto lease = resources.commit_dispatch(*d.reservation, {true, true, true, true},
-                                               config.clock->now());
-        if (!lease)
+        const auto now = config.clock->now();
+        auto grant = resources.dispatch_eligible(*d.reservation, {true, true, true, true}, now);
+        if (!grant)
             return;
+        auto ticket = run.controller->dispatch(d.invocation.job, {true, true, true, true});
+        if (!ticket) {
+            stop(run, d, ticket.error());
+            return;
+        }
+        d.ticket = ticket.value();
+        // No callback or competing ledger mutation occurs between the validated grant and
+        // commit. Event preparation may fail before a lease is made active.
+        auto lease = resources.commit_dispatch(*d.reservation, {true, true, true, true}, now);
+        if (!lease) {
+            stop(run, d, lease.error());
+            d.native_quiescent = true;
+            request_host_release(d);
+            return;
+        }
         d.lease = lease.value();
+        run.budget = std::move(next_budget);
         if (d.native_loaded) {
-            auto manifest =
-                resources.materialization_complete(*d.reservation, {}, config.clock->now());
+            auto manifest = resources.materialization_complete(*d.reservation, {}, now);
             if (!manifest) {
                 stop(run, d, manifest.error());
                 return;
             }
         }
-        auto ticket = run.controller->dispatch(d.invocation.job, {true, true, true, true});
-        if (!ticket) {
-            stop(run, d, ticket.error());
-            d.native_quiescent = true;
-            request_host_release(d);
-            return;
-        }
-        run.budget = std::move(next_budget);
-        d.ticket = ticket.value();
         d.resuming = job.value().pending_resume;
         scheduler.remove(d.invocation.job);
         if (d.registration->native && !d.native) {

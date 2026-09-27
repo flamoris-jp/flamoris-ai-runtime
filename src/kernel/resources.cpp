@@ -308,33 +308,42 @@ Result<void> ResourceManager::acquired(const HostAcquisition &acquisition) {
     ++revision_;
     return Result<void>::success();
 }
+Result<void> ResourceManager::dispatch_eligible(const ResourceTicket &ticket,
+                                                const ResourceDispatchGuard &guard,
+                                                TimePoint now) const {
+    const auto *r = reservation(ticket);
+    if (!r || r->aborted || r->quiescent || r->quarantined || r->native_stopped ||
+        r->host_release || r->lease)
+        return failure<void>(ErrorCode::state_unavailable, ErrorStage::dispatch);
+    if (!guard.authorized)
+        return failure<void>(ErrorCode::permission_denied, ErrorStage::dispatch);
+    if (!guard.pins_current)
+        return failure<void>(ErrorCode::plan_stale, ErrorStage::dispatch);
+    if (!guard.eligible || !guard.state_valid)
+        return failure<void>(ErrorCode::state_unavailable, ErrorStage::dispatch);
+    if (now >= r->request.deadline ||
+        (r->request.acquisition_deadline && now >= *r->request.acquisition_deadline))
+        return failure<void>(ErrorCode::job_timeout, ErrorStage::dispatch);
+    if (!fresh(envelope(ticket.resource), ticket.host_epoch, now) ||
+        r->outcome != HostOutcome::acknowledged)
+        return failure<void>(ErrorCode::native_compute_unavailable, ErrorStage::dispatch);
+    if (!counter_available(next_lease_))
+        return failure<void>(ErrorCode::resource_unavailable);
+    for (auto identity : r->request.shared) {
+        const auto *a = find_allocation(identity);
+        if (!a || a->released || a->release || a->cleanup ||
+            a->references.size() >= limits_.references_per_allocation)
+            return failure<void>(ErrorCode::state_unavailable);
+    }
+    return Result<void>::success();
+}
 Result<ExecutionLease> ResourceManager::commit_dispatch(const ResourceTicket &ticket,
                                                         const ResourceDispatchGuard &guard,
                                                         TimePoint now) {
+    auto eligible = dispatch_eligible(ticket, guard, now);
+    if (!eligible)
+        return Result<ExecutionLease>::failure(eligible.error());
     auto *r = reservation(ticket);
-    if (!r || r->aborted || r->quiescent || r->quarantined || r->native_stopped ||
-        r->host_release || r->lease)
-        return failure<ExecutionLease>(ErrorCode::state_unavailable, ErrorStage::dispatch);
-    if (!guard.authorized)
-        return failure<ExecutionLease>(ErrorCode::permission_denied, ErrorStage::dispatch);
-    if (!guard.pins_current)
-        return failure<ExecutionLease>(ErrorCode::plan_stale, ErrorStage::dispatch);
-    if (!guard.eligible || !guard.state_valid)
-        return failure<ExecutionLease>(ErrorCode::state_unavailable, ErrorStage::dispatch);
-    if (now >= r->request.deadline ||
-        (r->request.acquisition_deadline && now >= *r->request.acquisition_deadline))
-        return failure<ExecutionLease>(ErrorCode::job_timeout, ErrorStage::dispatch);
-    if (!fresh(envelope(ticket.resource), ticket.host_epoch, now) ||
-        r->outcome != HostOutcome::acknowledged)
-        return failure<ExecutionLease>(ErrorCode::native_compute_unavailable, ErrorStage::dispatch);
-    if (!counter_available(next_lease_))
-        return failure<ExecutionLease>(ErrorCode::resource_unavailable);
-    for (auto identity : r->request.shared) {
-        auto *a = find_allocation(identity);
-        if (!a || a->released || a->release || a->cleanup ||
-            a->references.size() >= limits_.references_per_allocation)
-            return failure<ExecutionLease>(ErrorCode::state_unavailable);
-    }
     ExecutionLease lease{LeaseId{next_lease_}, ticket, r->grant};
     for (auto identity : r->request.shared) {
         auto *a = find_allocation(identity);

@@ -198,6 +198,9 @@ class ResourceManager {
     Result<ResourceTicket> reserve(const ResourceRequest &, TimePoint now);
     std::optional<ResourceTicket> ticket_for(OperationId) const noexcept;
     Result<void> acquired(const HostAcquisition &);
+    // Read-only final eligibility, paired with commit_dispatch in one serialized actor turn.
+    [[nodiscard]] Result<void> dispatch_eligible(const ResourceTicket &,
+                                                 const ResourceDispatchGuard &, TimePoint) const;
     Result<ExecutionLease> commit_dispatch(const ResourceTicket &, const ResourceDispatchGuard &,
                                            TimePoint now);
     Result<AllocationIdentity> next_allocation_identity(const ResourceTicket &);
