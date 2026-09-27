@@ -109,7 +109,7 @@ All pending records/response slots remain charged and bounded on either path.
 
 For an explicit valid key, after canonical request validation and authentication,
 claim scope is
-`(subject, tenant, request_kind, idempotency_key)`. Its record contains digest,
+`(local_subject, request_kind, idempotency_key)`. Its record contains digest,
 claim generation, reserved Run identity, pending/admitted decision, finite
 deadline, and bounded response slots. A reserved ID is not an admitted Run and
 produces no lifecycle events. A second equal request cannot compile/dispatch
@@ -136,8 +136,7 @@ after it or restart, absence cannot mean no previous operation occurred.
 Scheduler readiness is advisory. The dispatch turn checks Run/Job state, open
 pause/child gates, monotonic deadline, retry eligibility, current policy revision
 and concrete scopes, capability pins, preserved state, host/backend generation,
-complete resource vector, event/result/child/attempt budgets, and required
-durable paid receipt. A grant cannot outlive its recorded freshness/deadline.
+complete resource vector and event/result/child/attempt budgets. A grant cannot outlive its recorded freshness/deadline.
 Pure work is also authorized. PendingResume transfers to the active machine
 only on successful dispatch; temporary capacity failure leaves it accounted.
 
@@ -155,15 +154,9 @@ that a raced external send did not happen. Record `not_dispatched` only from
 adapter proof; otherwise retain unknown outcome/liability. Adapter handoff and
 provider acceptance are not falsely folded into the local commit.
 
-Paid actions require the [one-shot DeliveryGate protocol](PAID_BUDGET_CONTRACT.md).
-Allocate its stable identity and storage before arm; a matching durable receipt
-alone cannot send. Commit `prepared -> dispatch_committed` with dispatch intent
-before exposing the work item. A worker claims `dispatch_committed -> send_claimed`
-once; cancel/revocation attempts absorbing closure before publishing stop. This
-compare-exchange is the handoff race arbiter; the stop hint is not a no-send proof.
-Arm loss/dispatch denial/enqueue failure close the same gate where possible and
-route proof/unknown liability to accounting. Transfer gate ownership to cleanup
-before destroying attempt/Run records. Late arm replies never reopen a gate.
+Strict monetary handoff, if enabled later, follows the separately reviewed
+[optional Paid Budget profile](PAID_BUDGET_CONTRACT.md). Baseline external
+effects retain known/unknown outcome evidence and never infer rollback from stop.
 
 ## Pause barrier and pending results
 

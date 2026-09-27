@@ -137,13 +137,13 @@ Runtime shutdown closes admission, fixes the drain deadline, stops remaining
 work, transfers accounted debt, stops/join workers when possible, seals callback
 sources and drains their final messages before destroying the sink/ports. Ledger
 cleanup may outlive a retained Run but never its containing process; on restart
-the host/budget authorities establish a new safe envelope. There is no C++
+the host/resource authorities establish a new safe envelope. There is no C++
 serialization trick that restores a previous executor or live pointer graph.
 
 ## Test seams and representation gate
 
 Inject `MonotonicClock`, ID source, manually stepped control executor, backend,
-capability, host, authorization and durable-budget ports. An immutable inspection
+capability, host and authorization ports. An immutable inspection
 snapshot exposes ownership IDs, generations, state/payload tag, resource vector
 and event watermark; it exposes no mutators. Tests may select which queued
 observation is delivered next before a commit, including stale/duplicate and

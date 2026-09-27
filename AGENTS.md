@@ -2,7 +2,7 @@
 
 This repository is part of the FLAMORIS ecosystem.
 
-FLAMORIS AI Runtime is currently a **design-stage single-user FLAMORIS native model runtime**. It is intended to control model inference, workflow execution, jobs, interrupts, and observability in one runtime kernel.
+FLAMORIS AI Runtime is currently a **design-stage single-user FLAMORIS native model runtime**. External runtimes and providers participate only as registered Workflow capabilities; CPU and OpenCL are internal FLAMORIS compute implementations. It is intended to control model inference, workflow execution, jobs, interrupts, and observability in one runtime kernel.
 
 Do not implement behavior from chat context alone. Read current repository documentation first and keep planned behavior clearly separated from implemented behavior.
 
@@ -228,7 +228,7 @@ Follow [Design Phases](docs/DESIGN_PHASES.md) and its document authority map.
 
 The [Phase B design index](docs/PHASE_B_DESIGN.md) links the proposed toolchain,
 ownership, concurrency, backend, serialization, resource/paid/activation contracts
-and A01–A42 test map. Read the reviewed versions before Phase C work. They refine
+and acceptance map (A41–A42 optional strict-cost cases). Read the reviewed versions before Phase C work. They refine
 implementation choices and never override Phase A semantics or claim working code.
 
 1. Phase A: architecture contracts and failure/acceptance scenarios; no production code or build scaffold.

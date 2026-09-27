@@ -77,15 +77,14 @@ not distributed two-phase commit:
    pins, authorization, deadlines and finite cumulative limits. Resource Manager
    reserves the entire incremental vector atomically, including cold load and transfer
    headroom. An unavailable vector grants nothing.
-2. Bounded external capacity/paid reservations are requested on workers and correlated
+2. Bounded external capacity reservations are requested on workers and correlated
    to this preparation generation. They do not start inference or provider work. Failure
    cancels preparation; unknown acquisitions stay charged and are reconciled.
 3. At the serialized dispatch commitment, repeat current cancellation/deadline/policy,
    capability/state/host freshness checks; consume the prepared grants together with
    child/attempt/cost/event eligibility. Publish no runnable worker command if any part
    fails. A successful commit records the attempt and exact lease/receipt identities.
-   For a paid race, the full participant/attempt funding barrier must already be open;
-   an individually funded participant cannot bypass an incomplete group reservation.
+   Race participants must fit the finite aggregate Run attempt/resource envelope.
 4. Backend allocation/load occurs only within that complete envelope. Each acknowledged
    physical allocation consumes its reserved portion atomically; unexpected growth needs
    a new full incremental admission before allocating. If the backend cannot bound growth,
@@ -96,11 +95,9 @@ not distributed two-phase commit:
 
 Host revocation and a committed worker command follow the fencing rules below. A policy
 change after the serialized commitment may request stop but cannot retract a completed
-external effect. For paid work, the separately durable handoff protocol is in
-[Paid Budget Contract](PAID_BUDGET_CONTRACT.md).
-That contract reserves the race's complete monetary liability before any participant
-dispatch, while physical resource vectors are admitted per eligible Job; full race
-funding never promises simultaneous physical execution.
+external effect. A future strict monetary profile, if requested, is separately documented in
+[Optional Paid Budget](PAID_BUDGET_CONTRACT.md). Baseline physical vectors
+are admitted per eligible Job and bounded at the Run/group level.
 
 Capacity for each pool is `unique resident + unmaterialized reservations + uncertainty`.
 Revoked/expired leases never subtract bytes. Resource observation with overlapping
@@ -176,7 +173,7 @@ The cleanup record retains bounded provenance independent of any destroyed Run o
 On process restart there is a new instance identity and no reconstructed Job, lease or
 Continuation. Host/backend reconciliation must establish a valid new envelope before
 affected resource admission. Surviving allocation/in-flight uncertainty is not inferred
-away from absence of local records. Durable paid liability has its own external authority.
+away from absence of local records. Optional strict paid-cost liability has a separate external authority when enabled.
 
 ## Deterministic conformance
 

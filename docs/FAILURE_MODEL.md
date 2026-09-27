@@ -174,10 +174,9 @@ missing and external operations running; it cannot manufacture cancelled/failed
 records for Jobs whose final transition was never committed. Restart creates a
 new process incarnation and does not automatically resume Jobs or Continuations.
 Retained traces are observations, not checkpoints, deduplication ledgers, or
-permission to reconstruct execution. A separate durable paid-budget authority
-retains unresolved attempt liability across restart; affected paid admission
-remains blocked until reconciliation or conservative bounded liability accounting
-certifies remaining budget. This does not restore Jobs or prove external execution.
+permission to reconstruct execution. The baseline does not guarantee cross-crash monetary limits. An optional
+strict-cost profile requires a separate durable authority and reconciliation;
+neither restores Jobs nor proves an external effect occurred.
 Trace replay never executes cleanup/calls.
 
 ## Scenario obligations

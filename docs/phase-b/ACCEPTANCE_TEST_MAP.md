@@ -3,13 +3,12 @@
 ## Status and authority
 
 This is a **test design**, not executable tests or a report of passing tests.
-Every A01–A42 obligation in [Phase A acceptance](../DESIGN_ACCEPTANCE.md) is
-preserved below. Phase A owns semantics; this document chooses observable test
+Every A01–A42 ID in [Phase A acceptance](../DESIGN_ACCEPTANCE.md) is
+mapped below; A41–A42 are optional strict-cost cases. Phase A owns semantics; this document chooses observable test
 boundaries and controllable doubles for Phase C. A mock satisfying a contract
 does not establish that a real backend or host integration supports it.
 
-All A01–A42 cases are required **offline deterministic contract tests**: GPU,
-network, provider account and model weights are each **not required**. This
+All baseline A cases except optional A41–A42 require **offline deterministic contract tests**: GPU, network, provider account and weights are not required. This
 integration flag applies individually to every case below. Real-backend and
 host/provider qualification is a separate gate in [Phase C plan](PHASE_C_PLAN.md).
 
@@ -18,11 +17,7 @@ host/provider qualification is a separate gate in [Phase C plan](PHASE_C_PLAN.md
 ## Shared fixture and oracle
 
 Every case constructs an isolated Runtime instance or the named smaller component.
-Production-factory cases use a fresh subprocess per instance/lifecycle. Component
-fixtures may simulate separate process guards/incarnations without calling the
-production factory or native APIs; never reset the real process guard in tests.
-Multi-instance budget fixtures represent separate processes against one authority,
-not permission to construct two production RuntimeInstances in one process.
+Production-factory cases construct independent native Runtime instances, including sequential and concurrent lifetimes. Component fixtures may simulate process incarnations; optional paid-budget fixtures live in a separate profile.
 The fixture supplies every seam below. The case's `Active doubles` list identifies
 which doubles are exercised. All others reject unexpected calls and assert a zero
 call count; omission never falls back to a live service.
@@ -36,7 +31,7 @@ call count; omission never falls back to a live service.
 | R | Resource test port plus real `ResourceManager` where it is the subject: integer pool sizes, unmaterialized reservations, unique allocations, references, leases, transfer overlap, uncertainty and cleanup records. Every grant/release is inspectable. |
 | H | `FakeHostAuthority`: enforceable envelope grants in the simulation, epoch changes, expiry, unavailable inventory, containment evidence. A simulated grant is never evidence of deployed host support. |
 | P | `FakePolicy` and immutable `CapabilitySnapshot` fixtures: principal/scope, expiration, revision, effects, pins, confirmations, explicit revocation and current availability. |
-| D | `FakePaidBudgetPort`: atomic durable-authority contract, finite integer cost units, reservation identity/digest, durable handoff arming, settlement and inventory revision. Its store belongs to the test harness and survives destruction of a Runtime instance; it does not recover Run/Job objects. |
+| D | Optional strict-cost fixture only; no baseline case depends on a durable paid port. |
 | O | Capturing bounded event store/observer: group visibility, sequence/watermark, overflow, redaction, retention, replay and forbidden live-command sinks. |
 
 X and O are active in all lifecycle cases. C is active even without an explicit
@@ -65,8 +60,7 @@ getter. Important shared assertions:
   uncertainty evidence, never successful cancellation.
 - Memory accounting is `unique resident + unmaterialized reservation + uncertainty`
   within the envelope. Moving a reference or releasing an execution lease changes
-  no resident-byte total. D liability changes only on authoritative settlement or
-  proven pre-handoff release, never on local terminal state.
+  no resident-byte total. Optional strict-cost tests separately verify D liability.
 - Pre-Run rejection is a bounded request error, not fabricated Run events. Every
   denied handoff has zero adapter/backend execution calls. Each scenario checks
   bounded/sanitized errors, event payloads and nested causes.

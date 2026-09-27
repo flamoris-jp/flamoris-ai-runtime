@@ -114,6 +114,6 @@ Trace replay reads retained evidence and never invokes models, tools, authorizat
 
 The initial scope is a single-user FLAMORIS native model runtime, bounded DAG/control semantics, CPU reference and OpenCL compute. GUI metadata is non-semantic. Durable Agent memory, training, distributed scheduling, arbitrary code, a plugin marketplace, universal pause/rewind and speculative result replacement remain outside the baseline.
 
-Before freezing interfaces, Phase B must inspect current `flamoris-net/flamoris-LLM` and current primary-source runtime contracts for llama.cpp, Transformers, vLLM and TensorRT-LLM. Public documents must not copy private topology/code. No backend has been selected or validated by this Phase A proposal.
+Before freezing interfaces, Phase B must inspect current `flamoris-net/flamoris-LLM` and current primary-source runtime contracts for llama.cpp, Transformers, vLLM and TensorRT-LLM. Public documents must not copy private topology/code. The product direction is FLAMORIS native execution; Phase A does not claim it is implemented or validated.
 
 [Design Acceptance](DESIGN_ACCEPTANCE.md) defines the cross-component scenarios required before implementation and their later deterministic test obligations.

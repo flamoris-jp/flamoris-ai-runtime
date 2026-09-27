@@ -270,20 +270,18 @@ test does not close an acceptance case.
 
 - **Scope:** run complete compiled-plan-to-control scenarios with real kernel
   components and external fakes; repair integration defects in focused commits;
-  qualify the pinned CPU backend; update README/capability/status only from code
+  qualify pinned native CPU and OpenCL profiles; update README/capability/status only from code
   and tests that exist. Publish supported versus unsupported controls and required host external contracts.
 - **Prerequisites:** C01–C11 plus C10a. If a component is deliberately not delivered, narrow
   the milestone label; do not call the complete baseline accepted.
 - **Tests / acceptance:** every baseline A case in [test map](ACCEPTANCE_TEST_MAP.md),
   B-LIFE/B-CALL/B-EVENT/B-RETRY/B-INPUT/B-SER/B-DRAIN, B-NATIVE01 (B-PAID02 optional), B-ACT01–B-ACT12, clean
-  configure/build and required compiler/static/sanitizer gates. Run optional real
-  CPU qualification with explicitly available fixture; report an absent fixture as
-  not run, not pass. Inspect final diff and public/private boundaries.
+  configure/build and required compiler/static/sanitizer gates. Run native CPU qualification and OpenCL parity on approved fixtures/devices;
+  report an absent fixture/device as not run, not pass and withhold that claim. Inspect final diff and public/private boundaries.
 - **Commit units:** cross-layer regressions per defect; lifecycle/resource fixes;
   adapter conformance fixes; documentation/evidence update. Do not squash an entire
   implementation into one unreviewable working-tree change.
-- **Excluded:** performance tuning without correctness evidence, mandatory GPU
-  tests for architecture acceptance, external paid-provider exercises without a
+- **Excluded:** performance tuning without correctness evidence, unqualified GPU claims, external paid-provider exercises without a
   dedicated task, durable Run recovery and deployment/automatic merge.
 
 ## Native qualification matrix

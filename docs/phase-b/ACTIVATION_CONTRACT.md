@@ -13,7 +13,7 @@ tool names or an assertion about a deployed GPU Node Manager API.
 | --- | --- | --- |
 | Process activation | Host/service authority starts the configured Runtime process; always-on is the first deployment mode | Separate activation permission; process readiness says nothing about admitted Runs/models |
 | Backend/model loading | Existing admitted Job's `initializing` segment under Resource Manager admission and backend worker ownership | Current model/capability/resource scope; success makes a compatible resident model available |
-| Run admission | Kernel admission authority compiles/validates and atomically claims submission identity | Current submit permission, finite limits and registry/paid/resource availability checks; one Run |
+| Run admission | Kernel admission authority compiles/validates and atomically claims submission identity | Current submit permission, finite limits and registry/resource availability checks; one Run |
 | Job dispatch | Kernel control executor/Scheduler plus Resource Manager | Current per-attempt eligibility, full resource vector and generation checks; one execution lease |
 
 Always-on keeps the service available; it does not eagerly load model weights. On-demand
@@ -70,14 +70,12 @@ no waiter remains. Explicit service stop requires host authorization and normal 
 Process bootstrap may consume bounded host-owned RAM/process handles/control capacity
 before a Run exists. The host activation record owns and reconciles those costs; a
 Runtime that partially starts reports them to the host contract before claiming ready.
-The baseline performs no model load, inference, provider handoff or tenant paid work
+The baseline performs no model load, inference, provider handoff or paid work
 during pre-Run bootstrap. Failure cannot leak these obligations into a nonexistent Run.
 
 Kernel readiness means its bounded queues/control executor/configuration are initialized,
-its process incarnation is known, and it can make honest admission decisions. GPU
-envelopes and paid budget scopes have separate readiness flags: an unavailable device
-or paid inventory blocks only work needing it; it does not falsely mark that backend
-ready or prevent independently authorized CPU/non-paid admission. Resource startup
+its process incarnation is known, and it can make honest admission decisions. GPU envelopes have their own readiness flags: an unavailable device blocks
+only work needing it; CPU/non-device work may proceed under its own authority. Resource startup
 reconciliation remains mandatory before affected capacity is usable.
 
 An on-demand gateway holds only a bounded *request waiter* until process readiness, not
@@ -177,7 +175,7 @@ Host process activation exposes bounded authorized status under activation ident
 host revision and generation, outside a Run event stream. It never invents Run/Job
 events before admission. Model loading after admission uses ordinary Job-stage/resource
 observations in that Run's ordered stream. Shared residency status exposes logical
-availability, never the loading user's prompt, tenant, private path or raw handle.
+availability, never the user's prompt, private path or raw handle.
 
 Process unavailable/start failure maps to `backend_unavailable` or configured transport
 availability response with bounded startup reason. Model load failure maps to
@@ -205,7 +203,7 @@ required. A fake process boundary changes instance identity and loses Runtime st
 | B-ACT07 | Loading Job cancel competes with load result, other Job waits | No ownership transfer or duplicate load; cleanup first if cancel won; resident result retains accounting if accepted first |
 | B-ACT08 | Old/duplicate startup/stop callback arrives after new generation | No stale readiness, stop of replacement, second callback effect or accidental resource release |
 | B-ACT09 | Submit-authorized caller lacks activation/model/inspect permission | Deny each missing scope at its own boundary; no host call, leaked status or inferred permission |
-| B-ACT10 | Process ready after restart, paid inventory or resource envelope incomplete | Affected paid/device admission blocked; independent permitted work available; no old Run recovery |
+| B-ACT10 | Process ready after restart, resource envelope incomplete | Affected device admission blocked; independent permitted work available; no old Run recovery |
 | B-ACT11 | Submitted request response is lost, then process restarts | Explicit unknown admission/outcome; activation dedup does not claim durable submission exactly-once |
 | B-ACT12 | Run pause during non-pausable load; shutdown with stuck native loader | Pause rejected without partial barrier; no fake quiescence/deallocation/terminal, supervisor owns containment |
 

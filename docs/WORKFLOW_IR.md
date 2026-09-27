@@ -248,7 +248,7 @@ The precise semantics are defined in [Execution Model](EXECUTION_MODEL.md):
 
 Participants must be a nonempty, unique, closed child set. Unknown policies, unbounded acceptance and ownership violations are invalid. Acceptance cannot invoke capabilities or I/O. Group deadlines cannot extend the Run.
 
-Initial race loser policy is `cancel_unfinished`; loser cleanup stays owned even when the parent resumes with a winner. `write`/`destructive` races are excluded; paid races require aggregate worst-case cost reservation across all participants and attempts. Losing or cancelling is not rollback. Provisional result replacement and continuing losers for caching are deferred.
+Initial race loser policy is `cancel_unfinished`; loser cleanup stays owned even when the parent resumes with a winner. `write`/`destructive` races are excluded; races require aggregate finite Run allowance across all participants and attempts; strict monetary reservation is optional future work. Losing or cancelling is not rollback. Provisional result replacement and continuing losers for caching are deferred.
 
 Failure recovery is a declared typed binding, never an implicit success value or a new branch invented by model output. Exact JSON encoding is designed and reviewed in Phase B **before** executor implementation.
 

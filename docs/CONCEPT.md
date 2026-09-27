@@ -6,9 +6,9 @@
 
 The review gates and normative document map are in [Design Phases](DESIGN_PHASES.md). This document describes intent; the detailed contracts specify the initial bounded behavior.
 
-FLAMORIS AI Runtime is intended to be a **model-adjacent AI execution runtime**.
+FLAMORIS AI Runtime is intended to be a **single-user FLAMORIS native model runtime**.
 
-It sits at the layer that wraps and drives a model, conceptually alongside ordinary model runtimes such as `llama.cpp`, rather than being only a workflow orchestrator above an already-complete inference service.
+It owns model execution directly. Third-party runtimes, if ever called, are external Workflow capabilities, not inference backends.
 
 The central idea is:
 
@@ -48,28 +48,15 @@ A persistent Agent may still live outside the Runtime:
 
 This means the Runtime can be used by `flamoris-ai-agent`, ChatGPT, Studio AI, or another authorized caller without becoming their persistent personality store.
 
-## The Runtime wraps the model
+## The Runtime owns the model execution path
 
-The Runtime should be designed around model execution rather than treating model inference as just another remote service call.
+FLAMORIS owns processor/tokenizer, model execution, cache/state, inference
+steps and resource lifetime. CPU reference and OpenCL are its internal compute
+implementations. The initial execution profile may be causal text; Vision,
+audio, embedding and other native profiles must not inherit text-only state.
 
-Conceptually:
-
-```text
-MODEL
-  │
-  ├─ ordinary model runtime
-  │
-  └─ FLAMORIS AI Runtime
-       ├─ model loading / backend
-       ├─ prefill / decode
-       ├─ sampling
-       ├─ inference control
-       ├─ workflow execution
-       ├─ jobs
-       └─ observability
-```
-
-FLAMORIS AI Runtime itself owns native model execution, cache/state and inference control. CPU reference and OpenCL are internal compute implementations. Third-party runtimes and providers, if used, are registered Workflow external capabilities, never interchangeable Inference Machine backends.
+External AI/MCP calls run as registered Workflow capabilities under current
+authorization and finite Run limits. Baseline deployment is single-user.
 
 ## Inference as a controllable loop
 

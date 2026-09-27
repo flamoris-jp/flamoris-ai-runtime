@@ -66,7 +66,7 @@ allowance or provide a conservative envelope; unresolved overlap makes capacity 
 
 Physical feasibility and per-run quotas are separate checks. Shared allocations are charged
 once physically; each Run must still satisfy its declared working-set quota, including shared
-state it needs, so shared models cannot bypass tenant/run limits. Backend-private memory without
+state it needs, so shared models cannot bypass Run limits. Backend-private memory without
 reliable subdivision requires conservative bounds. Estimates are not guarantees against OOM.
 
 RAM, VRAM, transfer staging, scratch storage where enabled, execution slots, provider concurrency,

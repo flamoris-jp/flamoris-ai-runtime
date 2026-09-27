@@ -190,9 +190,9 @@ be mapped into this supported bounded subset by their trusted registration.
 filled from an explicitly versioned deployment profile; zero forbids the
 associated optional behavior. All effective values and resource/cost envelope
 ceilings enter the compiled plan. Caller values may tighten, never enlarge,
-deployment or capability bounds. Paid liabilities derive from trusted pinned
-capability/child-policy maximums and the durable budget protocol; workflow JSON
-cannot declare itself free. Integer overflow rejects before expansion.
+deployment or capability bounds. External paid effects derive from trusted pinned capability policy and finite
+local Run allowances; workflow JSON cannot declare itself free. Strict durable
+monetary ceilings are an optional future profile. Integer overflow rejects before expansion.
 
 All timeout durations are positive integer milliseconds. The Run's absolute
 deadline is admission's monotonic timestamp plus its effective `timeout_ms`.
@@ -288,7 +288,7 @@ indices or timestamps into this digest. An omitted default and an explicitly
 written value are distinct request content; that conservative distinction is
 stable across configuration changes. Structural JSON normalization applies JCS
 only, including canonical numeric spellings and object order, and preserves
-array order. The claim key additionally scopes subject/tenant and request kind.
+array order. The claim key additionally scopes local subject and request kind.
 Its digest does not include transient registry/policy state, so a
 duplicate returns its original admission decision/Run rather than a new Run
 after registry change. Different input/digest conflicts even while pending.

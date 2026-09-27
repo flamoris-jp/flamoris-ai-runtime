@@ -190,8 +190,9 @@ winner permanently. Failure cannot win; if all settle without acceptance, the
 race fails with `race_no_acceptable_result`. Deadline expiry fails with timeout.
 
 Initial races exclude `write` and `destructive` participants. `external`, `read`,
-and `paid` still require normal policy checks; paid races reserve the maximum
-permitted cost across **all** participants/attempts, not only the winner.
+and `paid` still require normal policy checks; races must fit the aggregate finite Run attempt/resource envelope across
+**all** participants/attempts, not only the winner. Strict monetary funding
+is a separate optional profile.
 Dependencies and explicit effect ordering may serialize participants.
 
 Winner selection precedes loser cancellation requests and parent readiness. The

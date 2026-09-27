@@ -46,7 +46,7 @@ Read with [Execution Model](EXECUTION_MODEL.md), [State Machines](STATE_MACHINES
 | A32 | Replay retained in-memory trace containing paid/write/cancel/resource events before baseline acceptance | Only isolated observation changes; zero backend, adapter, scheduler or cleanup dispatch; no durable recovery claim |
 | A33 | Crash immediately before/after external handoff | Trace may be incomplete; new instance does not resume or infer outcome; reconcile host/provider before reuse |
 | A34 | Unbounded stream of warm-model Jobs competes with older cold work | Fairness bound prevents indefinite bypass; dependencies/effect ordering never relaxed for residency |
-| A35 | Unauthorized caller requests status, media handle, trace or replay | Current scope checked for each surface; no cross-tenant/expired-handle leakage |
+| A35 | Unauthorized caller requests status, media handle, trace or replay | Current scope checked for each surface; no unauthorized or expired-handle leakage |
 | A36 | Two unordered writes may target the same object | Reject ambiguous ordering unless trusted contract proves disjoint scopes; physical serialization is not semantic order |
 | A37 | Targeted pause quiesces every remaining Job without a Run barrier | Defined activity projection with pause reason; Run.resume never clears unrelated targeted pauses |
 | A38 | Deadline/cancel arrives after success entered finalizing | Frozen result intent remains; bounded cleanup continues and residue is separately reported |

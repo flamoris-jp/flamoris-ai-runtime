@@ -26,11 +26,11 @@ tests, service, wire implementation or deployment configuration. The words
 | When may resource capacity be reserved, reused or released? | [Resource/host contract](phase-b/RESOURCE_HOST_CONTRACT.md) |
 | How might an optional strict-cost integration work? | [Durable paid-budget contract](phase-b/PAID_BUDGET_CONTRACT.md) |
 | Who starts the process or loads a model? | [Activation contract](phase-b/ACTIVATION_CONTRACT.md) |
-| How will every Phase A obligation be tested offline? | [A01–A42 test map](phase-b/ACCEPTANCE_TEST_MAP.md) |
+| Which baseline and optional Phase A cases have test seams? | [A01–A42 test map](phase-b/ACCEPTANCE_TEST_MAP.md) |
 | In what dependency order should code be written? | [Phase C slices](phase-b/PHASE_C_PLAN.md) |
 
 Each document owns its implementation detail only. It cannot relax the Phase A
-state machine, effect algebra, resource accounting and optional paid integration, current authorization,
+state machine, effect algebra, resource accounting, current authorization,
 bounded observation, or neighboring-service authority. Cross-document conflicts
 must be fixed before implementing the affected slice. There is no stable public
 or plugin ABI in this proposal.
@@ -86,12 +86,11 @@ deviation; optional integrations remain disabled until their own evidence exists
 Reviewers should challenge five boundaries together: lifecycle authority,
 physical state ownership, current dispatch authorization, external uncertainty,
 and observation retention. In particular, check the complete Job/Continuation
-payload mapping, pre-admission versus lifecycle callback tickets, no-send proof
-versus unknown handoff, all-or-none pause snapshot, and post-terminal ledger
+payload mapping, pre-admission versus lifecycle callback tickets, external outcome proof versus unknown handoff, all-or-none pause snapshot, and post-terminal ledger
 updates after the stream closes.
 
-The [test map](phase-b/ACCEPTANCE_TEST_MAP.md) defines every A01–A42 scenario and
-its deterministic seams; the activation contract adds B-ACT01–B-ACT12 without
+The [test map](phase-b/ACCEPTANCE_TEST_MAP.md) maps A01–A40 to baseline deterministic seams and
+retains A41–A42 as optional strict-cost scenarios; the activation contract adds B-ACT01–B-ACT12 without
 replacing those obligations. These are **test designs**, not executed tests.
 Documentation/link checks cannot certify runtime semantics or native feasibility.
 

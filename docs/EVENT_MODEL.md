@@ -126,8 +126,7 @@ capacity and authoritative current state. Exact sizing and overflow tests belong
 Post-terminal observation
 remains available only within the advertised Run retention/window; before it closes,
 the stream records final known reconciliation or an explicit still-unknown closure.
-After that bound, late authoritative release/settlement still updates its resource or
-durable paid-budget ledger, but cannot reopen an expired Run stream. Queries to an
+After that bound, late authoritative release/settlement still updates its resource ledger (or optional strict-cost external ledger), but cannot reopen an expired Run stream. Queries to an
 expired Run report a gap/expiration rather than inventing a late lifecycle event.
 The retained history is bounded by count/bytes/time. Whole committed groups may age out,
 including control groups, once their active bookkeeping need is satisfied. A reader with
@@ -164,7 +163,7 @@ treated as resolved. A persisted trace alone cannot authorize restoration or res
 ## Privacy and access
 
 Run status, event subscription, retained history, exports and replay each require current
-subject/tenant authorization. Historical execution permission does not grant perpetual
+current local-user authorization. Historical execution permission does not grant perpetual
 trace access. Trace levels are capped by deployment policy and the caller's access scope.
 Tokens/prompts, model-exposed reasoning channels and debug probes are opt-in sensitive
 payloads with finite size/retention, not default lifecycle fields.

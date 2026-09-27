@@ -2,9 +2,9 @@
 
 **Inference and workflow, controlled in one runtime.**
 
-FLAMORIS AI Runtime is a planned **model-adjacent AI execution runtime**.
+FLAMORIS AI Runtime is a planned **single-user native model runtime**.
 
-It is intended to sit at the layer that wraps and drives a model, conceptually alongside ordinary model runtimes, while adding FLAMORIS-specific control over inference, jobs, workflows, interrupts, and real-time observability.
+It owns model execution, cache/state and inference control alongside jobs, workflows, interrupts and real-time observability. Native CPU reference and OpenCL compute are the planned initial paths. Third-party runtimes, when used, are registered Workflow capabilities. Strict cross-crash monetary limits are an optional future integration.
 
 The core idea is:
 
@@ -421,7 +421,7 @@ See [Implementation Strategy](docs/IMPLEMENTATION_STRATEGY.md).
 
 ## Existing FLAMORIS LLM foundation
 
-`flamoris-net/flamoris-LLM` is a candidate implementation foundation.
+The private `flamoris-net/flamoris-LLM` is a conceptual and test-methodology foundation.
 
 It already explores:
 
