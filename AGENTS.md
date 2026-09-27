@@ -173,7 +173,7 @@ External AI/API and MCP execution must use configured, registered adapters. Do n
 
 The intended Runtime Kernel implementation language is **C++**.
 
-Keep the model-adjacent execution core in C++ so inference lifecycle control, native backend integration, cache/state ownership, scheduling, and resource-aware execution can remain explicit and low overhead.
+Keep the model-adjacent execution core in C++ so inference lifecycle control, native CPU/OpenCL compute integration, cache/state ownership, scheduling, and resource-aware execution can remain explicit and low overhead.
 
 Do not interpret this as a requirement to pull every capability into the C++ process. MCP, Generation, external AI/API, and other domain services remain external capabilities when that preserves authority boundaries.
 

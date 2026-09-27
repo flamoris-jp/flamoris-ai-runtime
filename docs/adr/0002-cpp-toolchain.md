@@ -36,11 +36,11 @@ which is supported by this baseline, and separate configure/build/test presets
 | `src/kernel/`, `flamoris_runtime_kernel` | Controllers, scheduler, resource ledger, admission and event commits | Domain and injected abstract ports; no model implementation |
 | `src/compiler/`, `flamoris_runtime_compiler` | Bounded IR, normalization, immutable plan | Domain, private serialization/fingerprint implementation |
 | `src/observation/`, `flamoris_runtime_observation` | Retained groups, snapshots, inspection-only replay | Domain and observation ports; no dispatch-capable adapter |
-| `src/backends/`, opt-in backend targets | Selected native backend integration | Kernel port contracts; third-party types remain private |
-| `src/adapters/`, opt-in adapter targets | Host, budget and registered capability integrations | Kernel ports; no lifecycle mutation shortcuts |
+| `src/model/`, `src/compute/` | FLAMORIS native model execution and CPU/OpenCL operations | Kernel control contracts; no third-party runtime types |
+| `src/adapters/`, opt-in adapter targets | Host and registered Workflow capability integrations; optional budget integration separately | Kernel ports; no lifecycle mutation shortcuts |
 | `src/transports/`, `apps/` | Later MCP/API/CLI composition roots | Kernel source API; authenticate and submit commands only |
 | `tests/unit/`, `tests/acceptance/`, `tests/support/` | Offline tests and deterministic fakes | No live service, GPU, weights or network |
-| `tests/integration/` | Explicit opt-in native backend/provider checks | Never part of the offline contract |
+| `tests/integration/` | Explicit opt-in native CPU/OpenCL and external capability checks | Never part of the offline contract |
 | `cmake/`, `CMakePresets.json` | Target policies, pinned dependency manifest and presets | No machine-specific paths or implicit service setup |
 
 Libraries are ordinary static targets initially; the graph may be combined for

@@ -87,7 +87,7 @@ Choose only what the first implementation needs:
 - event/ID/schema representation and parser/resource bounds, including bounded post-terminal Run observation;
 - atomic process-local submission claim/Run admission and duplicate-waiter arbitration;
 - optional strict-cost profile may later define durable reservation and reconciliation, without blocking baseline native inference;
-- backend adapter and host coordination protocol;
+- native model/compute ownership and host coordination protocol;
 - deterministic fake clocks, backend callbacks and allocation test seams.
 
 Do not prematurely promise a stable public ABI, plugin ABI, language binding, allocator framework, distributed scheduler or coroutine framework. These choices need an implementation requirement and evidence.

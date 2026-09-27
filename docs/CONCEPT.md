@@ -83,7 +83,7 @@ KV / model state
 └──────── repeat ──────────┘
 ```
 
-The exact mechanics are backend-specific and must be verified during implementation research.
+The exact mechanics are native model/profile-specific and must be verified by implementation tests.
 
 The architectural requirement is that FLAMORIS exposes explicit control points around these stages instead of reducing the entire operation to one opaque `generate()` call.
 
@@ -371,7 +371,7 @@ The Runtime may perform reasoning through the loaded model, but it does not beco
 
 The intended Runtime Kernel implementation language is **C++**.
 
-The goal is not "everything in one native binary." The goal is to keep model-adjacent control, state ownership, continuation handling, scheduling, and backend integration in a native kernel while preserving service boundaries for external capabilities.
+The goal is not "everything in one native binary." The goal is to keep model-adjacent control, state ownership, continuation handling, scheduling, and native model and compute integration in a kernel while preserving service boundaries for external capabilities.
 
 ```text
 Agent / ChatGPT / Studio

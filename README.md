@@ -394,7 +394,7 @@ Do not add arbitrary shell, unrestricted Python, ambient filesystem/network acce
 
 The intended implementation language for the Runtime Kernel is **C++**.
 
-C++ is chosen for the model-adjacent core because the Runtime is expected to coordinate low-level inference control, backend state, cache lifetime, native model runtimes, scheduling, and GPU/resource-aware execution without forcing those control points through a higher-level service boundary.
+C++ is chosen for FLAMORIS-owned model execution, inference control, cache lifetime, scheduling and resource-aware native CPU/OpenCL compute.
 
 Conceptually:
 

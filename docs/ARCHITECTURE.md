@@ -4,7 +4,7 @@
 
 **Phase A architecture proposal. No Runtime is implemented.**
 
-FLAMORIS AI Runtime is a model-adjacent execution kernel: inference and workflow share one controllable runtime loop. It owns enough of supported model execution to observe, interrupt, preserve state, dispatch bounded child work and resume. An opaque provider remains usable only with its actual advertised limitations.
+FLAMORIS AI Runtime is a single-user native model execution kernel: inference and workflow share one controllable loop. It owns model execution/state and coordinates bounded child work. An external provider is a registered Workflow capability, never its interchangeable inference backend.
 
 [Design Phases](DESIGN_PHASES.md) defines review gates and document authority. This overview delegates precise behavior to the detailed contracts rather than duplicating transition tables.
 
