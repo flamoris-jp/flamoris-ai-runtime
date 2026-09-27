@@ -39,7 +39,9 @@ PoCL 5.0 on an actual CPU OpenCL device; the GPU on LIME was not exercised.
 | Fresh GCC 13.3.0 C++20, warnings as errors, native CPU tests | Configure and build passed; 26/26 CTest cases passed. OpenCL disabled in this build. |
 | Incremental GCC 13.3.0 with OpenCL and PoCL CPU device | Build passed; 27/27 CTest cases passed, including real OpenCL parity. |
 | Clang 18.1.3 ASan/UBSan, `ASAN_OPTIONS=detect_leaks=0` | Build passed; 23/23 offline CTest cases passed. Native fixture and OpenCL tests were disabled in this configuration. LeakSanitizer was not run. |
+| Clang 18.1.3 TSan, native CPU enabled | Build passed; 26/26 CTest cases passed. OpenCL disabled in this configuration. Four first-pass scratch executables were relinked after permission errors before the complete rerun. |
 | clang-format 18.1.3 | All project headers and source/test translation units pass `--dry-run --Werror` after formatting fixes. |
+| clang-tidy 18.1.3, three Runtime composition translation units | Completed with nonfatal performance and intentional process-lifetime ownership warnings; this was a targeted local check, not the full CI translation-unit lane. |
 | Documentation and source-boundary scripts | `check_links.py`, `check_docs.py`, `check_boundaries.py` passed. |
 
 The fresh GCC configuration used:
@@ -78,8 +80,16 @@ build; after relinking them, the entire 23-test lane passed. A first-pass GCC
 scratch executable was similarly relinked before the 26-test rerun. No passing
 result is claimed for those incomplete first attempts.
 
-Remaining release evidence: final cross-layer review, static/other compiler lanes,
-GitHub CI on the final PR, physical LIME GPU qualification and deployed host
+The TSan configuration had `FLAMORIS_SANITIZER=thread`, native CPU tests enabled,
+and OpenCL disabled. The final commands were:
+
+```sh
+cmake --build build/root-tsan-review --parallel 2
+ctest --test-dir build/root-tsan-review --output-on-failure --parallel 2
+```
+
+Remaining release evidence: final cross-layer review, full CI lanes on the final
+PR, physical LIME GPU qualification and deployed host
 enforcement. The latter two are separate integration gates and are not inferred
-from the PoCL or deterministic-host-port tests. Windows and TSan are not yet
-claimed as passing here.
+from the PoCL or deterministic-host-port tests. Windows is not claimed as passing
+here.
