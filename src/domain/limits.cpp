@@ -3,6 +3,8 @@
 #include <utility>
 
 namespace flamoris::runtime {
+// Every Result alternative is checked immediately before value()/error() access.
+// NOLINTNEXTLINE(bugprone-exception-escape)
 Result<std::uint64_t> mandatory_event_slots(const EventReservation &b) noexcept {
     auto update_coefficient = checked_multiply(b.post_terminal_updates, 2);
     if (!update_coefficient)
@@ -31,6 +33,8 @@ Result<std::uint64_t> mandatory_event_slots(const EventReservation &b) noexcept 
     }
     return Result<std::uint64_t>::success(total);
 }
+// Every Result alternative is checked immediately before value()/error() access.
+// NOLINTNEXTLINE(bugprone-exception-escape)
 Result<std::uint64_t> mandatory_event_storage(const EventReservation &bounds,
                                               std::uint64_t ceiling) noexcept {
     auto slots = mandatory_event_slots(bounds);
