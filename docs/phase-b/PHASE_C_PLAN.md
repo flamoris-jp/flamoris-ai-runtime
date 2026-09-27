@@ -2,7 +2,7 @@
 
 ## Status and entry gate
 
-**Implementation plan only. No slice, build, test or backend described here is
+**Implementation plan only. No slice, build, test or native compute described here is
 implemented by Phase B.** Start Phase C after review of Issue #6 and this design.
 The reviewed Phase A contracts remain semantic authority. A discovered semantic
 defect requires a documented, reviewed deviation and affected acceptance updates
@@ -33,11 +33,11 @@ inherits its prerequisites' completed regression suite.
 | C03 | C02 | Resource ledger, host protocol, accounted cleanup | A10–A13, A28–A29; B-CALL01/B-DRAIN01 resource cases |
 | C04 | C03 | Single-user authorization, submission claim and finite Run limits | A04–A05, A24–A27, A33, A35, B-RETRY01; A41–A42/B-PAID02 optional |
 | C05 | C01, C04 | Bounded IR parser, validator/compiler, direct normalization | A01–A03, A06–A07, A24, A36, A39 compile/admission cases; B-SER01 |
-| C06 | C03, C04, C05 | Scheduler, fairness, backend activation and host lifecycle client | A10, A13, A15, A17–A19, A34, A37, A40; B-ACT01–B-ACT12 |
+| C06 | C03, C04, C05 | Scheduler, fairness, Runtime activation and host lifecycle client | A10, A13, A15, A17–A19, A34, A37, A40; B-ACT01–B-ACT12 |
 | C07 | C02, C04, C05, C06 | WorkflowMachine, dependency binding, await/join/race | A07–A10, A16, A20–A26, A36–A40 workflow cases |
-| C08 | C03, C04, C05, C06, C07 | InferenceMachine and scripted controllable backend | A03–A04, A07–A10, A14–A20, A28, A38–A40; B-INPUT01 |
+| C08 | C03, C04, C05, C06, C07 | InferenceMachine and scripted controllable native worker | A03–A04, A07–A10, A14–A20, A28, A38–A40; B-INPUT01 |
 | C09 | C02, C03, C04, C07 | Retained observation, gaps, bounded reconciliation, inspection replay | A29–A32, A35; B-EVENT01/B-SER01 observation cases |
-| C10 | C03, C06, C08 | FLAMORIS native CPU reference and conformance qualification | Real-backend suite; related A08–A19/A28 invariants |
+| C10 | C03, C06, C08 | FLAMORIS native CPU reference and conformance qualification | Native-model conformance suite; related A08–A19/A28 invariants |
 | C10a | C10 | FLAMORIS native OpenCL compute and CPU/OpenCL parity | Native parity/qualification suite |
 | C11 | C04, C05, C07, C08, C09 | Registered adapters and transport-facing projection | A25–A27, A31–A33, A35, A39, external outcome boundary regression |
 | C12 | C01–C11 plus C10a | Complete baseline integration and evidence report | All baseline A cases (A41–A42 optional), supplemental cases and qualified native CPU/OpenCL suite |
@@ -62,7 +62,7 @@ test does not close an acceptance case.
 - **Commit units:** build/CI foundation; bounded domain/error/effect types; test
   fixture support and meaningful contract tests. Keep test-only sources outside
   production libraries and do not add an unnecessary binary host yet.
-- **Excluded:** Scheduler, actual backend, native inference bindings, service host,
+- **Excluded:** Scheduler, actual native worker, native inference bindings, service host,
   stable ABI, speculative allocators/coroutines and copying private implementation.
 
 ## C02 — lifecycle and atomic local commits
@@ -73,7 +73,7 @@ test does not close an acceptance case.
   immutable finalizing intent, callback identities and bounded command/proposal
   slots. State plus complete EventGroup commit is one bounded control turn.
 - **Prerequisites:** C01. Use manually acknowledged test ports for resources and
-  backend evidence until C03/C08 replace those seams; never infer physical release.
+  native-worker evidence until C03/C08 replace those seams; never infer physical release.
 - **Tests / acceptance:** complete transition table and invalid pairs; owner and
   generation rejection; both cancel/completion orders; exact deadline boundary;
   Run versus targeted pause projection and atomic child/barrier races. Exercise
@@ -81,7 +81,7 @@ test does not close an acceptance case.
   and B-NATIVE01 native holder lifetime with fake operations; C10 closes real qualification.
 - **Commit units:** records/ownership; serialized proposal and event publication;
   suspension/control/finalization; deterministic arbitration/failure tests.
-- **Excluded:** useful real work, backend pause claims, resource feasibility,
+- **Excluded:** useful real work, native pause claims, resource feasibility,
   remote service calls, transport server and durable history.
 
 ## C03 — resources, host evidence and cleanup ownership
@@ -94,7 +94,7 @@ test does not close an acceptance case.
 - **Prerequisites:** C02; bounded control/closure capacity must exist before a
   quarantine transfer can permit terminal publication.
 - **Tests / acceptance:** physical versus per-Run shared quotas; partial acquisition
-  and release loss; source/target overlap; stale host/backend epochs; fake host
+  and release loss; source/target overlap; stale host/native-worker epochs; fake host
   grants versus unenforced capacity hints; unsafe native containment. A10–A13,
   A28–A29 with actual ResourceManager, B-CALL01/B-DRAIN01 lifetime checks, and
   cross-Run full-vector contention and shared model residency accounting without partial useful execution.
@@ -158,7 +158,7 @@ test does not close an acceptance case.
   process activation client contract/fake gateway; model-loading ownership/dedup;
   idle/drain races.
 - **Excluded:** Continuation scheduling, startup as an inferred submit permission,
-  system-specific service manager, distributed scheduling, GPU backend, performance
+  system-specific service manager, distributed scheduling, GPU compute, performance
   residency reordering and useful work during a pause barrier.
 
 ## C07 — WorkflowMachine and bounded coordination
@@ -178,7 +178,7 @@ test does not close an acceptance case.
   mutable live plans, provisional winner replacement, speculative execution and
   unrestricted recursive tool calls.
 
-## C08 — InferenceMachine with scripted backend
+## C08 — InferenceMachine with scripted native worker
 
 - **Scope:** tokenize/prefill/bounded decode/sample/state-commit progression under
   an existing Job, explicit native execution-profile capabilities, current-state checks,
@@ -194,7 +194,7 @@ test does not close an acceptance case.
   decoder carry and stop matcher. Verify pending-token/injected-input exactly-once
   behavior, cancellation before native receipt publication, partial-step abort
   invalidation and safe cleanup.
-- **Commit units:** backend contract/capability values; scripted backend harness;
+- **Commit units:** native execution contract/capability values; scripted native worker harness;
   inference state progression; safe-point controls; child injection and lifecycle
   conformance. Keep tests independent of model weights/network/GPU.
 - **Excluded:** llama.cpp implementation, claims of generic rewind/offload/snapshot,
@@ -222,15 +222,18 @@ test does not close an acceptance case.
 
 ## C10 — FLAMORIS native CPU reference and causal-text execution
 
-- **Scope:** independently implement registered model/processor loading,
-  bounded tokenize/prefill/decode, explicit KV/cache and sampler/algorithm state,
+- **Scope:** independently implement registered model, `ProcessorDefinition` and
+  `TokenizerDefinition` identities and loading, bounded tokenize/prefill/decode,
+  explicit KV/cache and sampler/algorithm state,
   deterministic CPU compute, segment safe points and release receipts. Preserve
   model-neutral state envelope separately from causal-text profile state.
 - **Prerequisites:** C03/C06/C08 and approved fixture identity/license/checksum.
-- **Tests:** B-REAL01–B-REAL04/B-REAL06 as revised below; cached versus uncached
-  CPU correctness, uninterrupted versus paused progression, partial failure,
-  cancellation, shared model lifetime and bounded allocations.
-- **Commit units:** model/processor/artifact identity; CPU ops; incremental state
+- **Tests:** B-REAL01–B-REAL04/B-REAL06–B-REAL07 as revised below; known tokenizer
+  vectors, strict UTF-8/Unicode and emoji round trips, changed-tokenizer plan and
+  resume rejection, cached versus uncached CPU correctness, uninterrupted versus
+  paused progression, partial failure, cancellation, shared model lifetime and
+  bounded allocations.
+- **Commit units:** model/processor/tokenizer/artifact identity; CPU ops; incremental state
   and sampler; Inference Machine integration; lifetime/conformance fixtures.
 - **Excluded:** copying private source, embedded third-party runtime, OpenCL
   claims, portable checkpoints or universal model-family support.
@@ -241,7 +244,8 @@ test does not close an acceptance case.
   model execution and resource accounting. Device-specific state compatibility
   must be explicit; CPU remains the correctness oracle.
 - **Prerequisites:** qualified C10 and actual OpenCL build/device evidence.
-- **Tests:** CPU/OpenCL parity under declared numeric tolerances, cached/uncached
+- **Tests:** CPU/OpenCL parity under declared numeric tolerances using identical
+  pinned tokenizer/processor identities and input token IDs; cached/uncached
   decode, repeated load/release, cancellation and resource/quiescence receipts.
   A historical hardware note cannot establish this gate.
 - **Commit units:** device/context ownership; bounded operations; parity fixtures;
@@ -255,7 +259,7 @@ test does not close an acceptance case.
   current primary contract. Preserve same submission, result, pause and outcome
   semantics; no handler owns a separate Job or dispatch authority.
 - **Prerequisites:** C04/C05/C07/C08/C09. C10 is required only for real inference
-  demonstrations, not for facade contract tests with a scripted backend.
+  demonstrations, not for facade contract tests with a scripted native worker.
 - **Tests / acceptance:** A25–A27, A31–A33, A35, A39, external outcome handling through in-process
   fake transport and faulting registered adapter; unauthenticated/unauthorized
   callers, lost response after accepted operation, oversized streamed output,
@@ -292,12 +296,13 @@ profile for each actual run.
 
 | ID | Required evidence | Gate |
 | --- | --- | --- |
-| B-REAL01 | Licensed tiny model and processor load; bounded tokenize, prefill, decode and sample; CPU reference outputs checked. | Native CPU fixture |
+| B-REAL01 | Licensed tiny model and pinned processor/tokenizer load; known token vectors, bounded tokenize, prefill, decode and sample; CPU reference outputs checked. | Native CPU fixture |
 | B-REAL02 | Same profile/input/seed: uninterrupted and safe-point paused/resumed state/output progression agrees. | Native CPU fixture |
 | B-REAL03 | Stop at segment boundaries really quiesces before state release; unsupported partial-step control rejects. | Native CPU fixture and failure hooks |
 | B-REAL04 | Multiple independently owned Runtime instances may construct/destroy without cross-release; shared native model/context allocations stay charged until the last reference and actual release. | CPU fixture and allocator hooks |
 | B-REAL05 | Offload/snapshot/rewind/batching remain false until separately qualified. | Capability rejection suite |
 | B-REAL06 | Causal-text pending token, sampler/RNG, penalty/grammar, decoder carry and bounded injection remain exactly once across pause. | Native CPU causal-text fixture |
+| B-REAL07 | Strict UTF-8 and registered tokenizer encode/decode vectors cover `日本語`, `😀`, `👩‍💻`, `❤️`, `👍🏽`, `🇯🇵`, decomposed `が` and precomposed `が`, token-split UTF-8 carry and pause/resume. Reject malformed/final incomplete sequences, unpaired surrogate conversion, special-token collisions and changed processor/tokenizer plan or resume identity. Round trips follow pinned normalization; no fixed token count per grapheme. | Native CPU tokenizer/decoder fixture |
 | B-OPENCL01 | Native OpenCL operations match CPU oracle within declared tolerance, with bounded allocations and valid cancellation/release evidence. | Actual qualified OpenCL device |
 | B-HOST01 | External host authority enforces capacity and generation fencing across processes. | Separate host integration |
 | B-PAID01 | Optional future strict-cost authority and provider enforce durable maximum liability. | Separate optional integration |
@@ -312,7 +317,7 @@ design does not advertise hypothetical setup commands as current instructions.
 Keep acceptance IDs visible in test names/metadata, with a bounded fixture per
 listed failure/interleaving, so coverage can be audited without counting Markdown
 headings as tests. Record blocked cases explicitly. A test-framework green status
-with an empty/skipped real-backend lane cannot support a backend capability claim.
+with an empty/skipped native-model lane cannot support a native execution capability claim.
 
 Stop the affected part and seek design review when implementation would require
 an additional scheduler identity, revived terminal state, unaccounted resource or

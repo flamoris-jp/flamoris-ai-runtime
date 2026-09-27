@@ -1,6 +1,6 @@
 # Resource and Host Integration Contract
 
-**Phase B design; no allocator, host adapter, or backend integration is implemented.**
+**Phase B design; no allocator, host adapter, or native compute integration is implemented.**
 The [Phase A resource model](../RESOURCE_MODEL.md) is the semantic authority.
 This is a proposed C++ port contract, not a claim about an existing GPU Node
 Manager API. Host/provider conformance must be demonstrated before enabling the
@@ -11,8 +11,8 @@ corresponding real integration. The deterministic fake implements this contract.
 All identifiers below are typed values, never pointers or reusable native handles.
 Resource Manager alone changes its instance-wide ledger on the single Runtime control
 executor that also owns Run/Job control. Commands and acknowledgements
-cross worker boundaries as bounded values; backend object destruction remains with
-the backend owner until its work and callbacks have quiesced.
+cross worker boundaries as bounded values; native object destruction remains with
+the native owner until its work and callbacks have quiesced.
 
 | Proposed record | Owner / lifetime | Required content and invariant |
 | --- | --- | --- |
@@ -21,13 +21,13 @@ the backend owner until its work and callbacks have quiesced.
 | `ReservationRecord` | Resource Manager; from successful atomic admission until consumed/released | Reservation ID, owning instance/Run/Job/attempt, vector, expected epochs, expiry and unmaterialized remainder |
 | `ResourceTicket` | Resource Manager; one bounded dispatch preparation | References exact reservation and compatibility revisions; offers reserved capacity, not permission to execute |
 | `ExecutionLease` | Resource Manager record, referenced by active Job/attempt | Lease ID, admitted vector and epochs, one current execution owner; no Continuation ownership |
-| `AllocationRecord` | Resource Manager; until actual release/reconciliation | Allocation ID, backend incarnation, host epoch, pool/location, conservative bytes, shared references, quiescence/release evidence |
+| `AllocationRecord` | Resource Manager; until actual release/reconciliation | Allocation ID, native-worker incarnation, host epoch, pool/location, conservative bytes, shared references, quiescence/release evidence |
 | `StateReference` | Job active state, Continuation or pending resume; cleanup after invalidation | Immutable allocation identities plus model/content/configuration and state revision; moving the reference never changes charged bytes |
 | `CleanupRecord` | Resource Manager; may outlive the Run and its retained stream | Operation/allocation identity, old epochs, admitted maintenance allowance, uncertainty, bounded observation link and reconciliation obligations |
 
-The ledger owns records; backend holders own physical objects. A shared allocation
+The ledger owns records; native holders own physical objects. A shared allocation
 has one record even across Runs. Each Run still reserves its full declared working-set
-quota, including shared state it requires. An aggregate backend pool is charged once;
+quota, including shared state it requires. An aggregate native compute pool is charged once;
 pool members may be tracked for sublimits without being added again to physical totals.
 Reference release is a logical event. A zero reference count permits eviction but does
 not itself prove physical deallocation.
@@ -45,9 +45,9 @@ permanently single-use.
 Operations use typed results and operation IDs. Retrying a control message with the
 same identity returns the same committed decision or current status; changed arguments
 for that identity conflict. Every callback supplies instance, operation and applicable
-attempt/allocation/host/backend generations. Missing or mismatched identity cannot
+attempt/allocation/host/native-worker generations. Missing or mismatched identity cannot
 change a current grant. External operations run on workers; the control executor never
-waits on a host/provider/backend call.
+waits on a host/provider/native-worker call.
 
 | Port / operation | Input | Result or acknowledgement |
 | --- | --- | --- |
@@ -55,11 +55,11 @@ waits on a host/provider/backend call.
 | `ResourcePort.commit_dispatch` | Prepared ticket plus current Run eligibility decision | One consumption into an execution lease, or rejection without execution; no reuse of ticket |
 | `ResourcePort.materialized` | Reservation, allocation identity, conservative measured/bounded size | Atomic reservation-to-allocation conversion and ledger revision; no double charge |
 | `ResourcePort.abort_preparation` | Ticket and materialization/handoff evidence | Release proven unmaterialized remainder; materialized/unknown portions enter cleanup |
-| `ResourcePort.quiesced` / `release_confirmed` | Matching operation and backend/host evidence | Release execution capacity / physical allocation separately, exactly once |
+| `ResourcePort.quiesced` / `release_confirmed` | Matching operation and native-worker/host evidence | Release execution capacity / physical allocation separately, exactly once |
 | `ResourcePort.transfer_to_cleanup` | Residue plus containment proof and reserved observation allowance | Acknowledged cleanup owner, or refusal that prevents terminal publication |
 | `HostAuthorityPort.observe_envelope` | Logical resource, instance, supported arbitration mode | Fresh enforceable envelope or unavailable; no inferred host exclusivity |
 | `HostAuthorityPort.acquire` / `release` / `reconcile` | Bounded operation, ownership token, expected epoch | Explicit acknowledged / rejected / unknown outcome and authority revision |
-| Backend resource port | Load, grow, quiesce, offload, snapshot, evict, release; bounded request | Actual result/footprint and compatibility/quiescence/release evidence, independently advertised support |
+| Native resource port | Load, grow, quiesce, offload, snapshot, evict, release; bounded request | Actual result/footprint and compatibility/quiescence/release evidence, independently advertised support |
 
 Names are conceptual methods, not a public ABI or transport schema. The
 [concurrency contract](CONCURRENCY.md) owns dispatch linearization. In the
@@ -85,9 +85,9 @@ not distributed two-phase commit:
    child/attempt/cost/event eligibility. Publish no runnable worker command if any part
    fails. A successful commit records the attempt and exact lease/receipt identities.
    Race participants must fit the finite aggregate Run attempt/resource envelope.
-4. Backend allocation/load occurs only within that complete envelope. Each acknowledged
+4. Native allocation/load occurs only within that complete envelope. Each acknowledged
    physical allocation consumes its reserved portion atomically; unexpected growth needs
-   a new full incremental admission before allocating. If the backend cannot bound growth,
+   a new full incremental admission before allocating. If the native worker cannot bound growth,
    reserve its safe maximum or reject that operation.
 5. Useful inference or adapter work starts only when the required vector is materialized.
    A partial allocation failure releases confirmed pieces and retains uncertain ones.
@@ -108,7 +108,7 @@ whole-device utilization to Runtime allocation totals would double count.
 
 | Operation | Required preparation | Successful acknowledgement means |
 | --- | --- | --- |
-| Suspend in place | Backend safe point with consistent sampler/token/cache state | Active execution quiesced; lease capacity releasable, retained bytes still charged |
+| Suspend in place | Native profile safe point with consistent sampler/token/cache state | Active execution quiesced; lease capacity releasable, retained bytes still charged |
 | Offload | Reserve target and transfer capacity while source remains charged | Target state validated; source freed only on separate matching release acknowledgement |
 | Snapshot | Advertised format/version, approved bounded storage, compatibility digest | Snapshot validated; source allocation still charged until release acknowledgement |
 | Resume | State compatibility and current policy/epochs verified; new complete lease | Same Job activates preserved state; no automatic reconstruction or re-inference |
@@ -119,7 +119,7 @@ During offload source, target and transfer staging coexist and count. Lost sourc
 acknowledgement leaves both footprints charged even if the target is usable. An invalid
 target never silently replaces a valid source. A failed evacuation is not reported as
 successful pause-and-free. Unadvertised operations return unsupported without mutating
-state. Offload/snapshot formats are backend-specific and not accepted as portable tokens.
+state. Offload/snapshot formats are native-compute-specific and not accepted as portable tokens.
 
 Maintenance after suspension uses a bounded controller operation with owning
 Job/cleanup provenance and separately reserved transfer/device capacity. It executes no
@@ -147,8 +147,8 @@ uncertainty before granting overlapping capacity.
 A late callback may reconcile its *old* cleanup record when its full identity and proof
 match. It cannot release a replacement allocation, renew an expired lease, resurrect a
 Job, or validate newer state. Duplicate acknowledgements make no second subtraction.
-Backend completion inboxes retain only bounded value messages and weak registry lookup;
-physical backend holders survive until worker/callback quiescence. Never destruct an
+Native-worker completion inboxes retain only bounded value messages and weak registry lookup;
+physical native holders survive until worker/callback quiescence. Never destruct an
 in-process writer's memory because its callback generation was fenced.
 
 Unstoppable native work is not safely contained by ignoring its callback. If isolation
@@ -171,7 +171,7 @@ reserved capacity. After closure, update the resource ledger without reopening t
 The cleanup record retains bounded provenance independent of any destroyed Run object.
 
 On process restart there is a new instance identity and no reconstructed Job, lease or
-Continuation. Host/backend reconciliation must establish a valid new envelope before
+Continuation. Host/native-worker reconciliation must establish a valid new envelope before
 affected resource admission. Surviving allocation/in-flight uncertainty is not inferred
 away from absence of local records. Optional strict paid-cost liability has a separate external authority when enabled.
 

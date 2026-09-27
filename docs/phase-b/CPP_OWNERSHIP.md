@@ -15,7 +15,7 @@ aggregates have one owner, normally `unique_ptr` or direct containment.
 bounded immutable result buffers; it is not permission for shared mutable Jobs.
 Any shared mutable native context must have an explicit owner and proven lifetime.
 Use local references/spans only inside a synchronous call whose owner remains
-alive. Never retain `string_view`, JSON element references or backend buffer
+alive. Never retain `string_view`, JSON element references or native worker buffer
 pointers in a command or event.
 
 The baseline has **one Runtime control executor**. It owns all mutable domain
@@ -52,7 +52,7 @@ are injected. Optional future strict-cost identities have their own separately r
 | Runtime instance → `RuntimeInstance` | FLAMORIS native composition root, creation through completed shutdown | C; owns executor, indices, workers/ports; exports command and observation interfaces | Instance ID/status wire; object internal | Stop admission, drain/contain, quiesce callbacks/workers before destroying ports; restart never recovers Jobs |
 | Run → `RunController`, `RunRecord` | Runtime Run index; admitted lifetime plus bounded observation retention | C; owns Job tree, immutable plan/input references, budgets and gates; outside references are `RunId` | Status/result wire; record internal | Drop workload ownership only after all Jobs terminal and debt transferred; terminal intent immutable |
 | Job → `JobRecord`, `JobController` | Exactly one Run controller; parent `JobId` except root; bounded post-terminal provenance | C; JobController is a mutation capability used only in Run commits, not a second owner; Scheduler keeps IDs | Status wire; live record internal | One lifecycle and payload alternative; descendants settle before parent terminal; stable ID across yield/resume/retry |
-| Attempt → `AttemptRecord` | Job; one active attempt, bounded historical outcomes | C; backend/adapter messages name `AttemptId` and `DispatchGeneration` | Redacted outcome/effect evidence wire | A retry creates a new attempt only on the explicit Phase A retry path after the previous attempt is stopped and reconciled; pause/resume segments preserve attempt identity |
+| Attempt → `AttemptRecord` | Job; one active attempt, bounded historical outcomes | C; native-worker/adapter messages name `AttemptId` and `DispatchGeneration` | Redacted outcome/effect evidence wire | A retry creates a new attempt only on the explicit Phase A retry path after the previous attempt is stopped and reconciled; pause/resume segments preserve attempt identity |
 | Continuation → `ContinuationState` | Move-only suspended payload inside one waiting/paused Job | C; owner Job, suspension generation, resume point, wait set and state-reference IDs; no worker pointer | Internal; bounded inspection metadata only | Consume once into PendingResume or invalidate into cleanup; has no scheduling identity, execution lease or independent timeout |
 | Pending resume → `PendingResume` | Move-only queued Job payload, until dispatch or cancellation | C; same resume/state identities transferred from Continuation | Internal | Retains memory/accounting while capacity unavailable; activate only after new dispatch checks; no new Continuation queue |
 | Execution Plan → `ExecutionPlan`, `PlanStep`, `Binding`, `ChildEnvelope` | Compiler creates immutable object; Runs/cache hold bounded shared ownership | I; typed indices/IDs within the same plan; capability pins, no live handles | Canonical semantic export; not runnable-state import | Cache eviction releases immutable bytes only; never contains permission, credentials, KV or concrete Continuation |
@@ -88,8 +88,8 @@ non-owning IDs resolved inside the owning Run, avoiding C++ ownership cycles.
 | Reservation → `ReservationRecord` | Resource Manager, prepared admission until conversion/release | C; ReservationId, incremental vector, owner and epochs | Observation only | Convert reserved-to-allocated atomically without double counting; uncertain materialization remains charged |
 | Prepared resource ticket → `ResourceTicket` | Resource Manager plus bounded pending dispatch | C; handle to prepared grant with ledger revision/generation | Internal | Stale ticket cannot dispatch; ticket alone is no execution permission |
 | Execution lease → `ExecutionLease` | Resource Manager; linked to one admitted active segment | C; LeaseId and generation, worker carries only non-owning operation token | Observation only | Release only on matched quiescence/containment evidence; lease release does not free resident allocations |
-| Allocation → `AllocationRecord` | Resource Manager until acknowledged physical release | C ledger, W owns actual backend allocation holder; refer by AllocationId and epoch | Redacted physical-accounting projection | Shared allocation counted once; last logical reference schedules cleanup, never decrements physical bytes by itself |
-| State reference → `StateReference` | Move-only Job payload descriptor; references Resource Manager allocation/state record | C moves descriptor; backend validity identified by model/config/backend/state generations; W accesses native holder only under grant | Internal; no native pointer or serialized KV | Continuation→pending→active preserves allocation identity; loss of validity fails resume and transfers cleanup |
+| Allocation → `AllocationRecord` | Resource Manager until acknowledged physical release | C ledger, W owns actual native allocation holder; refer by AllocationId and epoch | Redacted physical-accounting projection | Shared allocation counted once; last logical reference schedules cleanup, never decrements physical bytes by itself |
+| State reference → `StateReference` | Move-only Job payload descriptor; references Resource Manager allocation/state record | C moves descriptor; native validity identified by model/processor/tokenizer/profile/compute/state generations; W accesses native holder only under grant | Internal; no native pointer or serialized KV | Continuation→pending→active preserves allocation identity; loss of validity fails resume and transfers cleanup |
 | Quarantine/cleanup → `CleanupRecord` | Resource Manager after explicit transfer; may outlive Run stream | C; CleanupId, operation/allocation/epoch, bounded evidence and reconciliation authority | Redacted debt/reconciliation projection | Remains charged until matched proof; terminal Job cannot receive new state/results; expired stream never stops ledger cleanup |
 | Event envelope/group → `EventEnvelope`, `EventGroup`, `EventGroupBuilder` | C builder before commit; bounded Run observation buffer owns immutable groups after commit | C allocates seq/group IDs; I committed group, bounded copies/shared const projection | Versioned wire | Reserve full group capacity first; commit state/group together; subscribers never mutate live state; retire complete groups |
 | Failure/error → `ErrorEnvelope`, `ErrorCode`, `Result<T>` | Owned value at request/Job/result boundary | I once emitted; bounded safe cause-code list and authorized references | Versioned wire | Expected failures are values; sanitize before events/queues; external outcome independent of local failure |
@@ -117,7 +117,7 @@ terminates the process when safe local containment is impossible.
 instance, PendingSubmissionId and operation generation, plus optional keyed-claim
 identity/generation, never fabricated Job or attempt IDs; lifecycle observations
 carry instance, Run, Job, attempt/dispatch,
-operation and applicable suspension/backend/host/allocation generations;
+operation and applicable suspension/native-worker/host/allocation generations;
 cleanup replies carry independent CleanupId/operation/allocation epochs, with
 Run provenance optional after retention expiry. A weak sink reference may
 extend only the mailbox endpoint lifetime during enqueue, never the Run.
@@ -142,7 +142,7 @@ serialization trick that restores a previous executor or live pointer graph.
 
 ## Test seams and representation gate
 
-Inject `MonotonicClock`, ID source, manually stepped control executor, backend,
+Inject `MonotonicClock`, ID source, manually stepped control executor, native worker,
 capability, host and authorization ports. An immutable inspection
 snapshot exposes ownership IDs, generations, state/payload tag, resource vector
 and event watermark; it exposes no mutators. Tests may select which queued

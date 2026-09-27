@@ -31,7 +31,7 @@ which is supported by this baseline, and separate configure/build/test presets
 
 | Proposed path / target | Responsibility | Dependency restriction |
 | --- | --- | --- |
-| `include/flamoris/runtime/` | Reviewed source-level consumer contracts and immutable values | No backend, HTTP or JSON library types in consumer signatures |
+| `include/flamoris/runtime/` | Reviewed source-level consumer contracts and immutable values | No external runtime, HTTP or JSON library types in consumer signatures |
 | `src/domain/`, `flamoris_runtime_domain` | IDs, validated effects, failure values, Job/Continuation state rules | Standard library only |
 | `src/kernel/`, `flamoris_runtime_kernel` | Controllers, scheduler, resource ledger, admission and event commits | Domain and injected abstract ports; no model implementation |
 | `src/compiler/`, `flamoris_runtime_compiler` | Bounded IR, normalization, immutable plan | Domain, private serialization/fingerprint implementation |
@@ -77,7 +77,7 @@ configuration consumes a local dependency cache and fails clearly if absent.
 Do not silently download from `main`, download model weights, probe GPUs, or
 contact services during configure/test. `find_package` may satisfy a dependency
 only when its resolved version matches the reviewed manifest policy. Optional
-backend dependencies are disabled by default and have their own lock entries.
+optional native compute dependencies are disabled by default and have their own lock entries.
 Security upgrades change the lock in a dedicated reviewed commit.
 
 ## Proposed CI support matrix

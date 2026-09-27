@@ -15,11 +15,11 @@ exception-text parsing is permitted. Operation acceptance, observation delivery,
 and final Job outcome are distinct result types; accepting a cancel command is
 not returning a cancelled Job result.
 
-Expected validation, policy, capacity, backend, adapter, timeout and cancellation
+Expected validation, policy, capacity, native worker, adapter, timeout and cancellation
 outcomes travel as typed values/observations. Every worker entry and third-party
 boundary catches exceptions and converts safe known categories; exceptions do
 not cross callbacks or the C++ source API. Unexpected exceptions become
-`internal_error`, or `backend_failure`/`upstream_failure` when known to originate
+`internal_error`, or `native_execution_failure`/`upstream_failure` when known to originate
 there, retaining dispatch/effect evidence. Never emit `what()` directly.
 
 The controller prepares all allocations/event capacity before its commit. The
@@ -35,10 +35,10 @@ supplement these runtime checks and are never the only fail-closed behavior.
 | Source condition | Stable category / code | Outcome and retry rule |
 | --- | --- | --- |
 | Invalid version, unknown field, malformed/oversized request | Input/plan: `invalid_request` or `invalid_workflow` | Reject before admission; bounded `reason` identifies version/limit |
-| Invalid reference, missing capability, changed applicable pin | Input/plan: `invalid_reference`, `unknown_capability`, `plan_stale` | No substituted binding/backend; recompilation is new admission |
+| Invalid reference, missing capability, changed applicable pin | Input/plan: `invalid_reference`, `unknown_capability`, `plan_stale` | No substituted binding/native profile; recompilation is new admission |
 | Current permission or finite budget denied | Policy: `permission_denied`, `budget_exceeded` | No handoff; no reinterpretation as resource wait |
-| Unsupported model/control, unavailable backend/capacity | Availability: `unsupported_model`, `capability_unavailable`, `backend_unavailable`, `resource_unavailable` | Only explicit bounded wait/retry policy; unsupported control rejects the command without altering Job state |
-| Native execution, provider, or retained-state failure | Execution: `backend_failure`, `upstream_failure`, `state_unavailable` | Stop affected work; preserve state/cleanup ownership and known effects |
+| Unsupported model/control, unavailable native compute/capacity | Availability: `unsupported_model`, `capability_unavailable`, `native_compute_unavailable`, `resource_unavailable` | Only explicit bounded wait/retry policy; unsupported control rejects the command without altering Job state |
+| Native execution, provider, or retained-state failure | Execution: `native_execution_failure`, `upstream_failure`, `state_unavailable` | Stop affected work; preserve state/cleanup ownership and known effects |
 | Bad result/schema/encoding or output overflow | Contract: `invalid_result`, `result_too_large` | Reject before binding/injection; paid/write evidence remains |
 | Job or Run elapsed deadline | Deadline: `job_timeout`, `run_timeout` | Failed intent and bounded cleanup; may also carry unknown external outcome |
 | Response lost after possible provider handoff | Uncertainty: `outcome_unknown` | Reconciliation required; no blind redispatch or zero-cost assumption |
@@ -216,7 +216,7 @@ The workflow branch forbids `inference`. There are no ignored members.
 Authenticated caller context is supplied outside this object. Direct inference
 `with` contains bounded concrete literal input values, validated against the
 registered inference contract. The compiler normalizes it into a single-root inference
-plan, with the same pinned model/backend/schema/effects/resources and an empty
+plan, with the same pinned model/processor/tokenizer/execution-profile/compute/schema/effects/resources and an empty
 child envelope by default. It never invents a wrapper that changes Job identity
 or bypasses compilation/admission. It lifts those concrete fields into immutable
 Run input bindings and typed plan input slots; service handles never become

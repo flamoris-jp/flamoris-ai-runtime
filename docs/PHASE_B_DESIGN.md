@@ -45,7 +45,8 @@ or plugin ABI in this proposal.
   choice, not a permanent one-Runtime-construction-per-process rule.
 - Deterministic fake first, then native CPU incremental execution, then OpenCL
   and CPU/OpenCL parity. Causal text is the initial execution profile, not the
-  universal state definition. Existing private `flamoris-LLM` informs concepts
+  universal state definition. `ProcessorDefinition` and `TokenizerDefinition`
+  pin independent compatibility identities and Unicode decode semantics. Existing private `flamoris-LLM` informs concepts
   and test methodology; source migration needs publication/provenance clearance.
 - Third-party runtimes/providers are comparative research or registered Workflow
   external capabilities. There is no interchangeable inference backend adapter.
@@ -59,17 +60,17 @@ or plugin ABI in this proposal.
 
 ## Evidence and qualification boundaries
 
-Primary source revisions and observation date are recorded in the backend ADR;
-API existence is distinguished from adapter feasibility and measured guarantees.
+Primary source revisions and observation date are recorded in the comparative runtime ADR;
+API existence is distinguished from native design evidence and measured guarantees.
 Current private source was inspected through authenticated GitHub access;
 public conclusions intentionally contain only generalized reuse decisions.
 Historical workstation notes do not establish present host health, capacity,
-backend conformance or service API behavior. This task makes no live-host claim.
+native compute conformance or service API behavior. This task makes no live-host claim.
 
 | Remaining qualification | Gate before enabling the relevant capability | Does not block |
 | --- | --- | --- |
-| FLAMORIS native CPU state/stop behavior on a pinned model | Native CPU slice proves profile-specific complete state, allocation bounds, pause/cancel and cleanup; unsupported controls stay disabled | Offline domain, scheduler, compiler and fake-backend implementation |
-| GPU or cross-process host arbitration | Verify enforceable host envelope/fencing and backend-specific memory/stop behavior; a free-memory sample or local lock is insufficient | CPU fake/reference semantics and non-device work |
+| FLAMORIS native CPU state/stop behavior on a pinned model | Native CPU slice proves profile-specific complete state, allocation bounds, pause/cancel and cleanup; unsupported controls stay disabled | Offline domain, scheduler, compiler and scripted native-worker implementation |
+| GPU or cross-process host arbitration | Verify enforceable host envelope/fencing and native-compute-specific memory/stop behavior; a free-memory sample or local lock is insufficient | CPU fake/reference semantics and non-device work |
 | Optional strict-cost paid-provider integration | Durable authority conformance, complete inventory and provider-enforced maximum liability; no concrete service/DB selected | Baseline native and ordinary registered capability work |
 | On-demand process activation | Host gateway start/dedup/drain/reconcile conformance, including admission race | Always-on Runtime design and model-loading tests |
 | Private source reuse | Explicit source-publication rights and licensing/provenance review | Independently written interfaces and native implementation |

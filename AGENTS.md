@@ -18,7 +18,7 @@ Planned ownership:
 - runtime workflow IR and validation;
 - job lifecycle, dependencies, scheduling, cancellation, and results;
 - logical parallelism and resource-aware execution;
-- interrupt, pause, resume, and later backend-specific rewind capabilities;
+- interrupt, pause, resume, and later native profile-specific rewind capabilities;
 - structured execution events and bounded real-time traces;
 - capability discovery and execution adapters;
 - per-run limits and provenance.
@@ -45,7 +45,7 @@ Do not reduce the model to an opaque remote `generate()` call when the feature b
 - state-preserving pause/resume;
 - child-job dispatch;
 - bounded result injection;
-- backend state inspection.
+- native state inspection.
 
 An external provider may exist only as a registered Workflow capability, but it must advertise its limitations honestly.
 
@@ -84,7 +84,7 @@ The scheduler may serialize jobs when constrained by:
 - remote rate limits;
 - side-effect policy.
 
-Distinguish an active **execution lease** from a suspended Job's **retained state footprint**. Releasing a GPU/device lease does not mean KV cache or backend state has left VRAM/RAM. Resource accounting must include retained resident state until it is offloaded, snapshotted, or evicted.
+Distinguish an active **execution lease** from a suspended Job's **retained state footprint**. Releasing a GPU/device lease does not mean KV cache or native state has left VRAM/RAM. Resource accounting must include retained resident state until it is offloaded, snapshotted, or evicted.
 
 Conceptual control operations include:
 
@@ -125,7 +125,7 @@ Support bounded trace levels conceptually:
 1. lifecycle/state/timing;
 2. token and sampling information;
 3. model-exposed reasoning channel where intentionally supported;
-4. deep backend debug probes.
+4. deep native execution debug probes.
 
 Never log secrets, credentials, unbounded tensors, unrestricted provider responses, or unlimited model/media output.
 
@@ -190,17 +190,17 @@ Evaluate reuse of its:
 - model runtime boundary;
 - generation loop;
 - cache handling;
-- tokenizer/model contracts;
+- registered processor/tokenizer/model identities, Unicode semantics and compatibility;
 - compute abstraction;
 - CPU reference path;
-- OpenCL backend work;
+- native OpenCL compute work;
 - tests.
 
 Reuse should be deliberate. Do not copy model-specific internals into unrelated workflow/scheduler layers.
 
 ## Required runtime research before implementation
 
-Before freezing the first inference/backend contracts, compare representative runtimes/stacks including:
+Before freezing the first native inference contracts, compare representative runtimes/stacks including:
 
 - `llama.cpp`;
 - Hugging Face Transformers;
@@ -227,7 +227,7 @@ Record the conclusions in repository documentation or a design decision before i
 Follow [Design Phases](docs/DESIGN_PHASES.md) and its document authority map.
 
 The [Phase B design index](docs/PHASE_B_DESIGN.md) links the proposed toolchain,
-ownership, concurrency, backend, serialization, resource/paid/activation contracts
+ownership, concurrency, native execution, serialization, resource/paid/activation contracts
 and acceptance map (A41–A42 optional strict-cost cases). Read the reviewed versions before Phase C work. They refine
 implementation choices and never override Phase A semantics or claim working code.
 

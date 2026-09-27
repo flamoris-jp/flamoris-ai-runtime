@@ -18,7 +18,7 @@ event clock. Per-Run parallel strands are a later measured optimization.
 | Execution domain | Owns mutable state | Permitted interaction |
 | --- | --- | --- |
 | Control executor | Lifecycle, dependency/budget decisions, ledger, observation commits | Bounded in-memory work only; never block on I/O, inference, subscriber, or worker join |
-| Backend worker | Its contexts, model handles, sampler/RNG, native allocation operations | One in-flight segment per context; immutable commands in, bounded observations out |
+| Native model worker | Its contexts, model handles, sampler/RNG, native allocation operations | One in-flight segment per context; immutable commands in, bounded observations out |
 | Adapter workers | One bounded invocation and transport buffers per attempt | No direct access to Run/Job/controller; separate dispatch and outcome evidence |
 | Validation workers | Bounded IR parsing/compilation over immutable snapshots | Return a candidate plan or typed rejection; recheck pins and policy at admission |
 | Transport/observer workers | Authentication, bounded serialization and client buffers | Submit commands; receive authorized immutable views; never execute an event |
@@ -30,7 +30,7 @@ use the same simple pattern; no callbacks execute while a queue mutex is held.
 that native inference has stopped. No coroutine framework, lock-free queue, or
 mutable domain singleton is required. The optional strict-cost profile may add its own one-shot delivery gate.
 The [ownership map](CPP_OWNERSHIP.md) specifies
-destruction responsibility; [backend contracts](BACKEND_CONTRACT.md) specify
+destruction responsibility; [native execution contract](BACKEND_CONTRACT.md) specify
 actual quiescence.
 
 ## Prepare, commit, deliver
@@ -53,7 +53,7 @@ Every control turn has three parts:
 
 The first implementation uses preallocated bounded record slots and move/swap
 operations in the commit section; it does not introduce a general allocator
-architecture. No user/backend/plugin code, serialization, unbounded container
+architecture. No user/native-worker/plugin code, serialization, unbounded container
 growth, or exception-producing native calls run inside commitment. Exhaustion
 before admission rejects the request. An invariant failure inside commit closes
 new admission and follows the fail-closed process containment policy; it cannot
@@ -84,9 +84,9 @@ No controller waits holding a mutex across an external operation. See
 | Terminal | Subtree terminal plus acknowledged release or valid containment transfer and reserved post-terminal records | Remain finalizing if obligations cannot be proven |
 | Reconciliation | Ledger update first; authorized Run observation group references its revision if still retained | Old stream is never reopened; old allocation cannot free replacement |
 
-Backend completion batches are ordered by the fixed participant order when they
+Native-worker completion batches are ordered by the fixed participant order when they
 are deliberately submitted as one race batch. Separately dequeued messages use
-the Run commit order; backend wall timestamps cannot override that order.
+the Run commit order; native-worker wall timestamps cannot override that order.
 
 ## Submission claims and bounded duplicates
 
@@ -135,7 +135,7 @@ after it or restart, absence cannot mean no previous operation occurred.
 
 Scheduler readiness is advisory. The dispatch turn checks Run/Job state, open
 pause/child gates, monotonic deadline, retry eligibility, current policy revision
-and concrete scopes, capability pins, preserved state, host/backend generation,
+and concrete scopes, capability pins, preserved state, host/native-worker generation,
 complete resource vector and event/result/child/attempt budgets. A grant cannot outlive its recorded freshness/deadline.
 Pure work is also authorized. PendingResume transfers to the active machine
 only on successful dispatch; temporary capacity failure leaves it accounted.
@@ -305,7 +305,7 @@ generation, plus keyed-claim identity/generation when applicable, without a
 fabricated Job/Attempt. Lifecycle tickets require
 Run/Job/attempt/operation identity and relevant segment/suspension generations.
 Cleanup tickets identify the independently retained cleanup/allocation/paid
-operation and applicable backend/host epochs; expired Run references are optional
+operation and applicable native-worker/host epochs; expired Run references are optional
 provenance. A callback captures a weak endpoint plus its immutable
 ticket, never a raw Run/controller pointer. Endpoint locking grants access only
 to a bounded delivery slot; the callback cannot dereference lifecycle records.

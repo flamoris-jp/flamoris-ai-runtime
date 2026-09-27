@@ -12,7 +12,7 @@ tool names or an assertion about a deployed GPU Node Manager API.
 | Boundary | Authority and selected baseline | Request permission / result |
 | --- | --- | --- |
 | Process activation | Host/service authority starts the configured Runtime process; always-on is the first deployment mode | Separate activation permission; process readiness says nothing about admitted Runs/models |
-| Backend/model loading | Existing admitted Job's `initializing` segment under Resource Manager admission and backend worker ownership | Current model/capability/resource scope; success makes a compatible resident model available |
+| Native model loading | Existing admitted Job's `initializing` segment under Resource Manager admission and native worker ownership | Current model/capability/resource scope; success makes a compatible resident model available |
 | Run admission | Kernel admission authority compiles/validates and atomically claims submission identity | Current submit permission, finite limits and registry/resource availability checks; one Run |
 | Job dispatch | Kernel control executor/Scheduler plus Resource Manager | Current per-attempt eligibility, full resource vector and generation checks; one execution lease |
 
@@ -99,7 +99,7 @@ not an unknown handoff.
 
 The existing Job becomes `running` only after normal dispatch checks and complete resource
 admission. Its machine may then report `initializing` while its worker loads weights and
-creates bounded backend state. No hidden loader thread acquires capacity outside the
+creates bounded native state. No hidden loader thread acquires capacity outside the
 Job's lease. The complete incremental vector includes cold weights, transient loading
 buffers and context/state capacity. If this is the first native use, admission also
 reserves a separate bounded process-owned global initialization allowance; its
@@ -109,8 +109,8 @@ remains charged until proven release or process containment. Model/context
 materialization remains Job/residency-owned as below. Workload deadlines continue
 through load.
 
-A Resource Manager `ModelResidencyRecord` maps a content revision, backend/configuration
-fingerprint, logical device and backend/host incarnation to:
+A Resource Manager `ModelResidencyRecord` maps a content revision, model/processor/tokenizer/profile/compute configuration
+fingerprint, logical device and native-worker/host incarnation to:
 
 | Residency state | Owner / meaning |
 | --- | --- |
@@ -134,11 +134,11 @@ publish a resident model; later cancellation disposes the cancelled Job's state/
 while cache retention follows the explicitly bounded residency policy. It cannot erase
 the Job's accepted cancellation or perform new inference for that Job.
 
-The shared cache does not outlive physical ownership evidence. Host/backend epoch loss
+The shared cache does not outlive physical ownership evidence. Host/native-worker epoch loss
 invalidates current compatibility, fences new consumers and initiates reconciliation.
-No loader can pause unless the selected backend advertises a safe preservation point;
+No loader can pause unless the selected native execution profile advertises a safe preservation point;
 Run pause containing a non-pausable load is rejected per A17. No invented Continuation
-stands in for an incomplete backend allocation.
+stands in for an incomplete native allocation.
 
 Eager/pre-Run model warmup, detached background prefetch, loading shared across processes,
 and transferring a running loader between Jobs are excluded. A future explicit warmup
@@ -177,9 +177,9 @@ events before admission. Model loading after admission uses ordinary Job-stage/r
 observations in that Run's ordered stream. Shared residency status exposes logical
 availability, never the user's prompt, private path or raw handle.
 
-Process unavailable/start failure maps to `backend_unavailable` or configured transport
+Process unavailable/start failure maps to `native_compute_unavailable` or configured transport
 availability response with bounded startup reason. Model load failure maps to
-`backend_failure`/`resource_unavailable`; an actual Job deadline uses `job_timeout`.
+`native_execution_failure`/`resource_unavailable`; an actual Job deadline uses `job_timeout`.
 Unsupported pause remains a rejected control request. Status must separate process
 ready, model resident, resource admission possible, paid scope ready and actual Job
 dispatch; none implies all the others. Access to activation controls, Run submit,
@@ -189,7 +189,7 @@ models, status, trace and host diagnostics is checked separately and revalidated
 
 These Phase B test obligations complement A01–A42 without changing their semantics.
 Use a fake monotonic clock, manually stepped host gateway, process handshake, resource
-ledger/backend and policy; no system service, GPU, model weight, network or billing is
+ledger/native worker and policy; no system service, GPU, model weight, network or billing is
 required. A fake process boundary changes instance identity and loses Runtime state.
 
 | ID | Competing actions / injected failure | Required observation and accounting |

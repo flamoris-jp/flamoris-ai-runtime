@@ -6,10 +6,10 @@ This is a **test design**, not executable tests or a report of passing tests.
 Every A01–A42 ID in [Phase A acceptance](../DESIGN_ACCEPTANCE.md) is
 mapped below; A41–A42 are optional strict-cost cases. Phase A owns semantics; this document chooses observable test
 boundaries and controllable doubles for Phase C. A mock satisfying a contract
-does not establish that a real backend or host integration supports it.
+does not establish that a native worker or host integration supports it.
 
 All baseline A cases except optional A41–A42 require **offline deterministic contract tests**: GPU, network, provider account and weights are not required. This
-integration flag applies individually to every case below. Real-backend and
+integration flag applies individually to every case below. Native-model and
 host/provider qualification is a separate gate in [Phase C plan](PHASE_C_PLAN.md).
 
 **Scope correction:** single-user FLAMORIS native model/runtime. A41–A42 and B-PAID02 are optional strict-cost profile tests, not baseline gates. A05/A24 test finite local Run limits, A35 checks current local owner/scope. CPU reference and OpenCL are internal compute; third-party runtimes never serve as interchangeable inference backends.
@@ -36,7 +36,7 @@ call count; omission never falls back to a live service.
 
 X and O are active in all lifecycle cases. C is active even without an explicit
 time race, so no test depends on real wall time. Compiler/effect-only cases assert
-that no Run, Job, backend work or resource authority was created. Each fixture uses
+that no Run, Job, native work or resource authority was created. Each fixture uses
 small finite bounds and tests the relevant boundary at limit minus one, limit and
 limit plus one; values below are test data, not deployment defaults.
 
@@ -62,7 +62,7 @@ getter. Important shared assertions:
   within the envelope. Moving a reference or releasing an execution lease changes
   no resident-byte total. Optional strict-cost tests separately verify D liability.
 - Pre-Run rejection is a bounded request error, not fabricated Run events. Every
-  denied handoff has zero adapter/backend execution calls. Each scenario checks
+  denied handoff has zero adapter/native-worker execution calls. Each scenario checks
   bounded/sanitized errors, event payloads and nested causes.
 
 X mirrors the selected [single control executor](CONCURRENCY.md). Inject at
@@ -102,7 +102,7 @@ stores, and construct a different Runtime instance identity.
 - **State / events:** deterministic input/plan error before admission, with logical
   field/node correlation; no partially executable plan, Job or lifecycle event.
 - **Resources:** bounded parser/compiler allocation fails at the limit; zero
-  backend, adapter, host, resource and paid-authority calls.
+  native worker, adapter, host, resource and paid-authority calls.
 
 ### A03 — stale contract pins
 
@@ -113,7 +113,7 @@ stores, and construct a different Runtime instance identity.
   and before resumed dispatch. An unrelated registry entry is the negative control.
 - **State / events:** changed pins yield `plan_stale`; before admission no Run,
   after admission normal failed cleanup. A suspended Job cannot reach running or
-  call backend resume. Unrelated changes do not invalidate the plan; no migration
+  call native resume. Unrelated changes do not invalidate the plan; no migration
   or silent new pin appears in either history.
 - **Resources:** return unmaterialized grants; preserved allocations remain charged
   until release acknowledgement/cleanup transfer. No new paid handoff.
@@ -177,13 +177,13 @@ stores, and construct a different Runtime instance identity.
   B, A, R, H, P, O.
 - **Injection:** acknowledged safe yield, successful child, then occupy the sole
   execution slot until after the parent becomes ready. Include a sampled/emitted
-  token not yet evaluated by the backend and partial UTF-8/stop-matcher carry.
+  token not yet evaluated by the native worker and partial UTF-8/stop-matcher carry.
 - **State / events:** same parent ID follows running → waiting → queued → running.
   Safe-point evidence precedes `{continuation.created; waiting}` and lease release;
   child terminal precedes `{continuation.consumed; queued}`. Exactly one pending
   resume payload survives the queue wait and is consumed only after a new grant.
 - **Resources:** no lease in waiting/queued state; the same state allocation stays
-  charged once. No second backend initialization, token sampling/ingestion or
+  charged once. No second native initialization, token sampling/ingestion or
   sampler/RNG/decoder reset occurs; pending token is evaluated exactly once.
 
 ### A09 — duplicate and late wakeups
@@ -222,7 +222,7 @@ stores, and construct a different Runtime instance identity.
   each; release one Run, then request eviction while the other reference is live.
   Try a third Run whose individual working-set quota is less than 8.
 - **State / events:** first release cannot report model eviction; only last
-  dependency release plus backend acknowledgement permits model release. The
+  dependency release plus native-worker acknowledgement permits model release. The
   under-quota Run is rejected even though the physical model is shared.
 - **Resources:** physical total 10 initially, then 8 after first private-state
   release, not 16 or 2. Each admitted Run's working-set check includes 6+2.
@@ -243,11 +243,11 @@ stores, and construct a different Runtime instance identity.
 
 ### A13 — old epoch release callback
 
-- **Boundary / active doubles:** host/backend fencing and reconciliation ledger;
+- **Boundary / active doubles:** host/native-worker fencing and reconciliation ledger;
   B, R, H, P, O.
-- **Injection:** allocate under epoch 1, change host/backend epoch, create a distinct
+- **Injection:** allocate under epoch 1, change host/native-worker epoch, create a distinct
   epoch-2 record only after a new valid envelope, then deliver epoch-1 release with
-  a reused opaque backend handle. Include an unknown current envelope branch.
+  a reused opaque native handle. Include an unknown current envelope branch.
 - **State / events:** epoch mismatch cannot mutate epoch-2 state. Old cleanup may
   reconcile only its own identity. Affected dispatch is fenced while authority is
   unknown/unreconciled; unrelated verified resources continue independently.
@@ -330,11 +330,11 @@ stores, and construct a different Runtime instance identity.
 
 - **Boundary / active doubles:** PendingResume validation and cleanup;
   B, R, H, P, O.
-- **Injection:** paused or queued-resume parent has incompatible/lost backend
+- **Injection:** paused or queued-resume parent has incompatible/lost native
   state, changed epoch, or revoked/expired permission. Test each independently.
 - **State / events:** `state_unavailable` or `permission_denied` as applicable,
   cancelling → finalizing → failed; discard resumability and preserve cause.
-  No backend initialization, fresh prefill, equivalent-resume claim or result
+  No native initialization, fresh prefill, equivalent-resume claim or result
   injection; no `queued → running` for the rejected resume.
 - **Resources:** retained references transfer to accounted cleanup until release
   or proven containment; zero replacement execution lease.
@@ -464,7 +464,7 @@ is accepted subject to ordinary checks. Digest equality alone never deduplicates
 
 ### A28 — inability to stop or contain
 
-- **Boundary / active doubles:** Job finalizer, backend lifetime and host containment;
+- **Boundary / active doubles:** Job finalizer, native-holder lifetime and host containment;
   B, A, R, H, P, O.
 - **Injection:** native worker keeps writing after stop request and cleanup deadline;
   separately, isolated worker supplies valid containment evidence. A callback-fence
@@ -516,7 +516,7 @@ is accepted subject to ordinary checks. Digest equality alone never deduplicates
   watermark; partial group excluded from authoritative projection and marked
   incomplete. Complete retained suffix applies once, in order. No fabricated
   uninterrupted history or inferred external outcome.
-- **Resources:** bounded observation buffers only; zero live Job, backend, adapter,
+- **Resources:** bounded observation buffers only; zero live Job, native worker, adapter,
   Scheduler, allocation/cleanup and D operations. No durable journal is required
   to test handling of an incomplete inspection input.
 
@@ -531,7 +531,7 @@ is accepted subject to ordinary checks. Digest equality alone never deduplicates
   IDs/order; explicit incomplete status for unavailable content. Live Run/snapshot,
   registry/policy and event sequence remain identical; replay cannot publish into
   live control ingress or masquerade as resumed execution.
-- **Resources:** backend, adapter, Scheduler, resource acquisition, release/cleanup
+- **Resources:** native worker, adapter, Scheduler, resource acquisition, release/cleanup
   and paid-authority mutation counts all stay exactly zero. This test is a baseline
   requirement, not postponed until durable journal/recovery work.
 
@@ -626,7 +626,7 @@ is accepted subject to ordinary checks. Digest equality alone never deduplicates
   workflow under identical snapshot/limits; then stale pin and permission changes.
   Test empty versus permitted bounded child envelope and unbounded direct input.
 - **State / events:** both produce an immutable normalized plan with the same
-  semantic fingerprint when canonical semantic fields match, model/backend/schema/
+  semantic fingerprint when canonical semantic fields match, model/processor/tokenizer/profile/compute/schema/
   effect pins and finite limits. Both create root through the same guards; neither
   path dispatches after stale pin/current denial. Unbounded direct request rejects.
 - **Resources:** equivalent semantic requirements produce equivalent accounting;
@@ -702,6 +702,7 @@ baseline acceptance or a Phase C prerequisite.
 Activation/startup cases B-ACT01–B-ACT12 are defined by the
 [activation contract](ACTIVATION_CONTRACT.md) and
 must be implemented with the same C/X/R/H/P/D fixture, not a live service manager.
-Selected real-backend conformance cases are listed separately in the Phase C plan;
-an unsupported backend feature is tested as explicit rejection rather than skipped
+Selected native-model conformance cases, including B-REAL07 Unicode/tokenizer
+qualification, are listed separately in the Phase C plan; an unsupported native
+execution feature is tested as explicit rejection rather than skipped
 architecture semantics.

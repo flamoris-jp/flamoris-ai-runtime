@@ -19,7 +19,9 @@ but it never becomes the owner of native state.
 
 | Value or operation | Owner and contract |
 | --- | --- |
-| `ModelDefinition` | Immutable registered artifact, processor/tokenizer, architecture, revision and compatibility identity; no arbitrary path/download from a plan |
+| `ModelDefinition` | Immutable registered weights/artifact, architecture, revision and compatible processor/tokenizer identity; no arbitrary path/download from a plan |
+| `ProcessorDefinition` | Immutable registered input preprocessing and output decoding semantics, model binding, revision and compatibility fingerprint; references a `TokenizerDefinition` when text tokenization is required |
+| `TokenizerDefinition` | Immutable registered vocabulary/merge or token mapping and model binding, normalization and pre-tokenization rules, special token IDs and policy, BOS/EOS behavior, template revision, encode/decode semantics and compatibility fingerprint |
 | `ExecutionProfile` | Supported model family, controls, numeric precision, limits and compute requirements; initial causal-text profile is narrow and explicit |
 | `ComputeImplementation` | CPU reference or OpenCL native operations and allocation receipts; no independent inference loop or Job authority |
 | `NativeModelWorker` | Exclusive mutable model/session access, bounded command queue, callback fencing and actual quiescence/release evidence |
@@ -35,20 +37,20 @@ be destroyed while a user remains.
 
 ## Segment protocol
 
-1. Admission pins model/profile/processor and validates finite context, output,
+1. Admission pins model/profile/processor/tokenizer identities and validates finite context, output,
    steps, resources and current policy. The Resource Manager reserves a complete
    conservative vector before a native allocation or useful segment.
 2. An admitted Job triggers model load. Native weights/context/state allocations
    are recorded uniquely; shared residency has a separate ledger owner and is
    never released merely because the initiating Job ends.
-3. Tokenize/process, prefill and decode operate in bounded segments under a
+3. Registered processing/tokenization, prefill and decode operate in bounded segments under a
    current dispatch permit. A worker returns an owned receipt; it does not
    autonomously continue generation or publish token events from a callback.
 4. The controller accepts a consistent state version and observation together,
    then applies cancel/pause/yield/child dispatch before the next segment.
    Stop request, quiescence and physical release are distinct receipts.
 5. Preserve state only at a proven safe point. Resume validates exact
-   model/config/profile/state and resource generations with a fresh permit.
+   model/config/profile/processor/tokenizer/state and resource generations with a fresh permit.
    Re-inference from a prompt after state loss is new work, never equivalent
    resume. Cleanup retains uncertain allocations until actual evidence.
 
@@ -72,10 +74,30 @@ Unsupported pause, offload, snapshot, rewind or batching is reported as
 unsupported. No real capability is inferred from a fake test.
 
 Model and state compatibility uses FLAMORIS-owned revisioned identities, not
-third-party backend versions. A changed model, tokenizer/processor, profile,
-numeric representation or incompatible compute state invalidates resume unless
-an explicit migration is implemented and qualified. No portable live-state
-serialization is promised in Phase C.
+third-party backend versions. A changed model, processor/tokenizer fingerprint,
+profile, numeric representation or incompatible compute state invalidates both
+plan pins and resume unless an explicit migration is implemented and qualified.
+CPU and OpenCL consume token IDs produced by the same pinned tokenizer; compute
+choice never changes tokenization semantics. No portable live-state serialization
+is promised in Phase C.
+
+The first causal-text qualification includes known token vectors and
+encode/decode round trips against the registered normalization policy; exact
+byte round trips are required only where normalization is disabled. Validate strict UTF-8
+input and output, including Japanese, multi-byte emoji, ZWJ sequences, variation
+selectors, skin-tone modifiers, regional-indicator flags, and combining marks.
+Normalization is applied only when the registered tokenizer explicitly requires
+it; decomposed and precomposed forms must follow that pinned rule. A token may
+end inside a UTF-8 sequence: the profile-owned incremental decoder retains
+incomplete bytes and emits only valid completed scalars, never a replacement
+character as a shortcut. A visible emoji sequence may span multiple tokens or
+Unicode scalars; no one-emoji/one-token or one-grapheme/one-token promise exists.
+Reject malformed UTF-8, unpaired surrogate input at conversion boundaries,
+invalid special-token collisions and incompatible tokenizer revisions before
+execution/resume. Special-token handling must not reinterpret ordinary Unicode
+as control tokens. Preserve decoder carry across pause/resume and test split
+sequences and final incomplete bytes explicitly. These are conformance
+requirements for an implemented native tokenizer, not claims of current support.
 
 The existing private `flamoris-LLM` is a conceptual and testing foundation:
 tokenizer/model separation, incremental cached execution, CPU reference,
