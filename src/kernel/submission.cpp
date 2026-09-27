@@ -25,7 +25,8 @@ Result<SubmissionTicket> SubmissionIndex::claim(std::string subject, std::string
             if (!canonical_json(check))
                 return Result<SubmissionTicket>::failure(rejected());
         }
-        if (key) expire(now);
+        if (key)
+            expire(now);
         if (receipts_.size() >= bounds_.max_receipts ||
             next_receipt_ == std::numeric_limits<std::uint64_t>::max())
             return Result<SubmissionTicket>::failure(rejected(ErrorCode::resource_unavailable));
