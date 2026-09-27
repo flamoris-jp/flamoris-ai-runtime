@@ -2,15 +2,22 @@
 
 **Inference and workflow, controlled in one runtime.**
 
-FLAMORIS AI Runtime is a planned **single-user native model runtime**.
+FLAMORIS AI Runtime is a **single-user native model runtime** implemented in C++20.
 
-It owns model execution, cache/state and inference control alongside jobs, workflows, interrupts and real-time observability. Native CPU reference and OpenCL compute are the planned initial paths. Third-party runtimes, when used, are registered Workflow capabilities. Strict cross-crash monetary limits are an optional future integration.
+It owns model execution, cache/state and inference control alongside jobs, workflows, interrupts and real-time observability. Native CPU reference and OpenCL compute are internal implementations. Third-party runtimes, when used, are registered Workflow capabilities. Strict cross-crash monetary limits are an optional future integration.
 
 The core idea is:
 
 > **Inference and workflow execution share one controllable runtime loop.**
 
-> **Status: design only. No production runtime is implemented yet.**
+> **Status: Phase C implementation and integration review.** See the
+> [implementation evidence](docs/phase-c/STATUS.md), [build instructions](docs/BUILD.md),
+> and [qualified native profile](fixtures/native/QUALIFICATION.md).
+
+The native qualification fixture is a small, self-authored causal model used to
+verify arithmetic and state control. It is not a pretrained language model or a
+claim of general model-family support. The OpenCL qualification used a real POCL
+CPU device; physical GPU and deployed host integration are separate gates.
 
 Part of the [FLAMORIS AI ecosystem](https://github.com/flamoris-jp/flamoris-ai/blob/main/docs/ai-ecosystem.md).
 

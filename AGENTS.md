@@ -2,7 +2,7 @@
 
 This repository is part of the FLAMORIS ecosystem.
 
-FLAMORIS AI Runtime is currently a **design-stage single-user FLAMORIS native model runtime**. External runtimes and providers participate only as registered Workflow capabilities; CPU and OpenCL are internal FLAMORIS compute implementations. It is intended to control model inference, workflow execution, jobs, interrupts, and observability in one runtime kernel.
+FLAMORIS AI Runtime is a **single-user FLAMORIS native model runtime under Phase C implementation and integration review**. External runtimes and providers participate only as registered Workflow capabilities; CPU and OpenCL are internal FLAMORIS compute implementations. It controls model inference, workflow execution, jobs, interrupts, and observability through one runtime authority. See [Phase C evidence](docs/phase-c/STATUS.md) for implemented and qualified scope; historical design documents are not execution evidence.
 
 Do not implement behavior from chat context alone. Read current repository documentation first and keep planned behavior clearly separated from implemented behavior.
 
@@ -10,7 +10,7 @@ Do not implement behavior from chat context alone. Read current repository docum
 
 ### This repository owns
 
-Planned ownership:
+Runtime ownership (implementation and qualification boundaries are recorded separately):
 
 - FLAMORIS-owned native model execution and inference lifecycle;
 - native model and internal CPU/OpenCL compute contracts;
