@@ -61,3 +61,21 @@ only the envelope's exact pins and intersects finite child/attempt/output/depth
 bounds; it rejects a submission idempotency key. The owning Run charges a proposal
 before parsing, including failed proposals, and commits child/resource reservations
 separately. This helper never creates a new Run or a fresh cumulative allowance.
+
+Runtime resource bindings also contribute a canonical `resource_contract_digest`
+to each capability pin. The Runtime computes it from configured full resource
+requirements, Run ceilings and native retention/bounds; raw topology stays outside
+the plan. Changing that digest stales an old plan. Standalone compiler fixtures
+may omit the Runtime binding; an actual Runtime registration supplies it.
+
+Reference compilation proves the declared schema and path are compatible. An
+optional property or an in-bounds array schema index can still be absent in the
+concrete result; binding then returns `invalid_reference` before dependent
+handoff, without an implicit default or a previously bound value.
+
+Typed result handles are validated against current owner, object scope, expiry
+and independent handle access before binding. Matching union branches all retain
+their handle restrictions. Retained result access revalidates typed handles with
+the current available registered validator and its pinned revision; plain
+historical values remain readable under current result-access authorization even
+when execution availability or registry revisions have changed.

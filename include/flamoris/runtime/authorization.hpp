@@ -58,6 +58,15 @@ class AuthorizationGate {
     Result<AuthorizationDecision> check(const AuthorizationContext &, const PolicySnapshot &,
                                         const ExecutionPlan &, const CapabilitySnapshot &,
                                         const AuthorizationRequest &) const;
+    Result<void> validate_result_handles(const AuthorizationContext &, const PolicySnapshot &,
+                                         const ExecutionPlan &, const CapabilitySnapshot &,
+                                         std::string_view capability, const JsonValue &,
+                                         std::uint64_t now_ms) const;
+    // Plain historical values do not depend on current execution availability. Typed handles do.
+    Result<void> check_retained_result_handles(const AuthorizationContext &, const PolicySnapshot &,
+                                               const CapabilityPin &producer, const ValueSchema &,
+                                               const CapabilitySnapshot &, const JsonValue &,
+                                               std::uint64_t now_ms) const;
     Result<void> check_access(const AuthorizationContext &, const PolicySnapshot &,
                               std::string_view owner, AccessSurface, std::uint64_t now_ms,
                               std::optional<std::string_view> object_scope = {},

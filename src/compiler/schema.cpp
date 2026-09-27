@@ -170,7 +170,8 @@ Result<void> validate_value(const JsonValue &v, const ValueSchema &s) {
             ErrorEnvelope::make(ErrorCode::invalid_result, ErrorStage::result_validation));
     auto canonical = canonical_json(v);
     if (!canonical)
-        return Result<void>::failure(canonical.error());
+        return Result<void>::failure(
+            ErrorEnvelope::make(ErrorCode::invalid_result, ErrorStage::result_validation));
     return Result<void>::success();
 }
 bool schema_assignable(const ValueSchema &a, const ValueSchema &b) {

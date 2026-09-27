@@ -183,6 +183,8 @@ std::vector<std::uint16_t> utf16(std::string_view text) {
     return out;
 }
 void quote(std::string &out, std::string_view s) {
+    if (s.size() > 262144)
+        throw Invalid{};
     (void)utf16(s);
     out += '"';
     constexpr char hex[] = "0123456789abcdef";
@@ -331,7 +333,7 @@ Result<JsonValue> parse_bounded_json_value(std::string_view text, JsonBounds bou
         if (text.size() > bounds.max_bytes || text.size() > 1048576 ||
             text.starts_with("\xef\xbb\xbf") || bounds.max_depth > 32 ||
             bounds.max_string_bytes > 262144 || bounds.max_scalar_bytes > 1048576 ||
-            bounds.max_key_bytes > 256)
+            bounds.max_key_bytes > 256 || bounds.max_values > 65536)
             throw Invalid{};
         BoundedSax sax(bounds);
         if (!Json::sax_parse(text.begin(), text.end(), &sax, Json::input_format_t::json, true,
@@ -355,6 +357,8 @@ Result<std::string> canonical_json(const JsonValue &value) {
     try {
         std::string out;
         emit(out, value, 0);
+        if (out.size() > 10485760)
+            throw Invalid{};
         return Result<std::string>::success(std::move(out));
     } catch (...) {
         return Result<std::string>::failure(ErrorEnvelope::make(ErrorCode::invalid_request));

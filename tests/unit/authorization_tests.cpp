@@ -126,7 +126,11 @@ TEST_CASE("A25 B-RETRY01 unknown writes cannot blindly retry and prior attempts 
     REQUIRE_FALSE(authorize_retry(c, e, 1, 10));
     e.previous_stopped = true;
     e.outcome = AttemptOutcome::unknown;
-    REQUIRE_FALSE(authorize_retry(c, e, 1, 10));
+    auto uncertain = authorize_retry(c, e, 1, 10);
+    REQUIRE_FALSE(uncertain);
+    REQUIRE(uncertain.error().external_outcome() == ExternalOutcome::unknown);
+    REQUIRE(uncertain.error().retry_disposition() == RetryDisposition::reconciliation_required);
+    REQUIRE(authorize_retry(c, e, 10, 10).error().external_outcome() == ExternalOutcome::unknown);
     c.provider_deduplication = true;
     e.reconciled = true;
     REQUIRE(authorize_retry(c, e, 1, 10));
@@ -310,4 +314,66 @@ TEST_CASE(
     REQUIRE_FALSE(gate.authorize_plan_admission(c, p, plan, registry, 100));
     registry.capabilities.at(capability.identifier).available = false;
     REQUIRE_FALSE(gate.authorize_plan_admission(c, p, plan, registry, 0));
+}
+
+TEST_CASE("A35 returned handles recheck current scope expiry and union alternatives",
+          "[authorization][A04][A35]") {
+    auto capability = cap();
+    ValueSchema text;
+    text.kind = ValueSchema::Kind::string;
+    text.max_bytes = 64;
+    auto handle = text;
+    handle.service_handle_type = "registered.asset/1";
+    capability.output_schema.kind = ValueSchema::Kind::union_value;
+    capability.output_schema.variants = {text, handle};
+    int validations = 0;
+    ValidatedHandleAccess access{"local", "object.a", 50};
+    capability.handle_validator_revision = "registered.asset/1";
+    capability.handle_validator = [&](const JsonValue &value, std::string_view, std::uint64_t) {
+        ++validations;
+        if (std::get<std::string>(value.data) != "opaque-service-handle")
+            return Result<ValidatedHandleAccess>::failure(
+                ErrorEnvelope::make(ErrorCode::permission_denied));
+        return Result<ValidatedHandleAccess>::success(access);
+    };
+    CapabilitySnapshot registry;
+    registry.capabilities.emplace(capability.identifier, capability);
+    auto pin = fingerprint_capability(capability).value();
+    ExecutionPlan plan;
+    plan.pins = {pin};
+    AuthorizationGate gate;
+    auto c = context();
+    auto p = policy();
+    JsonValue value("opaque-service-handle");
+    REQUIRE(gate.validate_result_handles(c, p, plan, registry, capability.identifier, value, 1));
+    REQUIRE(validations == 1);
+    REQUIRE(gate.check_retained_result_handles(c, p, pin, capability.output_schema, registry, value,
+                                               2));
+    access.object_scope = "object.b";
+    REQUIRE_FALSE(
+        gate.validate_result_handles(c, p, plan, registry, capability.identifier, value, 3));
+    access.object_scope = "object.a";
+    REQUIRE_FALSE(gate.check_retained_result_handles(c, p, pin, capability.output_schema, registry,
+                                                     value, 50));
+    c.access.erase(AccessSurface::handle);
+    REQUIRE_FALSE(
+        gate.validate_result_handles(c, p, plan, registry, capability.identifier, value, 3));
+    c = context();
+    access.owner = "another-subject";
+    REQUIRE_FALSE(
+        gate.validate_result_handles(c, p, plan, registry, capability.identifier, value, 3));
+    access.owner = "local";
+    registry.capabilities.at(capability.identifier).available = false;
+    REQUIRE_FALSE(gate.check_retained_result_handles(c, p, pin, capability.output_schema, registry,
+                                                     value, 3));
+    // Historical immutable text still follows result-access authorization, independent of execution
+    // pins.
+    REQUIRE(gate.check_retained_result_handles(c, p, pin, text, registry, "historic text", 3));
+    registry.capabilities.at(capability.identifier).available = true;
+    registry.capabilities.at(capability.identifier).handle_validator_revision = "changed/2";
+    REQUIRE_FALSE(gate.check_retained_result_handles(c, p, pin, capability.output_schema, registry,
+                                                     value, 3));
+    REQUIRE(gate.check_retained_result_handles(c, p, pin, text, registry, "historic text", 3));
+    registry.capabilities.clear();
+    REQUIRE(gate.check_retained_result_handles(c, p, pin, text, registry, "historic text", 3));
 }

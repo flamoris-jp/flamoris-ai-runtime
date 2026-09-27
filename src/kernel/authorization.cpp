@@ -6,27 +6,31 @@ namespace {
 ErrorEnvelope deny(ErrorCode c = ErrorCode::permission_denied) {
     return ErrorEnvelope::make(c, ErrorStage::dispatch);
 }
-bool handles_valid(const JsonValue &value, const ValueSchema &schema, const CapabilityContract &cap,
-                   const AuthorizationContext &context, const PolicySnapshot &policy,
-                   std::uint64_t now, unsigned depth = 0) {
-    if (depth > 32)
+bool visit_handles(const JsonValue &value, const ValueSchema &schema,
+                   const std::function<bool(const JsonValue &)> &visit, unsigned depth,
+                   std::size_t &nodes) {
+    if (depth > 32 || ++nodes > 65536)
         return false;
-    if (schema.service_handle_type) {
-        if (!cap.handle_validator || cap.handle_validator_revision.empty())
-            return false;
-        auto access = cap.handle_validator(value, context.subject, now);
-        if (!access || access.value().owner != context.subject ||
-            access.value().object_scope.empty() ||
-            !context.object_scopes.contains(access.value().object_scope) ||
-            !policy.object_scopes.contains(access.value().object_scope) ||
-            now >= access.value().expires_at_ms)
-            return false;
+    if (schema.service_handle_type && !visit(value))
+        return false;
+    if (schema.kind == ValueSchema::Kind::union_value) {
+        bool matched = false;
+        for (const auto &variant : schema.variants) {
+            if (!validate_value(value, variant))
+                continue;
+            matched = true;
+            // Every matching alternative applies: an overlapping plain branch cannot erase a
+            // handle.
+            if (!visit_handles(value, variant, visit, depth + 1, nodes))
+                return false;
+        }
+        return matched;
     }
     if (const auto *object = std::get_if<JsonValue::Object>(&value.data)) {
         for (const auto &[key, child] : *object) {
             auto it = schema.properties.find(key);
             if (it != schema.properties.end() &&
-                !handles_valid(child, it->second, cap, context, policy, now, depth + 1))
+                !visit_handles(child, it->second, visit, depth + 1, nodes))
                 return false;
         }
     }
@@ -35,11 +39,33 @@ bool handles_valid(const JsonValue &value, const ValueSchema &schema, const Capa
             auto item = schema.tuple_items.empty()
                             ? schema.items.get()
                             : (i < schema.tuple_items.size() ? &schema.tuple_items[i] : nullptr);
-            if (item && !handles_valid((*array)[i], *item, cap, context, policy, now, depth + 1))
+            if (item && !visit_handles((*array)[i], *item, visit, depth + 1, nodes))
                 return false;
         }
     }
     return true;
+}
+bool handles_valid(const JsonValue &value, const ValueSchema &schema, const CapabilityContract &cap,
+                   const AuthorizationContext &context, const PolicySnapshot &policy,
+                   std::uint64_t now) {
+    std::size_t nodes = 0;
+    return visit_handles(
+        value, schema,
+        [&](const JsonValue &handle) {
+            if (context.subject.empty() || context.revoked || now >= context.expires_at_ms ||
+                !policy.enabled || policy.revision == 0 ||
+                !context.access.contains(AccessSurface::handle) ||
+                !policy.access.contains(AccessSurface::handle) || !cap.handle_validator ||
+                cap.handle_validator_revision.empty())
+                return false;
+            auto access = cap.handle_validator(handle, context.subject, now);
+            return access && access.value().owner == context.subject &&
+                   !access.value().object_scope.empty() &&
+                   context.object_scopes.contains(access.value().object_scope) &&
+                   policy.object_scopes.contains(access.value().object_scope) &&
+                   now < access.value().expires_at_ms;
+        },
+        0, nodes);
 }
 } // namespace
 Result<void> AuthorizationGate::authorize_plan_admission(const AuthorizationContext &context,
@@ -145,6 +171,63 @@ Result<AuthorizationDecision> AuthorizationGate::check(const AuthorizationContex
         return Result<AuthorizationDecision>::failure(deny(ErrorCode::internal_error));
     }
 }
+Result<void> AuthorizationGate::validate_result_handles(
+    const AuthorizationContext &context, const PolicySnapshot &policy, const ExecutionPlan &plan,
+    const CapabilitySnapshot &registry, std::string_view capability, const JsonValue &value,
+    std::uint64_t now) const {
+    try {
+        auto pins = verify_plan_pins(plan, registry);
+        if (!pins)
+            return pins;
+        for (const auto &pin : plan.pins) {
+            if (pin.identifier != capability)
+                continue;
+            const auto &contract = registry.capabilities.at(pin.identifier);
+            return check_retained_result_handles(context, policy, pin, contract.output_schema,
+                                                 registry, value, now);
+        }
+        return Result<void>::failure(
+            ErrorEnvelope::make(ErrorCode::permission_denied, ErrorStage::result_validation));
+    } catch (...) {
+        return Result<void>::failure(
+            ErrorEnvelope::make(ErrorCode::internal_error, ErrorStage::result_validation));
+    }
+}
+Result<void> AuthorizationGate::check_retained_result_handles(
+    const AuthorizationContext &context, const PolicySnapshot &policy,
+    const CapabilityPin &producer, const ValueSchema &schema, const CapabilitySnapshot &registry,
+    const JsonValue &value, std::uint64_t now) const {
+    try {
+        auto valid = validate_value(value, schema);
+        if (!valid)
+            return valid;
+        bool contains_handle = false;
+        std::size_t nodes = 0;
+        if (!visit_handles(
+                value, schema,
+                [&](const JsonValue &) {
+                    contains_handle = true;
+                    return true;
+                },
+                0, nodes))
+            return Result<void>::failure(
+                ErrorEnvelope::make(ErrorCode::invalid_result, ErrorStage::result_validation));
+        if (!contains_handle)
+            return Result<void>::success();
+        const auto found = registry.capabilities.find(producer.identifier);
+        if (found != registry.capabilities.end() && found->second.available) {
+            auto current_pin = fingerprint_capability(found->second);
+            if (current_pin && current_pin.value() == producer &&
+                handles_valid(value, schema, found->second, context, policy, now))
+                return Result<void>::success();
+        }
+        return Result<void>::failure(
+            ErrorEnvelope::make(ErrorCode::permission_denied, ErrorStage::result_validation));
+    } catch (...) {
+        return Result<void>::failure(
+            ErrorEnvelope::make(ErrorCode::internal_error, ErrorStage::result_validation));
+    }
+}
 Result<void> AuthorizationGate::check_access(const AuthorizationContext &context,
                                              const PolicySnapshot &policy, std::string_view owner,
                                              AccessSurface surface, std::uint64_t now,
@@ -205,18 +288,29 @@ RunLimits RunBudget::remaining() const noexcept {
 }
 Result<void> authorize_retry(const CapabilityContract &cap, const RetryEvidence &e,
                              std::uint64_t now, std::uint64_t deadline) {
+    const auto outcome =
+        e.outcome == AttemptOutcome::unknown             ? ExternalOutcome::unknown
+        : e.outcome == AttemptOutcome::confirmed_success ? ExternalOutcome::confirmed_success
+        : e.outcome == AttemptOutcome::not_dispatched    ? ExternalOutcome::not_dispatched
+                                                         : ExternalOutcome::confirmed_failure;
+    const auto refusal = [&](ErrorCode code) {
+        return Result<void>::failure(ErrorEnvelope::make(
+            code, ErrorStage::dispatch, outcome,
+            outcome == ExternalOutcome::unknown ? RetryDisposition::reconciliation_required
+                                                : RetryDisposition::prohibited));
+    };
     if (now >= deadline)
-        return Result<void>::failure(deny(ErrorCode::job_timeout));
+        return refusal(ErrorCode::job_timeout);
     if (!cap.retry_permitted || !e.previous_stopped || e.job_stopping_or_terminal ||
         e.completed_attempts >= e.max_attempts || e.completed_attempts >= cap.max_attempts ||
         !e.transient || e.previous_provider_key != e.next_provider_key)
-        return Result<void>::failure(deny());
+        return refusal(ErrorCode::permission_denied);
     if (e.outcome == AttemptOutcome::confirmed_success ||
         e.outcome == AttemptOutcome::partial_effect)
-        return Result<void>::failure(deny());
+        return refusal(ErrorCode::permission_denied);
     if (e.outcome == AttemptOutcome::unknown &&
         (!cap.provider_deduplication || !e.reconciled || e.previous_provider_key.empty()))
-        return Result<void>::failure(deny(ErrorCode::outcome_unknown));
+        return refusal(ErrorCode::outcome_unknown);
     return Result<void>::success();
 }
 } // namespace flamoris::runtime

@@ -388,3 +388,62 @@ TEST_CASE("B-SER01 RFC8785 Appendix B binary64 vectors and stricter profile ceil
     for (auto bits : rejected)
         REQUIRE_FALSE(canonical_json(JsonValue(std::bit_cast<double>(bits))));
 }
+TEST_CASE("A03 configured full resource ceilings participate in capability and plan pins",
+          "[compiler][A03]") {
+    auto r = registry();
+    auto &cap = r.capabilities.at("algorithm.echo");
+    cap.resource_contract_digest =
+        domain_digest("flamoris.resource-contract/1\n",
+                      JsonValue::Object{{"ram", 128.0},
+                                        {"run_ram_limit", 1024.0},
+                                        {"retained_state", "resident-until-ack/1"}})
+            .value();
+    auto compiled = Compiler{}.compile_submission(json(request()), r);
+    REQUIRE(compiled);
+    cap.resource_contract_digest =
+        domain_digest("flamoris.resource-contract/1\n",
+                      JsonValue::Object{{"ram", 256.0},
+                                        {"run_ram_limit", 1024.0},
+                                        {"retained_state", "resident-until-ack/1"}})
+            .value();
+    auto stale = verify_plan_pins(*compiled.value().plan, r);
+    REQUIRE_FALSE(stale);
+    REQUIRE(stale.error().code() == ErrorCode::plan_stale);
+    auto recompiled = Compiler{}.compile_submission(json(request()), r);
+    REQUIRE(recompiled);
+    REQUIRE(recompiled.value().plan->fingerprint != compiled.value().plan->fingerprint);
+    cap.resource_contract_digest = "raw-host-path";
+    REQUIRE_FALSE(fingerprint_capability(cap));
+}
+TEST_CASE("A26 malformed result encoding reports a result contract failure", "[compiler][A26]") {
+    auto invalid =
+        validate_value(JsonValue(std::string(1, static_cast<char>(0xff))), text_schema());
+    REQUIRE_FALSE(invalid);
+    REQUIRE(invalid.error().code() == ErrorCode::invalid_result);
+    REQUIRE(invalid.error().stage() == ErrorStage::result_validation);
+}
+TEST_CASE("B-SER01 effective durations reject overflow before nanosecond conversion",
+          "[compiler][B-SER01]") {
+    auto input = request();
+    workflow(input)["limits"] = JsonValue::Object{{"timeout_ms", 9007199254740991.0}};
+    REQUIRE_FALSE(validate_submission_identity(json(input)));
+    CompilerProfile profile;
+    profile.limits.timeout_ms = 9007199254740991ULL;
+    REQUIRE_FALSE(Compiler(profile).compile_submission(json(request()), registry()));
+}
+
+TEST_CASE("A03 absent declared reference values fail binding without fallback", "[compiler][A03]") {
+    Binding binding;
+    binding.reference = Reference{Reference::Source::node, "source", {std::string("optional")}};
+    JsonValue::Object outputs{{"source", JsonValue::Object{{"optional", "old-value"}}}};
+    auto present = resolve_binding(binding, {}, outputs);
+    REQUIRE(present);
+    REQUIRE(present.value() == JsonValue("old-value"));
+    outputs["source"] = JsonValue::Object{};
+    auto absent = resolve_binding(binding, {}, outputs);
+    REQUIRE_FALSE(absent);
+    REQUIRE(absent.error().code() == ErrorCode::invalid_reference);
+    binding.reference->path = {std::uint64_t(1)};
+    outputs["source"] = JsonValue::Array{"only-element"};
+    REQUIRE_FALSE(resolve_binding(binding, {}, outputs));
+}

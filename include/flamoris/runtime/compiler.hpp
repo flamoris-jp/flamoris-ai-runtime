@@ -81,6 +81,9 @@ struct CapabilityContract {
     bool cancellable{false}, pausable{false};
     std::uint64_t max_attempts{1}, max_output_bytes{1048576}, max_timeout_ms{60000};
     std::uint64_t resource_units{1};
+    // Runtime fills this from its immutable full resource/native registration.
+    // Empty is permitted only for standalone compiler-only registrations.
+    std::string resource_contract_digest;
     // Trusted registration proofs, never workflow-authored declarations.
     std::optional<std::string> disjoint_scope;
     std::map<std::string, std::string> native_pins;

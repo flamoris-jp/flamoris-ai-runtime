@@ -30,6 +30,7 @@ JsonValue capability_export(const CapabilityContract &c) {
                         {"max_output_bytes", integer(c.max_output_bytes)},
                         {"max_timeout_ms", integer(c.max_timeout_ms)},
                         {"resource_units", integer(c.resource_units)},
+                        {"resource_contract_digest", c.resource_contract_digest},
                         {"native_pins", std::move(native)},
                         {"object_scope_fields", strings(c.object_scope_fields)},
                         {"handle_validator_revision", c.handle_validator_revision}};
@@ -83,6 +84,10 @@ RunLimits parse_limits(const JsonValue &v, const RunLimits &maximum) {
     for (const auto &[name, member] : limit_members)
         if (out.*member > 9007199254740991ULL || (positive_limit(name) && out.*member == 0))
             reject();
+    // Runtime monotonic durations use signed nanoseconds; reject before conversion.
+    if (out.timeout_ms >
+        static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max() / 1000000))
+        reject(ErrorCode::budget_exceeded);
     return out;
 }
 JsonValue limits_export(const RunLimits &l) {
@@ -338,6 +343,7 @@ void structure_workflow(const JsonValue &w) {
     RunLimits max;
     for (const auto &[k, m] : limit_members)
         max.*m = 9007199254740991ULL;
+    max.timeout_ms = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max() / 1000000);
     (void)parse_limits(o.at("limits"), max);
 }
 struct Parsed {
@@ -369,6 +375,8 @@ Parsed parse_request(std::string_view text, JsonBounds bounds) {
         RunLimits max;
         for (const auto &[k, m] : limit_members)
             max.*m = 9007199254740991ULL;
+        max.timeout_ms =
+            static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max() / 1000000);
         (void)parse_limits(i.at("limits"), max);
         if (i.contains("child_policy") && !identifier(string(i.at("child_policy"))))
             reject();
@@ -680,6 +688,9 @@ struct Build {
                 const auto &r = object(o.at("retry"));
                 s.max_attempts = count(r.at("max_attempts"), true);
                 s.backoff_ms = count(r.at("backoff_ms"));
+                if (s.backoff_ms >
+                    static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max() / 1000000))
+                    reject(ErrorCode::budget_exceeded);
                 if (s.max_attempts > c.max_attempts || (s.max_attempts > 1 && !c.retry_permitted))
                     reject();
             }
@@ -927,7 +938,10 @@ std::shared_ptr<const ExecutionPlan> compile(const JsonValue &workflow,
 } // namespace
 Result<CapabilityPin> fingerprint_capability(const CapabilityContract &c) {
     try {
-        if (!identifier(c.identifier) || c.version.empty() || c.adapter_revision.empty())
+        if (!identifier(c.identifier) || c.version.empty() || c.adapter_revision.empty() ||
+            (!c.resource_contract_digest.empty() && (c.resource_contract_digest.size() != 64 ||
+                                                     c.resource_contract_digest.find_first_not_of(
+                                                         "0123456789abcdef") != std::string::npos)))
             reject();
         auto digest = domain_digest("flamoris.capability/1\n", capability_export(c));
         if (!digest)
