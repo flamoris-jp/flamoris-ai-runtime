@@ -1188,8 +1188,9 @@ struct RuntimeInstance::Impl final : RunObservationLookupPort,
             return;
         }
         const auto now = config.clock->now();
-        auto grant = resources.dispatch_eligible(*d.reservation, {true, true, true, true}, now);
-        if (!grant)
+        auto grant_ready =
+            resources.dispatch_eligible(*d.reservation, {true, true, true, true}, now);
+        if (!grant_ready)
             return;
         auto ticket = run.controller->dispatch(d.invocation.job, {true, true, true, true});
         if (!ticket) {
