@@ -135,7 +135,9 @@ class OpenClCompute final : public ComputeImplementation {
     ~OpenClCompute() override {
         // Objects are synchronous. If a driver cannot acknowledge completion, do not
         // free native handles still potentially in use; the worker must be retained/contained.
-        (void)close();
+        auto released = close();
+        if (!released && !quiescent_)
+            (void)transfer_.release(); // An uncertain asynchronous read still owns host storage.
     }
     const ComputeDevice &device() const noexcept override { return device_; }
     Result<std::vector<float>> matvec(std::span<const float> matrix, std::size_t rows,
@@ -255,22 +257,22 @@ class OpenClCompute final : public ComputeImplementation {
         return mem;
     }
     Result<std::vector<float>> execute(cl_kernel kernel, std::size_t size, cl_mem output) {
-        transfer_.assign(size, 0.0F);
+        transfer_->assign(size, 0.0F);
         quiescent_ = false;
         auto status =
             clEnqueueNDRangeKernel(queue_, kernel, 1, nullptr, &size, nullptr, 0, nullptr, nullptr);
         if (status == CL_SUCCESS)
             status =
-                clEnqueueReadBuffer(queue_, output, CL_TRUE, 0, transfer_.size() * sizeof(float),
-                                    transfer_.data(), 0, nullptr, nullptr);
+                clEnqueueReadBuffer(queue_, output, CL_TRUE, 0, transfer_->size() * sizeof(float),
+                                    transfer_->data(), 0, nullptr, nullptr);
         auto stopped = synchronize();
         if (status != CL_SUCCESS || !stopped)
             return unavailable<std::vector<float>>();
-        if (!std::all_of(transfer_.begin(), transfer_.end(),
+        if (!std::all_of(transfer_->begin(), transfer_->end(),
                          [](float value) { return std::isfinite(value); }))
             return invalid();
         ++completed_;
-        return Result<std::vector<float>>::success(std::move(transfer_));
+        return Result<std::vector<float>>::success(std::move(*transfer_));
     }
     bool clear_buffers() noexcept {
         if (!quiescent_)
@@ -295,7 +297,7 @@ class OpenClCompute final : public ComputeImplementation {
     cl_kernel matvec_{nullptr}, attention_{nullptr};
     std::vector<cl_mem> buffers_;
     // Retained across uncertain queue failures: an in-flight read may still own this host buffer.
-    std::vector<float> transfer_;
+    std::unique_ptr<std::vector<float>> transfer_ = std::make_unique<std::vector<float>>();
     std::size_t bound_{0}, live_{0}, peak_{0};
     std::uint64_t completed_{0};
     bool quiescent_{true};
