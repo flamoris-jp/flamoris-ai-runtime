@@ -127,6 +127,9 @@ AdapterOutcome RegisteredCapabilityAdapter::invoke(AdapterRequest request,
             outcome.error = failure(code);
             return outcome;
         };
+        if ((instance_ && *instance_ != request.grant.ticket_.job.instance()) ||
+            request.grant.ticket_.job.run().value() < retired_before_)
+            return reject(ErrorCode::permission_denied);
         if (request.grant.purpose_ != AdapterPurpose::invoke ||
             now >= request.grant.expires_at_ms_ || request.grant.policy_revision_ == 0)
             return reject(ErrorCode::permission_denied);
@@ -159,8 +162,37 @@ AdapterOutcome RegisteredCapabilityAdapter::invoke(AdapterRequest request,
                           request.grant.input_digest_, request.grant.subject_};
         // Buffer and transcript capacity are secured before the one-use handoff.
         consumed_.push_back(std::move(record));
+        instance_ = request.grant.ticket_.job.instance();
+        struct Publication {
+            Invocation &record;
+            AdapterOutcome &outcome;
+            ~Publication() noexcept { record.outcome = outcome.external_outcome; }
+        } publication{consumed_.back(), outcome};
         ++dispatches_;
         outcome.handoff_attempted = true;
+        outcome.external_outcome = ExternalOutcome::unknown;
+        auto attach_retry = [&] {
+            const auto proof = sink.retry_evidence();
+            if (!proof.transient || !proof.previous_stopped || !proof.confirmed_no_effect ||
+                (outcome.external_outcome != ExternalOutcome::not_dispatched &&
+                 outcome.external_outcome != ExternalOutcome::confirmed_failure))
+                return;
+            RetryEvidence evidence;
+            evidence.outcome = outcome.external_outcome == ExternalOutcome::not_dispatched
+                                   ? AttemptOutcome::not_dispatched
+                                   : AttemptOutcome::confirmed_no_effect;
+            evidence.previous_stopped = true;
+            evidence.reconciled = true;
+            evidence.transient = true;
+            evidence.completed_attempts = request.grant.ticket_.attempt;
+            evidence.max_attempts = contract_.max_attempts;
+            evidence.previous_provider_key = request.grant.operation_key_;
+            evidence.next_provider_key = request.grant.operation_key_;
+            outcome.retry_evidence = std::move(evidence);
+            outcome.error =
+                ErrorEnvelope::make(ErrorCode::upstream_failure, ErrorStage::execution,
+                                    outcome.external_outcome, RetryDisposition::policy_eligible);
+        };
         try {
             sink.record_outcome(provider_.invoke(request.grant.operation_key_, request.input,
                                                  request.grant.expires_at_ms_, sink));
@@ -170,6 +202,7 @@ AdapterOutcome RegisteredCapabilityAdapter::invoke(AdapterRequest request,
                                         ? ErrorCode::outcome_unknown
                                         : ErrorCode::upstream_failure,
                                     outcome.external_outcome, ErrorStage::execution);
+            attach_retry();
             return outcome;
         }
         outcome.external_outcome = sink.outcome();
@@ -183,6 +216,7 @@ AdapterOutcome RegisteredCapabilityAdapter::invoke(AdapterRequest request,
                                         ? ErrorCode::outcome_unknown
                                         : ErrorCode::upstream_failure,
                                     outcome.external_outcome, ErrorStage::execution);
+            attach_retry();
             return outcome;
         }
         JsonBounds bounds;
@@ -221,7 +255,7 @@ AdapterOutcome RegisteredCapabilityAdapter::reconcile(AdapterGrant grant,
             return record.ticket == grant.ticket_ && record.key == grant.operation_key_ &&
                    record.digest == grant.input_digest_ && record.subject == grant.subject_;
         });
-        if (invocation == consumed_.end() ||
+        if (invocation == consumed_.end() || invocation->outcome != ExternalOutcome::unknown ||
             std::find(reconciled_.begin(), reconciled_.end(), grant.ticket_) != reconciled_.end() ||
             reconciled_.size() == max_reconciliation_queries_) {
             outcome.error = failure(ErrorCode::budget_exceeded);
@@ -233,6 +267,7 @@ AdapterOutcome RegisteredCapabilityAdapter::reconcile(AdapterGrant grant,
         outcome.external_outcome = provider_.reconcile(grant.operation_key_, grant.expires_at_ms_);
         if (outcome.external_outcome == ExternalOutcome::not_applicable)
             outcome.external_outcome = ExternalOutcome::unknown;
+        invocation->outcome = outcome.external_outcome;
         if (outcome.external_outcome == ExternalOutcome::unknown)
             outcome.error = failure(ErrorCode::outcome_unknown, ExternalOutcome::unknown,
                                     ErrorStage::execution);
@@ -243,6 +278,30 @@ AdapterOutcome RegisteredCapabilityAdapter::reconcile(AdapterGrant grant,
             failure(ErrorCode::outcome_unknown, ExternalOutcome::unknown, ErrorStage::execution);
         return outcome;
     }
+}
+
+bool RegisteredCapabilityAdapter::retire_before(RuntimeInstanceId instance,
+                                                std::uint64_t minimum_live_run) noexcept {
+    if (!instance.valid() || minimum_live_run < retired_before_ ||
+        (instance_ && *instance_ != instance))
+        return false;
+    instance_ = instance;
+    retired_before_ = minimum_live_run;
+    consumed_.erase(std::remove_if(consumed_.begin(), consumed_.end(),
+                                   [&](const auto &record) {
+                                       return record.ticket.job.run().value() < retired_before_ &&
+                                              record.outcome != ExternalOutcome::unknown;
+                                   }),
+                    consumed_.end());
+    reconciled_.erase(std::remove_if(reconciled_.begin(), reconciled_.end(),
+                                     [&](const auto &ticket) {
+                                         return std::none_of(consumed_.begin(), consumed_.end(),
+                                                             [&](const auto &record) {
+                                                                 return record.ticket == ticket;
+                                                             });
+                                     }),
+                      reconciled_.end());
+    return true;
 }
 
 ExternalOutcome IdentityProvider::invoke(std::string_view, const JsonValue &input, std::uint64_t,

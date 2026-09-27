@@ -125,3 +125,27 @@ TEST_CASE("C11 projection converts boundary exceptions to safe Runtime errors") 
     REQUIRE(output.str().find("private") == std::string::npos);
     REQUIRE(port.cancels == 0);
 }
+
+TEST_CASE("C11 event projection preserves applicable provenance and external outcome") {
+    LifecycleEvent event;
+    event.sequence = UINT64_MAX;
+    event.kind = "attempt.outcome";
+    event.job = JobId{RunId{RuntimeInstanceId{17, 19}, 23}, 29};
+    event.attempt_id = AttemptId{UINT64_MAX};
+    event.dispatch_generation = DispatchGeneration{UINT64_MAX};
+    event.command_id = CommandId{UINT64_MAX};
+    event.external_outcome = ExternalOutcome::unknown;
+    ObservationPage page;
+    page.groups.push_back({31, UINT64_MAX, {event}});
+    const auto encoded = observation_projection(page);
+    const auto &envelope = std::get<JsonValue::Object>(
+        std::get<JsonValue::Array>(std::get<JsonValue::Object>(encoded.data).at("events").data)
+            .front()
+            .data);
+    REQUIRE(std::get<std::string>(envelope.at("attempt_id").data) == "18446744073709551615");
+    REQUIRE(std::get<std::string>(envelope.at("command_id").data) == "18446744073709551615");
+    const auto &payload = std::get<JsonValue::Object>(envelope.at("payload").data);
+    REQUIRE(std::get<std::string>(payload.at("dispatch_generation").data) ==
+            "18446744073709551615");
+    REQUIRE(std::get<std::string>(payload.at("external_outcome").data) == "unknown");
+}

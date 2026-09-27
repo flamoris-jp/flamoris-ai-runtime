@@ -20,6 +20,8 @@ no controller pointer. Matching release can append after terminal; closure/expir
 never alters terminal intent, and ledger cleanup continues without reopening an
 expired stream. An unexpected reserved publication failure sets the bridge's
 `healthy()` flag false so the composition root can fail closed.
+Closed bridge records are recycled before a later reservation. Tickets increase
+monotonically, so a delayed callback cannot match a recycled slot.
 
 `AuthorizedObservation` checks current event, export or replay scope on every
 call. `ReplayProjection` accepts inspection values and has no execution, adapter,
@@ -63,6 +65,8 @@ Status includes a watermark and bounded Job projections. Cancel/pause/resume
 responses keep accepted, applied and terminal separate. Event envelopes include
 the original group boundary and per-Run order. Error serialization accepts only
 the closed Runtime error value, never upstream exception text.
+Applicable attempt and command IDs remain envelope fields; dispatch generation
+and external outcome remain payload fields. Their counters use decimal strings.
 
 ## Registered capability boundary
 
@@ -80,6 +84,16 @@ binding. Oversized or invalid output preserves confirmed write evidence and
 cannot trigger an automatic retry. A thrown/lost response after handoff remains
 unknown unless the provider supplied stronger outcome evidence. Reconciliation
 has a separate current grant and finite query budget; it never invokes the write.
+Only explicit provider evidence of a transient, stopped, confirmed no-effect
+attempt can make a failure eligible for the current retry policy. Error codes
+alone cannot supply that evidence.
+
+`PersistentAdapterBinding` owns one adapter transcript per configured capability
+and serializes its provider workers. The actor never waits for its mutex. The
+worker checks grant expiry after acquiring the mutex. A monotonic Run floor can
+retire settled transcript entries; it must include pending reserved Run IDs as
+well as admitted Runs. Unknown operations remain retained, and a grant below the
+floor or from another runtime incarnation cannot invoke an operation again.
 
 `IdentityProvider` is the implemented local pure capability. Tests use faulting
 providers only at the external provider seam to cover unknown writes, schema
@@ -95,3 +109,8 @@ the production ResourceManager, RunController and cleanup observation bridge.
 controlled provider response loss and streaming failures. `facade_tests.cpp`
 tests only JSON projection at its command-port seam; production Runtime tests
 establish compiler/admission/dispatch integration separately.
+`runtime_concurrency_tests.cpp` exercises pending duplicate ownership, shared
+rejection, independent unkeyed work, replay port counts and shutdown through the
+production Runtime. `runtime_crash_tests.cpp` discards actual component owners
+without shutdown, retains host/provider evidence across incarnations and checks
+that replay cannot manufacture execution or release evidence.

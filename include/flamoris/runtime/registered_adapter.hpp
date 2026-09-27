@@ -52,6 +52,11 @@ struct AdapterOutcome {
     std::optional<JsonValue> value;
     std::optional<ErrorEnvelope> error;
     bool handoff_attempted{false};
+    std::optional<RetryEvidence> retry_evidence;
+};
+
+struct ProviderRetryEvidence {
+    bool transient{false}, previous_stopped{false}, confirmed_no_effect{false};
 };
 
 class BoundedProviderSink {
@@ -59,6 +64,8 @@ class BoundedProviderSink {
     explicit BoundedProviderSink(std::size_t limit);
     Result<void> append(std::string_view chunk);
     void record_outcome(ExternalOutcome outcome) noexcept;
+    void record_retry_evidence(ProviderRetryEvidence evidence) noexcept { retry_ = evidence; }
+    ProviderRetryEvidence retry_evidence() const noexcept { return retry_; }
     ExternalOutcome outcome() const noexcept { return outcome_; }
     const std::string &bytes() const noexcept { return bytes_; }
     std::optional<ErrorEnvelope> error() const noexcept { return error_; }
@@ -68,6 +75,7 @@ class BoundedProviderSink {
     std::string bytes_;
     std::optional<ErrorEnvelope> error_;
     ExternalOutcome outcome_{ExternalOutcome::unknown};
+    ProviderRetryEvidence retry_;
 };
 
 // Configuration binds this port to one registered service. No endpoint, raw
@@ -87,6 +95,7 @@ class RegisteredCapabilityAdapter {
                                 std::size_t max_reconciliation_queries = 4);
     AdapterOutcome invoke(AdapterRequest, std::uint64_t now_ms) noexcept;
     AdapterOutcome reconcile(AdapterGrant, std::uint64_t now_ms) noexcept;
+    bool retire_before(RuntimeInstanceId, std::uint64_t minimum_live_run) noexcept;
     std::size_t dispatches() const noexcept { return dispatches_; }
     std::size_t reconciliation_queries() const noexcept { return reconciliation_queries_; }
 
@@ -99,9 +108,12 @@ class RegisteredCapabilityAdapter {
     struct Invocation {
         DispatchTicket ticket;
         std::string key, digest, subject;
+        ExternalOutcome outcome{ExternalOutcome::unknown};
     };
     std::vector<Invocation> consumed_;
     std::vector<DispatchTicket> reconciled_;
+    std::optional<RuntimeInstanceId> instance_;
+    std::uint64_t retired_before_{0};
 };
 
 // Baseline registered pure capability; exact output is its bounded declared input.

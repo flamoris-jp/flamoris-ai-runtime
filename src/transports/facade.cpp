@@ -189,7 +189,9 @@ JsonValue observation_projection(const ObservationPage &page) {
             if (event.external_outcome)
                 payload.emplace("external_outcome",
                                 std::string(to_string(*event.external_outcome)));
-            events.emplace_back(Object{
+            if (event.dispatch_generation)
+                payload.emplace("dispatch_generation", event.dispatch_generation->to_wire());
+            Object envelope{
                 {"schema_version", "flamoris.event/1"},
                 {"kind", event.kind},
                 {"runtime_instance_id", instance_wire(event.job.instance())},
@@ -202,7 +204,12 @@ JsonValue observation_projection(const ObservationPage &page) {
                 {"group_size", static_cast<double>(group.events.size())},
                 {"monotonic_offset", std::to_string(event.monotonic_offset)},
                 {"wall_time", nullptr},
-                {"payload", std::move(payload)}});
+                {"payload", std::move(payload)}};
+            if (event.attempt_id)
+                envelope.emplace("attempt_id", event.attempt_id->to_wire());
+            if (event.command_id)
+                envelope.emplace("command_id", event.command_id->to_wire());
+            events.emplace_back(std::move(envelope));
         }
     }
     const char *state = page.stream_state == ObservationStreamState::open     ? "open"

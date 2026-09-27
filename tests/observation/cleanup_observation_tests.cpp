@@ -127,3 +127,27 @@ TEST_CASE(
     REQUIRE_FALSE(observation.healthy());
     REQUIRE(controller->snapshot().watermark == before);
 }
+
+TEST_CASE("A29 closed observation slots recycle with monotonic stale-callback fences") {
+    testing::ManualClock clock;
+    const RunId run{RuntimeInstanceId{31, 19}, 1};
+    auto created = RunController::create(run, {}, Deadline::at(1000ns), clock);
+    REQUIRE(created);
+    auto controller = std::move(created).value();
+    Lookup lookup;
+    lookup.current = controller.get();
+    ControllerCleanupObservationPort observation(lookup, clock, 1);
+    auto first = observation.reserve(run, CleanupId{1}, 100ns);
+    REQUIRE(first);
+    REQUIRE_FALSE(observation.reserve(run, CleanupId{2}, 100ns));
+    observation.closed(first.value(), CleanupId{1}, false, LedgerRevision{1});
+    auto second = observation.reserve(run, CleanupId{2}, 100ns);
+    REQUIRE(second);
+    REQUIRE(second.value().value > first.value().value);
+    const auto watermark = controller->snapshot().watermark;
+    observation.observed(first.value(), CleanupId{1}, LedgerRevision{2});
+    observation.closed(first.value(), CleanupId{1}, true, LedgerRevision{2});
+    REQUIRE(controller->snapshot().watermark == watermark);
+    observation.closed(second.value(), CleanupId{2}, true, LedgerRevision{3});
+    REQUIRE(observation.healthy());
+}

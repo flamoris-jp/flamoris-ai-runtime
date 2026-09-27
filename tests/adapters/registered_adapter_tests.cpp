@@ -1,5 +1,8 @@
 #include "catch_amalgamated.hpp"
+#include "flamoris/runtime/adapter_binding.hpp"
 #include "flamoris/runtime/registered_adapter.hpp"
+#include "support/deterministic.hpp"
+#include <future>
 #include <stdexcept>
 using namespace flamoris::runtime;
 namespace {
@@ -19,12 +22,23 @@ CapabilityContract contract() {
     return c;
 }
 struct FaultingProvider final : RegisteredProviderPort {
-    enum class Fault { none, accepted_response_lost, oversized, wrong_schema, nested_secret };
+    enum class Fault {
+        none,
+        accepted_response_lost,
+        oversized,
+        wrong_schema,
+        nested_secret,
+        transient_no_effect
+    };
     Fault fault{Fault::none};
     std::size_t calls{0}, queries{0}, largest_buffer{0};
     ExternalOutcome invoke(std::string_view, const JsonValue &, std::uint64_t,
                            BoundedProviderSink &sink) override {
         ++calls;
+        if (fault == Fault::transient_no_effect) {
+            sink.record_retry_evidence({true, true, true});
+            return ExternalOutcome::not_dispatched;
+        }
         if (fault == Fault::accepted_response_lost)
             throw std::runtime_error("secret token and private endpoint");
         sink.record_outcome(ExternalOutcome::confirmed_success);
@@ -169,4 +183,82 @@ TEST_CASE("C11 registered identity implementation returns schema validated bound
     auto result = adapter.invoke({f.grant(), f.input, 64}, 1);
     REQUIRE(result.value == f.input);
     REQUIRE(result.external_outcome == ExternalOutcome::confirmed_success);
+}
+
+TEST_CASE("B-RETRY01 explicit no-effect provider evidence permits one current authorized retry") {
+    Fixture f;
+    f.capability.retry_permitted = true;
+    f.capability.max_attempts = 2;
+    f.registry.capabilities.insert_or_assign(f.capability.identifier, f.capability);
+    f.pin = fingerprint_capability(f.capability).value();
+    f.plan.pins = {f.pin};
+    FaultingProvider provider;
+    provider.fault = FaultingProvider::Fault::transient_no_effect;
+    RegisteredCapabilityAdapter adapter(f.capability, provider);
+    auto first = adapter.invoke({f.grant(), f.input, 64}, 1);
+    REQUIRE(first.error);
+    REQUIRE(first.retry_evidence);
+    REQUIRE(first.retry_evidence->previous_stopped);
+    REQUIRE(first.retry_evidence->outcome == AttemptOutcome::not_dispatched);
+    f.ticket.attempt = 2;
+    f.ticket.dispatch_generation = 2;
+    f.request.boundary = AuthorizationBoundary::retry;
+    REQUIRE_FALSE(f.authority.authorize(f.context, f.policy, f.plan, f.registry, f.request,
+                                        f.ticket, f.pin, f.input, "operation-1"));
+    auto grant = f.authority.authorize(f.context, f.policy, f.plan, f.registry, f.request, f.ticket,
+                                       f.pin, f.input, "operation-1", AdapterPurpose::invoke,
+                                       &*first.retry_evidence);
+    REQUIRE(grant);
+    provider.fault = FaultingProvider::Fault::none;
+    auto second = adapter.invoke({std::move(grant).value(), f.input, 64}, 2);
+    REQUIRE(second.value == JsonValue("accepted"));
+    REQUIRE(provider.calls == 2);
+}
+
+TEST_CASE("C11 persistent worker binding serializes concurrent duplicate grants across tasks") {
+    Fixture f;
+    auto provider = std::make_shared<FaultingProvider>();
+    auto created = PersistentAdapterBinding::create(f.capability, provider, 4);
+    REQUIRE(created);
+    auto binding = std::move(created).value();
+    testing::ManualClock clock;
+    auto first_grant = f.grant();
+    auto second_grant = f.grant();
+    auto first = std::async(std::launch::async, [binding, &clock, input = f.input,
+                                                 grant = std::move(first_grant)]() mutable {
+        return binding->invoke({std::move(grant), input, 64}, clock);
+    });
+    auto second = std::async(std::launch::async, [binding, &clock, input = f.input,
+                                                  grant = std::move(second_grant)]() mutable {
+        return binding->invoke({std::move(grant), input, 64}, clock);
+    });
+    auto one = first.get(), two = second.get();
+    REQUIRE(one.handoff_attempted != two.handoff_attempted);
+    REQUIRE(provider->calls == 1);
+}
+
+TEST_CASE("C11 adapter retirement recycles settled slots while fencing old grants and retaining "
+          "unknown effects") {
+    Fixture f;
+    FaultingProvider provider;
+    RegisteredCapabilityAdapter adapter(f.capability, provider, 1);
+    REQUIRE(adapter.invoke({f.grant(), f.input, 64}, 1).value);
+    REQUIRE(adapter.retire_before(f.ticket.job.instance(), 2));
+    REQUIRE_FALSE(adapter.invoke({f.grant(), f.input, 64}, 1).handoff_attempted);
+    REQUIRE_FALSE(adapter.retire_before(RuntimeInstanceId{99, 99}, 3));
+    REQUIRE_FALSE(adapter.retire_before(f.ticket.job.instance(), 1));
+    f.ticket.job = JobId{RunId{f.ticket.job.instance(), 2}, 1};
+    auto next = f.authority.authorize(f.context, f.policy, f.plan, f.registry, f.request, f.ticket,
+                                      f.pin, f.input, "operation-2");
+    REQUIRE(next);
+    provider.fault = FaultingProvider::Fault::accepted_response_lost;
+    REQUIRE(adapter.invoke({std::move(next).value(), f.input, 64}, 1).external_outcome ==
+            ExternalOutcome::unknown);
+    REQUIRE(adapter.retire_before(f.ticket.job.instance(), 3));
+    f.ticket.job = JobId{RunId{f.ticket.job.instance(), 3}, 1};
+    auto third = f.authority.authorize(f.context, f.policy, f.plan, f.registry, f.request, f.ticket,
+                                       f.pin, f.input, "operation-3");
+    REQUIRE(third);
+    REQUIRE_FALSE(adapter.invoke({std::move(third).value(), f.input, 64}, 1).handoff_attempted);
+    REQUIRE(provider.calls == 2); // The one unknown liability still occupies its slot.
 }

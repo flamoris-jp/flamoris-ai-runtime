@@ -18,6 +18,10 @@ ControllerCleanupObservationPort::reserve(RunId run, CleanupId cleanup, TimePoin
         return Result<CleanupObservationTicket>::failure(
             ErrorEnvelope::make(ErrorCode::resource_unavailable, ErrorStage::cleanup));
     };
+    if (healthy_)
+        records_.erase(std::remove_if(records_.begin(), records_.end(),
+                                      [](const auto &record) { return record.closed_published; }),
+                       records_.end());
     if (!healthy_ || !cleanup.valid() || closes <= clock_.now() ||
         records_.size() == max_records_ || next_ticket_ == UINT64_MAX ||
         std::any_of(records_.begin(), records_.end(),
