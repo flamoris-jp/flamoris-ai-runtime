@@ -78,8 +78,11 @@ third-party backend versions. A changed model, processor/tokenizer fingerprint,
 profile, numeric representation or incompatible compute state invalidates both
 plan pins and resume unless an explicit migration is implemented and qualified.
 CPU and OpenCL consume token IDs produced by the same pinned tokenizer; compute
-choice never changes tokenization semantics. No portable live-state serialization
-is promised in Phase C.
+choice never changes tokenization semantics. A prompt-template-only revision
+changes the processor pin, not tokenizer identity or the KV representation; an
+existing plan/Continuation still rejects a mismatched processor pin rather than
+silently resuming with different prompt semantics. No portable live-state
+serialization is promised in Phase C.
 
 The first causal-text qualification includes known token vectors and
 encode/decode round trips against the registered normalization policy; exact
