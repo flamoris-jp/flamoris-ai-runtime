@@ -190,7 +190,9 @@ TEST_CASE("A19 descendants settle before parent terminal") {
   REQUIRE(f.run->acknowledge_cleanup(parent.job,{true,false,false,false}));
   REQUIRE_FALSE(f.run->finalize(parent.job)); REQUIRE(f.run->complete(child_ticket));
   f.clean(child.value()); REQUIRE(f.run->finalize(parent.job));
-  REQUIRE(f.run->events().back().events.back().kind == "run.terminal");
+  const auto& terminal=f.run->events().back().events;
+  REQUIRE(terminal[terminal.size()-2].kind == "run.terminal");
+  REQUIRE(terminal.back().run_to == RunActivity::succeeded);
 }
 
 TEST_CASE("B-EVENT01 failed preparation exposes no state or partial group") {
@@ -221,4 +223,38 @@ TEST_CASE("A30 normal ingress exhaustion cannot occupy completion and stop slots
   REQUIRE(executor.post({ControlAction::cancel,ticket,0},true)); REQUIRE(executor.pending() == 2);
   executor.close_normal_ingress(); REQUIRE_FALSE(executor.post({ControlAction::queue,ticket,0}));
   REQUIRE(executor.step(*f.run)); REQUIRE(f.root().state == JobState::cancelling);
+}
+
+TEST_CASE("A08 resume preserves the one admitted attempt budget") {
+  LifecycleLimits limits; limits.attempts=1;
+  Fixture f(true,100s,limits); auto first=f.start();
+  auto generation=f.run->suspend(first,payload(),{true,true}); REQUIRE(generation);
+  REQUIRE(f.run->wake(first.job,generation.value()));
+  auto second=f.run->dispatch(first.job,allowed); REQUIRE(second);
+  REQUIRE(second.value().attempt==first.attempt);
+  REQUIRE_FALSE(f.run->retry(second.value(),1s,true,true,true));
+}
+
+TEST_CASE("B-LIFE01 optional zero budgets permit cancellation and invalid admission stays typed") {
+  LifecycleLimits limits; limits.suspensions=0; limits.commands=0;
+  Fixture f(false,100s,limits); auto ticket=f.start();
+  REQUIRE_FALSE(f.run->pause_job(ticket.job,1)); REQUIRE(f.run->cancel_run());
+  REQUIRE(f.run->observe_stopped(ticket,{true,false,ExternalOutcome::not_applicable}));
+  f.clean(ticket.job); REQUIRE(f.root().state==JobState::cancelled);
+  ManualClock clock;
+  REQUIRE_FALSE(RunController::create(RunId{},limits,Deadline::at(1s),clock));
+  limits.event_slots=1'000'000;
+  REQUIRE_FALSE(RunController::create(RunId{RuntimeInstanceId{1,2},1},limits,Deadline::at(1s),clock));
+}
+
+TEST_CASE("A28 cleanup deadline reports retained ownership once without inventing stopped state") {
+  LifecycleLimits limits;limits.cleanup_allowance=1s;
+  Fixture f(true,100s,limits);auto ticket=f.start();REQUIRE(f.run->request_stop(ticket.job));
+  REQUIRE(f.clock.advance(1s));REQUIRE(f.run->check_deadlines());
+  const auto watermark=f.run->snapshot().watermark;
+  REQUIRE(f.run->check_deadlines());REQUIRE(f.run->snapshot().watermark==watermark);
+  REQUIRE(f.root().state==JobState::cancelling);REQUIRE(f.root().execution_in_flight);REQUIRE(f.root().cleanup_pending);
+  bool timeout=false;for(const auto& group:f.run->events())for(const auto& e:group.events)
+    timeout|=e.kind=="cleanup.pending" && e.error==ErrorCode::cleanup_timeout;
+  REQUIRE(timeout);REQUIRE_FALSE(f.run->finalize(ticket.job));
 }

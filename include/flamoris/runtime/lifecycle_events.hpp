@@ -31,6 +31,9 @@ struct LifecycleEvent {
   std::uint64_t operation{};
   std::uint64_t ledger_revision{};
   std::optional<ExternalOutcome> external_outcome;
+  std::uint64_t monotonic_offset{};
+  std::optional<RunActivity> run_from;
+  std::optional<RunActivity> run_to;
 };
 
 struct EventGroup {

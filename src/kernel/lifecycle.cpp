@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <limits>
 #include <new>
+#include <stdexcept>
 #include <utility>
 
 namespace flamoris::runtime {
@@ -73,6 +74,7 @@ struct RunController::Impl {
     std::optional<ErrorCode> failure;
     ExternalOutcome external_outcome{ExternalOutcome::not_applicable};
     TimePoint cleanup_deadline{};
+    bool cleanup_timed_out{};
     TimePoint not_before{};
     std::vector<PauseCause> pauses;
     Job(JobId value, std::optional<JobId> owner, Deadline end, bool pausable,
@@ -189,21 +191,32 @@ struct RunController::Impl {
       EventStorageClass storage = EventStorageClass::control, std::uint64_t reservation = 0) {
     if (!healthy) return rejected(ErrorCode::invariant_violation);
     if (failure_injected) { failure_injected = false; return rejected(ErrorCode::budget_exceeded); }
+    const bool project_activity = storage != EventStorageClass::reconciliation && storage != EventStorageClass::telemetry;
+    if (project_activity) {
+      auto projected = event("run.state_changed",jobs.front()->id);
+      projected.run_from = activity(); projected.run_to = activity();
+      events.push_back(std::move(projected));
+    }
     if (events.empty() || events.size() > std::numeric_limits<std::uint64_t>::max() - watermark ||
         transition == std::numeric_limits<std::uint64_t>::max()) return rejected(ErrorCode::budget_exceeded);
     EventGroup group{transition + 1, watermark + 1, std::move(events)};
     std::uint64_t next = watermark;
-    for (auto& value : group.events) value.sequence = ++next;
+    for (auto& value : group.events) {
+      value.sequence = ++next;
+      value.monotonic_offset = static_cast<std::uint64_t>(clock.now().count());
+    }
     auto prepared = store.prepare(std::move(group), storage, reservation);
     if (!prepared) return Result<void>::failure(prepared.error());
     // All storage is reserved at admission or owned by the prepared group.
     // There are no callbacks, allocation, serialization or observers here.
     mutation();
+    refresh_barrier();
+    if (project_activity) prepared.value().set_run_activity(activity());
     if (!store.publish(std::move(prepared).value())) {
       healthy = false; dispatch_open = false; children_open = false;
       return rejected(ErrorCode::invariant_violation);
     }
-    watermark = next; ++transition; refresh_barrier();
+    watermark = next; ++transition;
     return Result<void>::success();
   }
   void clear_payload(Job& job) noexcept {
@@ -220,10 +233,13 @@ struct RunController::Impl {
   void freeze(Job& job) noexcept {
     job.state = JobState::finalizing;
     job.intent = job.failure ? stop_target(*job.failure) : JobState::succeeded;
+    if (job.cleanup_deadline == TimePoint{}) set_cleanup_deadline(job);
+    if (job.id == jobs.front()->id) { dispatch_open = false; children_open = false; }
+  }
+  void set_cleanup_deadline(Job& job) noexcept {
     const auto remaining = std::numeric_limits<TimePoint::rep>::max() - clock.now().count();
     job.cleanup_deadline = remaining < limits.cleanup_allowance.count()
       ? TimePoint::max() : clock.now() + limits.cleanup_allowance;
-    if (job.id == jobs.front()->id) { dispatch_open = false; children_open = false; }
   }
 };
 
@@ -231,9 +247,9 @@ RunController::RunController(std::unique_ptr<Impl> impl) : impl_(std::move(impl)
 RunController::~RunController() = default;
 Result<std::unique_ptr<RunController>> RunController::create(
     RunId id, LifecycleLimits limits, Deadline deadline, MonotonicClock& clock, bool pausable) {
-  if (limits.jobs == 0 || limits.jobs > 65536 || limits.attempts == 0 || limits.suspensions == 0 ||
-      limits.pause_causes_per_job == 0 || limits.commands == 0 || limits.cleanup_allowance.count() <= 0 ||
-      limits.event_slots < 32 + limits.jobs * 16 || limits.event_slots > 8'388'608 || deadline.expired(clock.now()))
+  if (!id.valid() || clock.now().count() < 0 || limits.jobs == 0 || limits.jobs > 65536 || limits.attempts == 0 ||
+      limits.pause_causes_per_job == 0 || limits.cleanup_allowance.count() <= 0 ||
+      limits.event_slots < 34 + limits.jobs * 16 || limits.event_slots > 8192 || deadline.expired(clock.now()))
     return Result<std::unique_ptr<RunController>>::failure(error(ErrorCode::budget_exceeded));
   try {
     auto owner = std::unique_ptr<RunController>(new RunController(std::make_unique<Impl>(id, limits, deadline, clock, pausable)));
@@ -241,6 +257,7 @@ Result<std::unique_ptr<RunController>> RunController::create(
     if (!result) return Result<std::unique_ptr<RunController>>::failure(result.error());
     return Result<std::unique_ptr<RunController>>::success(std::move(owner));
   } catch (const std::bad_alloc&) { return Result<std::unique_ptr<RunController>>::failure(error(ErrorCode::budget_exceeded)); }
+    catch (const std::invalid_argument&) { return Result<std::unique_ptr<RunController>>::failure(error(ErrorCode::invalid_request)); }
 }
 JobId RunController::root() const noexcept { return impl_->jobs.front()->id; }
 RunId RunController::id() const noexcept { return impl_->id; }
@@ -301,12 +318,13 @@ Result<DispatchTicket> RunController::dispatch(JobId id, DispatchChecks checks) 
     auto result = request_stop(id, code); (void)result; return deny(code);
   }
   if (!checks.resources_granted || impl_->clock.now() < job->not_before) return deny(ErrorCode::resource_unavailable);
-  if (impl_->attempts >= impl_->limits.attempts || job->dispatch_generation == std::numeric_limits<std::uint64_t>::max()) return deny(ErrorCode::budget_exceeded);
+  if ((job->attempt == 0 && impl_->attempts >= impl_->limits.attempts) || job->dispatch_generation == std::numeric_limits<std::uint64_t>::max()) return deny(ErrorCode::budget_exceeded);
   const auto attempt = job->attempt == 0 ? 1 : job->attempt;
   DispatchTicket ticket{id, attempt, job->dispatch_generation + 1};
   auto result = impl_->commit({event("resource.granted", id, ticket.dispatch_generation),
       changed(id, JobState::queued, JobState::running), event("attempt.dispatch_committed", id, ticket.dispatch_generation)}, [&]() noexcept {
-    job->attempt = attempt; ++job->dispatch_generation; ++impl_->attempts;
+    if (job->attempt == 0) ++impl_->attempts;
+    job->attempt = attempt; ++job->dispatch_generation;
     if (job->pending) {
       job->active_reference = job->pending->payload.state_reference;
       job->active_version = job->pending->payload.state_version;
@@ -334,8 +352,14 @@ Result<std::uint64_t> RunController::suspend(DispatchTicket ticket, ResumePayloa
   const auto generation = job->suspension_generation + 1;
   ContinuationState continuation{job->id, generation, std::move(payload)};
   const auto target = job->pauses.empty() ? JobState::waiting : JobState::paused;
-  auto result = impl_->commit({event("continuation.created", job->id, generation), changed(job->id, job->state, target),
-      event("resource.execution_quiesced", job->id, ticket.dispatch_generation)}, [&]() noexcept {
+  std::vector<LifecycleEvent> events{event("continuation.created", job->id, generation), changed(job->id, job->state, target),
+      event("resource.execution_quiesced", job->id, ticket.dispatch_generation)};
+  for (const auto& cause : job->pauses) if (!cause.barrier) events.push_back(event("interrupt.applied",job->id,cause.id));
+  bool barrier_complete = impl_->barrier_active;
+  for (const auto& peer : impl_->jobs)
+    if (peer.get() != job && impl_->mutable_work(*peer) && peer->state != JobState::paused) barrier_complete = false;
+  if (barrier_complete) events.push_back(event("interrupt.applied",root(),impl_->barrier_command));
+  auto result = impl_->commit(std::move(events), [&]() noexcept {
     job->continuation.emplace(std::move(continuation)); job->active_reference = 0; job->active_version = 0;
     job->state = target; job->in_flight = false; ++job->suspension_generation; ++impl_->suspensions;
   });
@@ -469,6 +493,8 @@ Result<void> RunController::pause_run(std::uint64_t command, Deadline request_de
     if (job->state == JobState::queued) events.push_back(event("continuation.created", job->id, job->suspension_generation + 1));
     if (job->state == JobState::queued || job->state == JobState::waiting) events.push_back(changed(job->id, job->state, JobState::paused));
   }
+  if (std::none_of(impl_->jobs.begin(),impl_->jobs.end(),[](const auto& job){return job->state==JobState::running;}))
+    events.push_back(event("interrupt.applied",root(),command));
   return impl_->commit(std::move(events), [&]() noexcept {
     ++impl_->commands; ++impl_->barrier_generation; impl_->barrier_command = command;
     impl_->barrier_active = true; impl_->barrier_pending = true; impl_->barrier_deadline = request_deadline;
@@ -490,8 +516,10 @@ Result<void> RunController::resume_run(std::uint64_t command, bool authorized) {
   if (impl_->run_stopping || !impl_->mutable_work(*impl_->jobs.front())) return rejected();
   if (!impl_->barrier_active) return Result<void>::success();
   if (impl_->deadline.expired(impl_->clock.now())) return cancel_run(ErrorCode::run_timeout);
-  if (impl_->commands >= impl_->limits.commands) return rejected(ErrorCode::budget_exceeded);
-  std::vector<LifecycleEvent> events{event("interrupt.requested", root(), command)};
+  const bool timeout = command == impl_->barrier_command && impl_->barrier_pending && impl_->barrier_deadline && impl_->barrier_deadline->expired(impl_->clock.now());
+  if (!timeout && impl_->commands >= impl_->limits.commands) return rejected(ErrorCode::budget_exceeded);
+  std::vector<LifecycleEvent> events;
+  if (!timeout) events.push_back(event("interrupt.requested", root(), command));
   for (const auto& job : impl_->jobs) {
     bool barrier = std::any_of(job->pauses.begin(), job->pauses.end(), [](auto cause) { return cause.barrier; });
     if (!barrier || job->pauses.size() != 1 || job->state != JobState::paused) continue;
@@ -499,9 +527,10 @@ Result<void> RunController::resume_run(std::uint64_t command, bool authorized) {
     if (target == JobState::queued) events.push_back(event("continuation.consumed", job->id, job->suspension_generation));
     events.push_back(changed(job->id, job->state, target));
   }
-  events.push_back(event("interrupt.applied", root(), command));
+  events.push_back(event(timeout ? "interrupt.rejected" : "interrupt.applied", root(), command));
   return impl_->commit(std::move(events), [&]() noexcept {
-    ++impl_->commands; impl_->barrier_active = false; impl_->barrier_pending = false; impl_->barrier_deadline.reset();
+    if (!timeout) ++impl_->commands;
+    impl_->barrier_active = false; impl_->barrier_pending = false; impl_->barrier_deadline.reset();
     impl_->dispatch_open = true; impl_->children_open = true;
     for (auto& job : impl_->jobs) {
       std::erase_if(job->pauses, [](auto cause) { return cause.barrier; });
@@ -510,7 +539,7 @@ Result<void> RunController::resume_run(std::uint64_t command, bool authorized) {
         job->pending.emplace(job->suspension_generation, std::move(job->continuation->payload)); job->continuation.reset(); job->state = JobState::queued;
       } else job->state = JobState::waiting;
     }
-  });
+  }, timeout ? EventStorageClass::emergency : EventStorageClass::control);
 }
 Result<void> RunController::expire_pause_barrier() {
   if (!impl_->barrier_active || !impl_->barrier_pending || !impl_->barrier_deadline || !impl_->barrier_deadline->expired(impl_->clock.now())) return Result<void>::success();
@@ -541,7 +570,7 @@ Result<void> RunController::request_stop(JobId id, ErrorCode cause) {
   return impl_->commit(std::move(events), [&]() noexcept {
     for (auto& job : impl_->jobs) {
       if (!impl_->descendant(*job, id) || !impl_->mutable_work(*job)) continue;
-      job->failure = cause; job->state = JobState::cancelling; impl_->clear_payload(*job);
+      job->failure = cause; job->state = JobState::cancelling; impl_->set_cleanup_deadline(*job); impl_->clear_payload(*job);
       if (!job->in_flight) impl_->freeze(*job);
     }
     if (id == root()) { impl_->run_stopping = true; impl_->dispatch_open = false; impl_->children_open = false; }
@@ -580,6 +609,13 @@ Result<void> RunController::check_deadlines() {
   for (const auto& job : impl_->jobs) if (impl_->mutable_work(*job) && impl_->due(*job)) {
     auto result = request_stop(job->id, ErrorCode::job_timeout); if (!result) return result;
   }
+  for (const auto& job : impl_->jobs) {
+    if ((job->state != JobState::cancelling && job->state != JobState::finalizing) ||
+        !job->cleanup_pending || job->cleanup_timed_out || impl_->clock.now() < job->cleanup_deadline) continue;
+    auto pending = event("cleanup.pending",job->id); pending.error = ErrorCode::cleanup_timeout;
+    auto result = impl_->commit({std::move(pending)},[&]() noexcept { job->cleanup_timed_out = true; },EventStorageClass::emergency);
+    if (!result) return result;
+  }
   return expire_pause_barrier();
 }
 Result<void> RunController::retry(DispatchTicket ticket, TimePoint not_before, bool authorized, bool stopped, bool reconciled) {
@@ -589,7 +625,7 @@ Result<void> RunController::retry(DispatchTicket ticket, TimePoint not_before, b
   if (impl_->due(*job)) return request_stop(job->id, ErrorCode::job_timeout);
   if (job->attempt == std::numeric_limits<std::uint64_t>::max() || impl_->attempts >= impl_->limits.attempts) return rejected(ErrorCode::budget_exceeded);
   return impl_->commit({event("attempt.retry_admitted", job->id, job->attempt + 1), changed(job->id, job->state, JobState::queued)}, [&]() noexcept {
-    ++job->attempt; job->in_flight = false; job->state = JobState::queued; job->not_before = not_before;
+    ++job->attempt; ++impl_->attempts; job->in_flight = false; job->state = JobState::queued; job->not_before = not_before;
   });
 }
 
