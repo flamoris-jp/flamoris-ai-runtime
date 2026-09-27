@@ -86,10 +86,10 @@ struct ThreadNativeWorker::Impl {
                 }
             } else if (!session) {
                 if (command.operation == NativeOperation::release) {
-                    auto closed = initializing_compute ? initializing_compute->close()
-                                                       : Result<void>::success();
-                    if (!closed)
-                        error(closed.error());
+                    auto close_result = initializing_compute ? initializing_compute->close()
+                                                             : Result<void>::success();
+                    if (!close_result)
+                        error(close_result.error());
                     else {
                         const auto retained =
                             initializing_compute ? 131072 + config.retained_context_bytes : 0;
