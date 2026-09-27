@@ -21,8 +21,8 @@ RoPE, quantization, dropout or implied Qwen/Llama compatibility.
 It uses an explicitly specified integer LCG and power-of-two rational weights,
 so regeneration does not depend on Python random or platform floating rounding.
 Reproduce with `python3 fixtures/native/generate_fixture.py`; verify with
-`sha256sum -c fixtures/native/tiny-causal-v1.sha256` from this directory (or pass
-its file to the loader with the registered checksum). The loader rejects size,
+`sha256sum -c tiny-causal-v1.sha256` from `fixtures/native` (or pass
+the file to the loader with the registered checksum). The loader rejects size,
 header, checksum, shape and non-finite-value mismatches before publishing a model.
 
 The tokenizer `flamoris.byte-utf8.v1` maps each input UTF-8 byte directly to an ID
@@ -38,3 +38,9 @@ foundation's general separation of tokenizer, model, cache and compute plus
 CPU-reference/parity methodology. Current private source was inspected before
 implementation; no private source, tests, paths or implementation details were
 copied or published. Comparative runtime evidence remains in ADR 0001.
+
+`reference.py` computes an independent full-sequence binary64 arithmetic oracle
+using only the Python standard library. It writes `reference-v1.json`; the C++
+qualification test checks these pinned output values as well as complete
+cached/uncached equivalence. It is a fixture-generation tool, never an inference
+runtime dependency. Actual qualification evidence is in [QUALIFICATION.md](QUALIFICATION.md).
