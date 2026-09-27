@@ -21,6 +21,51 @@ CPU device; physical GPU and deployed host integration are separate gates.
 
 Part of the [FLAMORIS AI ecosystem](https://github.com/flamoris-jp/flamoris-ai/blob/main/docs/ai-ecosystem.md).
 
+## Build and try it
+
+The current Phase C baseline is executable. Build with the reviewed CMake presets
+described in [Build and validation](docs/BUILD.md). For the native qualification
+fixture:
+
+```sh
+cmake --preset gcc-debug -DFLAMORIS_NATIVE_TESTS=ON
+cmake --build --preset gcc-debug --parallel 2
+ctest --preset gcc-debug --no-tests=error
+```
+
+The CLI currently exposes three entry points:
+
+```text
+flamoris-runtime validate FILE
+flamoris-runtime serve
+flamoris-runtime generate --prompt TEXT [--temperature FLOAT] [--seed UINT] [--max-tokens UINT]
+```
+
+`validate` compiles and validates a bounded submission and prints its plan
+fingerprint. `serve` exposes the control protocol but deliberately has no local
+host authority, so it remains fail-closed until a trusted embedding provides
+capacity.
+
+`generate` is an explicit **developer smoke-test path** for the self-authored
+tiny native fixture. It runs the existing native `NativeSession` on the CPU and
+emits JSONL events such as `token.generated` and `generation.completed`.
+It is not a production model server, does not grant Runtime host capacity, and
+does not establish support for pretrained model families.
+
+Example:
+
+```sh
+./build/gcc-debug/flamoris-runtime generate \
+  --prompt "Hello 日本語" \
+  --temperature 0 \
+  --seed 1 \
+  --max-tokens 16
+```
+
+The fixture model defaults to `fixtures/native/tiny-causal-v1.bin` from the
+source tree. Use `--model FILE` only for the same registered fixture format and
+checksum contract.
+
 ## What it is
 
 FLAMORIS AI Runtime is not only a workflow service above an already-finished LLM endpoint.
@@ -422,7 +467,7 @@ Inference   Workflow    Scheduler
 
 C++ does **not** mean every capability must run in-process. External AI, MCP, Generation, and other services remain registered external capabilities with their own authority.
 
-The [Phase B design proposal](docs/PHASE_B_DESIGN.md) selects a C++20 library-first baseline and FLAMORIS native model execution with CPU reference and OpenCL compute. Its toolchain, ownership, concurrency and integration contracts require review before implementation. No stable ABI or language binding is promised.
+The reviewed [Phase B design](docs/PHASE_B_DESIGN.md) selected the C++20 library-first baseline now implemented in Phase C, including FLAMORIS native model execution with CPU reference and OpenCL compute. No stable ABI or language binding is promised.
 
 See [Implementation Strategy](docs/IMPLEMENTATION_STRATEGY.md).
 
@@ -452,7 +497,7 @@ Phase B uses the inspected foundation as a concept and test-methodology referenc
 - Capability System;
 - Resource Manager.
 
-## Runtime research before implementation
+## Runtime research foundation
 
 The [backend research ADR](docs/adr/0001-backend-control.md) compares pinned primary-source revisions of:
 
@@ -476,38 +521,52 @@ Focus on:
 
 The purpose is comparative design evidence for a FLAMORIS-owned model runtime, not adapter compatibility. Its tokenizer and decoder qualification includes Japanese, emoji and other non-ASCII sequences under a pinned processor/tokenizer identity.
 
-## Design before implementation
+## Design and implementation phases
 
 Work proceeds through three review gates:
 
 | Stage | Deliverable | Status |
 | --- | --- | --- |
 | Phase A: Architecture Design | Execution/state/resource/authorization/event/failure contracts and acceptance scenarios | Reviewed and merged via PR #4 |
-| Phase B: C++ Implementation Design | Runtime research, concept-to-type mapping, ownership, concurrency, native execution contracts and build/test ADRs | Proposed for review; see [design index](docs/PHASE_B_DESIGN.md) |
-| Phase C: Implementation | Reviewed contracts implemented in small, tested commits | Not started |
+| Phase B: C++ Implementation Design | Runtime research, concept-to-type mapping, ownership, concurrency, native execution contracts and build/test ADRs | Reviewed baseline; see [design index](docs/PHASE_B_DESIGN.md) |
+| Phase C: Implementation | Reviewed contracts implemented with deterministic acceptance evidence | Implemented baseline under integration review |
 
-[Design Phases](docs/DESIGN_PHASES.md) defines the gates and document authority. This replaces the earlier Phase 0–3 roadmap. Phase B records current-source research and private foundation inspection; adapter feasibility and platform builds are explicit Phase C qualification gates.
-
-The Phase A baseline is a single Runtime process with bounded execution. Job completion includes a `finalizing` phase for child/resource cleanup; a terminal result may report explicitly transferred cleanup debt or unknown external outcomes. Trace replay only inspects events and cannot recover live execution after a process crash.
-
-Architecture review comes before C++ interface design, and interface review comes before production code.
+[Design Phases](docs/DESIGN_PHASES.md) defines the gates and document authority.
+Historical design documents describe how the implementation was reached; they are
+not substitutes for current executable evidence.
 
 ## Current status
 
-This repository currently contains **design documentation only**.
+The repository now contains the **Phase C native Runtime baseline**, not design
+documentation only. Current executable evidence is tracked in
+[Phase C status](docs/phase-c/STATUS.md).
 
-Do not interpret the design as evidence that inference control, jobs, race, pause/resume, MCP, or Workflow IR are implemented.
+Implemented and qualified scope includes:
+
+- C++20 Runtime kernel and transport-independent control surfaces;
+- Workflow compilation, Job lifecycle, scheduling and bounded resource accounting;
+- authorization/effect checks across dispatch, retry and resume boundaries;
+- structured event/observation paths;
+- native CPU inference with deterministic tiny causal fixture;
+- qualified pause/resume, bounded injection and safe-point control for that native profile;
+- OpenCL compute parity on the explicitly recorded qualification device;
+- CLI validation plus the developer-only native `generate` smoke-test path.
+
+Important boundaries remain explicit: the tiny fixture is not a pretrained
+language model, physical LIME GPU qualification is separate, deployed host
+enforcement is separate, and universal model-family/offload/snapshot/rewind
+support is not claimed.
 
 See:
 
+- [Phase C implementation evidence](docs/phase-c/STATUS.md)
+- [Build and validation](docs/BUILD.md)
+- [Native qualification](fixtures/native/QUALIFICATION.md)
 - [Runtime Concept](docs/CONCEPT.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Workflow IR](docs/WORKFLOW_IR.md)
 - [MCP Contract](docs/MCP_CONTRACT.md)
-- [Implementation Strategy](docs/IMPLEMENTATION_STRATEGY.md)
 - [Design Phases and document map](docs/DESIGN_PHASES.md)
-- [Design Acceptance](docs/DESIGN_ACCEPTANCE.md)
-- [Phase B design and research index](docs/PHASE_B_DESIGN.md)
 
 ## FLAMORIS
 
@@ -545,7 +604,7 @@ FLAMORIS AI Runtime
 
 という位置です。
 
-開発は **Phase A：アーキテクチャ設計 → Phase B：C++実装設計 → Phase C：実装** の3段階で進め、各段階でレビューします。Phase AはPR #4でマージ済み、現在は[Phase Bの設計提案](docs/PHASE_B_DESIGN.md)です。本番コード・ビルド環境・実行テストはまだありません。
+開発は **Phase A：アーキテクチャ設計 → Phase B：C++実装設計 → Phase C：実装** の3段階で進めています。現在は **Phase Cのnative Runtime baselineが実装済みで、integration review中** です。C++20のRuntime kernel、Workflow/Job実行、structured event、native CPU推論、限定されたOpenCL parity、pause/resume・bounded injectionなどの実行経路と決定的テストがあります。現在の実装根拠は[Phase C implementation evidence](docs/phase-c/STATUS.md)を参照してください。
 
 推論中に別の処理が必要になれば、Inferenceをyield/pauseし、Vision、algorithm、MCP、外部AIなどをJobとして実行し、その結果を受け取って推論を続けられる構造を目指します。
 
@@ -571,11 +630,27 @@ pause / stop / child job / input injection
 
 という形を想定します。
 
-Phase Bでは `llama.cpp`、Hugging Face Transformers、vLLM、TensorRT-LLMの一次資料を比較し、prefill/decode、KV cache、streaming、cancel、scheduler、pause/resume、state rewind、observabilityの制御点と制約を記録しました。最初はdeterministic fakeで契約を検証し、その後FLAMORIS native CPU referenceとOpenCL computeを実装・比較する設計です。外部Runtimeは必要ならWorkflow capabilityとして利用します。実装済みを意味しません。
+Phase Bでは `llama.cpp`、Hugging Face Transformers、vLLM、TensorRT-LLMの一次資料を比較し、prefill/decode、KV cache、streaming、cancel、scheduler、pause/resume、state rewind、observabilityの制御点と制約を記録しました。その設計をもとにPhase CでFLAMORIS native CPU referenceとOpenCL compute、Runtime制御経路を実装しています。外部Runtimeは必要ならWorkflow capabilityとして利用します。
 
 既存の `flamoris-net/flamoris-LLM` も現行コードを調査しました。概念・テスト方針を参考にし、privateコードは移植していません。コードの再利用には公開権限とライセンスの確認が別途必要です。
 
 外側の `flamoris-ai-agent` はIdentity、Memory、Conversation、Personalityなどの永続的なAgent状態を担当し、AI Runtimeは実際にモデルと処理を動かす実行層を担当する想定です。
+
+### 現在試せるCLI
+
+native fixtureを有効にしてビルドすると、自己生成のtiny modelを使った開発用smoke testを実行できます。
+
+```sh
+./build/gcc-debug/flamoris-runtime generate \
+  --prompt "こんにちは" \
+  --temperature 0 \
+  --seed 1 \
+  --max-tokens 16
+```
+
+出力はJSONLで、`token.generated` と `generation.completed` を観測できます。
+これは本番model serverやhost authorityではなく、Runtime内部のnative inferenceを
+外から確認するための明示的な開発用経路です。
 
 **推論とWorkflowを分離して外から往復させるのではなく、ひとつのRuntimeで握る。**
 
