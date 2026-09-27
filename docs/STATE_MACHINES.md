@@ -134,8 +134,12 @@ stop intent commits; a later resume request cannot reopen dispatch.
 Inference has an internal progression: `initializing -> tokenizing -> prefill ->
 decode -> completing`, with suspension/error exits only through the Job controller.
 These are stage observations while the Job is running, not another cancel authority.
-Adapters MUST advertise where they can quiesce, preserve state, stop, inject
-bounded inputs, or resume. Opaque inference lacks these promises unless proven.
+The active native `ExecutionProfile` MUST declare where its `NativeModelWorker`
+can quiesce, preserve state, stop, inject bounded inputs, or resume. The
+Inference Machine accepts these controls only at qualified safe points with
+state-preservation evidence. External Workflow capability adapters advertise
+their own control limitations under separate contracts; they do not define
+native inference safe points.
 
 A decode iteration commits token position, sampler state, and native profile state as a
 consistent boundary before exposing a token and honoring a pause. An interrupt
