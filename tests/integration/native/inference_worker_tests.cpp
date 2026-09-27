@@ -1,8 +1,42 @@
 #include "catch_amalgamated.hpp"
 #include "flamoris/runtime/inference.hpp"
+#include <atomic>
 using namespace flamoris::runtime;
 using namespace std::chrono_literals;
 namespace {
+struct PartialComputeState {
+    std::atomic<unsigned> close_calls{0};
+    std::atomic<bool> destroyed{false};
+};
+class PartialCompute final : public ComputeImplementation {
+    std::shared_ptr<PartialComputeState> state_;
+    std::unique_ptr<ComputeImplementation> cpu_ = make_cpu_compute();
+
+  public:
+    explicit PartialCompute(std::shared_ptr<PartialComputeState> state)
+        : state_(std::move(state)) {}
+    ~PartialCompute() override { state_->destroyed = true; }
+    const ComputeDevice &device() const noexcept override { return cpu_->device(); }
+    Result<std::vector<float>> matvec(std::span<const float>, std::size_t, std::size_t,
+                                      std::span<const float>) override {
+        return Result<std::vector<float>>::failure(
+            ErrorEnvelope::make(ErrorCode::native_compute_unavailable));
+    }
+    Result<std::vector<float>> attention(std::span<const float>, std::span<const float>,
+                                         std::span<const float>, std::size_t,
+                                         std::size_t) override {
+        return Result<std::vector<float>>::failure(
+            ErrorEnvelope::make(ErrorCode::native_compute_unavailable));
+    }
+    ComputeReceipt receipt() const noexcept override { return {0, 0, 0, true}; }
+    Result<void> synchronize() override { return Result<void>::success(); }
+    Result<void> close() override {
+        if (++state_->close_calls == 1)
+            return Result<void>::failure(
+                ErrorEnvelope::make(ErrorCode::cleanup_failed, ErrorStage::cleanup));
+        return Result<void>::success();
+    }
+};
 NativeWorkerConfig config() {
     NativeWorkerConfig value;
     value.registered_artifact =
@@ -90,5 +124,45 @@ TEST_CASE("B-REAL01 worker failed artifact load returns bounded failure without 
     REQUIRE(observation->error->code() == ErrorCode::unsupported_model);
     REQUIRE(observation->quiescent);
     REQUIRE(observation->state_bytes == 0);
+    REQUIRE(worker.value()->close());
+}
+TEST_CASE("B-REAL03 partially initialized compute remains owned across rejected physical release",
+          "[native][cpu]") {
+    auto state = std::make_shared<PartialComputeState>();
+    auto worker = ThreadNativeWorker::create(config(), [state](const NativeWorkerConfig &) {
+        return ComputePreparation{
+            std::make_unique<PartialCompute>(state),
+            ErrorEnvelope::make(ErrorCode::native_compute_unavailable, ErrorStage::execution)};
+    });
+    REQUIRE(worker);
+    std::uint64_t generation = 0;
+    auto run = [&](NativeOperation operation) {
+        NativeCommand command;
+        command.operation = operation;
+        command.operation_generation = ++generation;
+        REQUIRE(worker.value()->submit(command));
+        auto observation = worker.value()->wait_take(5s);
+        REQUIRE(observation);
+        return std::move(*observation);
+    };
+    auto load = run(NativeOperation::load);
+    REQUIRE(load.error);
+    REQUIRE(load.state_bytes > 0);
+    REQUIRE_FALSE(load.state.valid);
+    REQUIRE_FALSE(worker.value()->close());
+    REQUIRE_FALSE(state->destroyed);
+    REQUIRE_FALSE(run(NativeOperation::stop).error);
+    auto failed = run(NativeOperation::release);
+    REQUIRE(failed.error);
+    REQUIRE_FALSE(failed.release.quiescent);
+    REQUIRE(failed.state_bytes == load.state_bytes);
+    REQUIRE_FALSE(state->destroyed);
+    REQUIRE_FALSE(worker.value()->close());
+    auto released = run(NativeOperation::release);
+    REQUIRE_FALSE(released.error);
+    REQUIRE(released.release.quiescent);
+    REQUIRE(released.release.released_state_bytes == load.state_bytes);
+    REQUIRE(released.state_bytes == 0);
+    REQUIRE(state->destroyed);
     REQUIRE(worker.value()->close());
 }

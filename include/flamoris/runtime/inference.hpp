@@ -2,6 +2,7 @@
 #include "flamoris/runtime/lifecycle.hpp"
 #include "flamoris/runtime/native.hpp"
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <optional>
 
@@ -17,6 +18,9 @@ struct NativeWorkerConfig {
     std::string prompt;
     NativeOptions options;
     bool opencl{false};
+    std::string compute_identity{"flamoris.cpu-fp32.v1"};
+    // Registered conservative driver/context allowance, retained across suspension.
+    std::size_t retained_context_bytes{0};
     std::size_t device_index{0};
     std::size_t device_memory_bound{65536};
 };
@@ -36,6 +40,9 @@ struct NativeObservation {
     NativeExecutionState state;
     SegmentReceipt segment;
     NativeReleaseReceipt release;
+    // Successful load only: Runtime must transfer this immutable holder into its
+    // explicitly accounted residency record, then clear the receipt's reference.
+    std::shared_ptr<const TinyModel> resident_model;
     std::uint64_t suspension_generation{0};
     std::size_t model_bytes{0}, state_bytes{0};
     bool quiescent{false}, model_allocation_released{false}, control_rejected{false};
@@ -53,7 +60,10 @@ class NativeWorkerPort {
 };
 class ThreadNativeWorker final : public NativeWorkerPort {
   public:
-    static Result<std::unique_ptr<ThreadNativeWorker>> create(NativeWorkerConfig);
+    // Trusted composition seam; the default creates the configured native compute.
+    using ComputeFactory = std::function<ComputePreparation(const NativeWorkerConfig &)>;
+    static Result<std::unique_ptr<ThreadNativeWorker>> create(NativeWorkerConfig,
+                                                              ComputeFactory = {});
     ~ThreadNativeWorker() override;
     Result<void> submit(NativeCommand) override;
     std::optional<NativeObservation> take() override;

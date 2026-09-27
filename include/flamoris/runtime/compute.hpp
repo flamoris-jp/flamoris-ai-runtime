@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -34,9 +35,18 @@ class ComputeImplementation {
                                                  std::size_t positions, std::size_t width) = 0;
     virtual ComputeReceipt receipt() const noexcept = 0;
     virtual Result<void> synchronize() = 0;
+    // Successful close proves retained native objects have been physically released.
+    // Implementations without retained external objects need only synchronize.
+    virtual Result<void> close() { return synchronize(); }
 };
 std::unique_ptr<ComputeImplementation> make_cpu_compute();
 Result<std::vector<ComputeDevice>> enumerate_opencl_devices();
-Result<std::unique_ptr<ComputeImplementation>>
-make_opencl_compute(std::size_t device_index, std::size_t max_device_bytes = 1048576);
+// A failed initialization can still own native objects. The caller must retain
+// owner, and its admitted resources, until close() acknowledges physical release.
+struct ComputePreparation {
+    std::unique_ptr<ComputeImplementation> owner;
+    std::optional<ErrorEnvelope> error;
+};
+ComputePreparation prepare_opencl_compute(std::size_t device_index,
+                                          std::size_t max_device_bytes = 1048576);
 } // namespace flamoris::runtime

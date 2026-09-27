@@ -101,51 +101,41 @@ Result<std::vector<Discovered>> discover() {
 }
 class OpenClCompute final : public ComputeImplementation {
   public:
-    static Result<std::unique_ptr<ComputeImplementation>> create(const Discovered &device,
-                                                                 std::size_t bound) {
+    static ComputePreparation create(const Discovered &device, std::size_t bound) {
         auto native = std::unique_ptr<OpenClCompute>(new OpenClCompute);
         native->device_ = device.info;
         native->bound_ = bound;
         native->buffers_.reserve(4);
+        const auto failed = [&native]() -> ComputePreparation {
+            return {std::move(native), ErrorEnvelope::make(ErrorCode::native_compute_unavailable,
+                                                           ErrorStage::execution)};
+        };
         cl_int status = CL_SUCCESS;
         native->context_ = clCreateContext(nullptr, 1, &device.id, nullptr, nullptr, &status);
         if (status != CL_SUCCESS || !native->context_)
-            return unavailable<std::unique_ptr<ComputeImplementation>>();
+            return failed();
         native->queue_ = clCreateCommandQueue(native->context_, device.id, 0, &status);
         if (status != CL_SUCCESS || !native->queue_)
-            return unavailable<std::unique_ptr<ComputeImplementation>>();
+            return failed();
         const char *source = kernels;
         native->program_ =
             clCreateProgramWithSource(native->context_, 1, &source, nullptr, &status);
         if (status != CL_SUCCESS || !native->program_ ||
             clBuildProgram(native->program_, 1, &device.id, "-cl-std=CL1.2 -cl-opt-disable",
                            nullptr, nullptr) != CL_SUCCESS)
-            return unavailable<std::unique_ptr<ComputeImplementation>>();
+            return failed();
         native->matvec_ = clCreateKernel(native->program_, "matvec", &status);
         if (status != CL_SUCCESS || !native->matvec_)
-            return unavailable<std::unique_ptr<ComputeImplementation>>();
+            return failed();
         native->attention_ = clCreateKernel(native->program_, "attention", &status);
         if (status != CL_SUCCESS || !native->attention_)
-            return unavailable<std::unique_ptr<ComputeImplementation>>();
-        return Result<std::unique_ptr<ComputeImplementation>>::success(std::move(native));
+            return failed();
+        return {std::move(native), {}};
     }
     ~OpenClCompute() override {
         // Objects are synchronous. If a driver cannot acknowledge completion, do not
         // free native handles still potentially in use; the worker must be retained/contained.
-        if (!quiescent_)
-            return;
-        if (!clear_buffers())
-            return;
-        if (attention_)
-            clReleaseKernel(attention_);
-        if (matvec_)
-            clReleaseKernel(matvec_);
-        if (program_)
-            clReleaseProgram(program_);
-        if (queue_)
-            clReleaseCommandQueue(queue_);
-        if (context_)
-            clReleaseContext(context_);
+        (void)close();
     }
     const ComputeDevice &device() const noexcept override { return device_; }
     Result<std::vector<float>> matvec(std::span<const float> matrix, std::size_t rows,
@@ -154,7 +144,7 @@ class OpenClCompute final : public ComputeImplementation {
             input.size() != columns)
             return invalid();
         const auto bytes = (matrix.size() + input.size() + rows) * sizeof(float);
-        if (bytes > bound_ || !quiescent_ || !buffers_.empty())
+        if (bytes > bound_ || !queue_ || !matvec_ || !quiescent_ || !buffers_.empty())
             return invalid();
         auto a = buffer(matrix), b = buffer(input), out = output_buffer(rows);
         if (!a || !b || !out) {
@@ -178,7 +168,7 @@ class OpenClCompute final : public ComputeImplementation {
             keys.size() != positions * width || values.size() != keys.size())
             return invalid();
         const auto bytes = (query.size() + keys.size() + values.size() + width) * sizeof(float);
-        if (bytes > bound_ || !quiescent_ || !buffers_.empty())
+        if (bytes > bound_ || !queue_ || !attention_ || !quiescent_ || !buffers_.empty())
             return invalid();
         auto q = buffer(query), k = buffer(keys), v = buffer(values), out = output_buffer(width);
         if (!q || !k || !v || !out) {
@@ -201,11 +191,34 @@ class OpenClCompute final : public ComputeImplementation {
         return {completed_, live_, peak_, quiescent_};
     }
     Result<void> synchronize() override {
-        if (!queue_ || clFinish(queue_) != CL_SUCCESS)
+        if ((queue_ && clFinish(queue_) != CL_SUCCESS) || (!queue_ && !quiescent_))
             return Result<void>::failure(
                 ErrorEnvelope::make(ErrorCode::cleanup_timeout, ErrorStage::cleanup));
         quiescent_ = true;
         if (!clear_buffers())
+            return Result<void>::failure(
+                ErrorEnvelope::make(ErrorCode::cleanup_failed, ErrorStage::cleanup));
+        return Result<void>::success();
+    }
+    Result<void> close() override {
+        auto stopped = synchronize();
+        if (!stopped)
+            return stopped;
+        // Retain any handle whose release was not acknowledged so the owner can
+        // retry while its allocation remains charged. Successful close is idempotent.
+        bool complete = true;
+        const auto release = [&complete](auto &object, auto operation) {
+            if (object && operation(object) == CL_SUCCESS)
+                object = nullptr;
+            else if (object)
+                complete = false;
+        };
+        release(attention_, clReleaseKernel);
+        release(matvec_, clReleaseKernel);
+        release(program_, clReleaseProgram);
+        release(queue_, clReleaseCommandQueue);
+        release(context_, clReleaseContext);
+        if (!complete)
             return Result<void>::failure(
                 ErrorEnvelope::make(ErrorCode::cleanup_failed, ErrorStage::cleanup));
         return Result<void>::success();
@@ -302,19 +315,22 @@ Result<std::vector<ComputeDevice>> enumerate_opencl_devices() {
     return unavailable<std::vector<ComputeDevice>>();
 #endif
 }
-Result<std::unique_ptr<ComputeImplementation>> make_opencl_compute(std::size_t index,
-                                                                   std::size_t bound) {
+ComputePreparation prepare_opencl_compute(std::size_t index, std::size_t bound) {
+    const auto failed = []() -> ComputePreparation {
+        return {{},
+                ErrorEnvelope::make(ErrorCode::native_compute_unavailable, ErrorStage::execution)};
+    };
 #ifdef FLAMORIS_ENABLE_OPENCL
     if (!bound || bound > 16777216)
-        return unavailable<std::unique_ptr<ComputeImplementation>>();
+        return failed();
     auto devices = discover();
     if (!devices || index >= devices.value().size())
-        return unavailable<std::unique_ptr<ComputeImplementation>>();
+        return failed();
     return OpenClCompute::create(devices.value()[index], bound);
 #else
     (void)index;
     (void)bound;
-    return unavailable<std::unique_ptr<ComputeImplementation>>();
+    return failed();
 #endif
 }
 } // namespace flamoris::runtime

@@ -17,6 +17,18 @@ NativeSession::create(std::shared_ptr<const TinyModel> model,
                       std::unique_ptr<ComputeImplementation> compute,
                       const ProcessorDefinition &processor, const TokenizerDefinition &tokenizer,
                       std::string_view prompt, NativeOptions options) {
+    auto result = create_retaining_compute(std::move(model), compute, processor, tokenizer, prompt,
+                                           std::move(options));
+    // Standalone convenience callers have no controller. Never destruct native
+    // storage after an unacknowledged close; Runtime uses the retaining overload.
+    if (compute && !compute->close())
+        (void)compute.release();
+    return result;
+}
+Result<std::unique_ptr<NativeSession>> NativeSession::create_retaining_compute(
+    std::shared_ptr<const TinyModel> model, std::unique_ptr<ComputeImplementation> &compute,
+    const ProcessorDefinition &processor, const TokenizerDefinition &tokenizer,
+    std::string_view prompt, NativeOptions options) {
     if (!model || !compute || processor != ProcessorDefinition{} ||
         !validate_tokenizer(tokenizer) || !options.max_output_tokens ||
         options.max_output_tokens > 128 || !options.max_input_bytes ||
@@ -32,7 +44,8 @@ NativeSession::create(std::shared_ptr<const TinyModel> model,
             return fail<std::unique_ptr<NativeSession>>(ErrorCode::invalid_request);
     }
     if (!options.sampling.literal_grammar.empty() &&
-        (!tokenize(options.sampling.literal_grammar, tokenizer, 127) || options.injection_slot))
+        (!tokenize(options.sampling.literal_grammar, tokenizer, 127) || options.injection_slot ||
+         options.sampling.literal_grammar.size() > options.max_output_tokens))
         return fail<std::unique_ptr<NativeSession>>(ErrorCode::invalid_request,
                                                     ErrorReason::unsupported_operation);
     auto tokens = tokenize(prompt, tokenizer, options.max_input_bytes);
@@ -48,7 +61,6 @@ NativeSession::create(std::shared_ptr<const TinyModel> model,
                                 tokenizer.identity + ":" + tokenizer.fingerprint,
                                 session->profile_.identity, compute->device().identity};
         session->model_ = std::move(model);
-        session->compute_ = std::move(compute);
         session->tokenizer_ = tokenizer;
         session->options_ = std::move(options);
         session->causal_.rng = session->options_.sampling.seed;
@@ -66,6 +78,7 @@ NativeSession::create(std::shared_ptr<const TinyModel> model,
         state.input.insert(state.input.end(), tokens.value().begin(), tokens.value().end());
         for (auto token : state.input)
             ++state.penalty[token];
+        session->compute_ = std::move(compute);
         return Result<std::unique_ptr<NativeSession>>::success(std::move(session));
     } catch (const std::bad_alloc &) {
         return fail<std::unique_ptr<NativeSession>>(ErrorCode::resource_unavailable);
@@ -107,9 +120,15 @@ Result<TokenId> NativeSession::sample() {
             const char byte = static_cast<char>(token);
             if (!decoder.append(std::string_view(&byte, 1)))
                 continue;
-            // A budget boundary cannot silently discard a partial Unicode scalar.
-            if (causal_.emitted.size() + 1 == options_.max_output_tokens && !decoder.carry.empty())
-                continue;
+            // Do not begin a scalar whose remaining continuation bytes cannot fit
+            // the remaining token budget. Filtering only the final byte is too late.
+            if (!decoder.carry.empty()) {
+                const auto lead = static_cast<unsigned char>(decoder.carry.front());
+                const std::size_t scalar_bytes = lead < 0xe0 ? 2 : (lead < 0xf0 ? 3 : 4);
+                const auto required = scalar_bytes - decoder.carry.size();
+                if (required > options_.max_output_tokens - (causal_.emitted.size() + 1))
+                    continue;
+            }
         }
         auto score = static_cast<double>(causal_.logits[token]);
         if (!std::isfinite(score))
@@ -316,6 +335,9 @@ Result<NativeReleaseReceipt> NativeSession::release() {
     auto synchronized = compute_->synchronize();
     if (!synchronized || !compute_->receipt().quiescent)
         return fail<NativeReleaseReceipt>(ErrorCode::cleanup_timeout);
+    auto closed = compute_->close();
+    if (!closed)
+        return fail<NativeReleaseReceipt>(ErrorCode::cleanup_failed);
     const auto bytes = retained_bytes();
     causal_ = CausalTextState{};
     model_.reset();

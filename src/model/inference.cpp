@@ -18,7 +18,9 @@ bool cleanup_operation(NativeOperation operation) {
 } // namespace
 struct ThreadNativeWorker::Impl {
     NativeWorkerConfig config;
+    ThreadNativeWorker::ComputeFactory compute_factory;
     std::unique_ptr<NativeSession> session;
+    std::unique_ptr<ComputeImplementation> initializing_compute;
     mutable std::mutex mutex;
     std::condition_variable condition;
     std::optional<NativeCommand> request;
@@ -27,7 +29,8 @@ struct ThreadNativeWorker::Impl {
     std::thread thread;
     std::size_t model_bytes{0};
     std::weak_ptr<const TinyModel> model_lifetime;
-    explicit Impl(NativeWorkerConfig value) : config(std::move(value)) {}
+    explicit Impl(NativeWorkerConfig value, ThreadNativeWorker::ComputeFactory factory)
+        : config(std::move(value)), compute_factory(std::move(factory)) {}
     NativeObservation perform(const NativeCommand &command) {
         NativeObservation observation;
         observation.ticket = command.ticket;
@@ -38,7 +41,7 @@ struct ThreadNativeWorker::Impl {
         auto error = [&](ErrorEnvelope value) { observation.error = value; };
         try {
             if (command.operation == NativeOperation::load) {
-                if (session || loaded)
+                if (session || loaded || initializing_compute)
                     error(ErrorEnvelope::make(ErrorCode::state_unavailable));
                 else {
                     auto model =
@@ -50,17 +53,27 @@ struct ThreadNativeWorker::Impl {
                         error(model.error());
                     else {
                         auto compute =
-                            config.opencl ? make_opencl_compute(config.device_index,
+                            compute_factory
+                                ? compute_factory(config)
+                                : (config.opencl
+                                       ? prepare_opencl_compute(config.device_index,
                                                                 config.device_memory_bound)
-                                          : Result<std::unique_ptr<ComputeImplementation>>::success(
-                                                make_cpu_compute());
-                        if (!compute)
-                            error(compute.error());
+                                       : ComputePreparation{make_cpu_compute(), {}});
+                        initializing_compute = std::move(compute.owner);
+                        if (compute.error)
+                            error(*compute.error);
+                        else if (!initializing_compute)
+                            error(ErrorEnvelope::make(ErrorCode::native_compute_unavailable));
+                        else if (initializing_compute->device().identity !=
+                                     config.compute_identity ||
+                                 model.value()->definition().artifact_sha256 !=
+                                     config.artifact_sha256)
+                            error(ErrorEnvelope::make(ErrorCode::plan_stale));
                         else {
                             model_bytes = model.value()->resident_bytes();
                             model_lifetime = model.value();
-                            auto created = NativeSession::create(
-                                model.value(), std::move(compute).value(), config.processor,
+                            auto created = NativeSession::create_retaining_compute(
+                                model.value(), initializing_compute, config.processor,
                                 config.tokenizer, config.prompt, config.options);
                             if (!created)
                                 error(created.error());
@@ -73,11 +86,24 @@ struct ThreadNativeWorker::Impl {
                 }
             } else if (!session) {
                 if (command.operation == NativeOperation::release) {
-                    observation.release = {0, 0, true};
-                    observation.state.stage = NativeStage::released;
-                    observation.state.valid = false;
-                    observation.model_allocation_released = model_lifetime.expired();
-                    released = true;
+                    auto closed = initializing_compute ? initializing_compute->close()
+                                                       : Result<void>::success();
+                    if (!closed)
+                        error(closed.error());
+                    else {
+                        const auto retained =
+                            initializing_compute ? 131072 + config.retained_context_bytes : 0;
+                        initializing_compute.reset();
+                        observation.release = {0, retained, true};
+                        observation.state.stage = NativeStage::released;
+                        observation.state.valid = false;
+                        observation.model_allocation_released = model_lifetime.expired();
+                        released = true;
+                    }
+                } else if (command.operation == NativeOperation::stop && initializing_compute) {
+                    auto stopped = initializing_compute->synchronize();
+                    if (!stopped)
+                        error(stopped.error());
                 } else if (command.operation != NativeOperation::stop)
                     error(ErrorEnvelope::make(ErrorCode::state_unavailable));
             } else {
@@ -163,8 +189,16 @@ struct ThreadNativeWorker::Impl {
                 observation.quiescent = true;
             observation.state = session->state();
             observation.model_bytes = model_bytes;
-            observation.state_bytes = released ? 0 : session->reserved_state_bytes();
+            if (command.operation == NativeOperation::load && !observation.error)
+                observation.resident_model = session->model();
+            observation.state_bytes =
+                released ? 0 : session->reserved_state_bytes() + config.retained_context_bytes;
             observation.model_allocation_released = released && model_lifetime.expired();
+        } else if (initializing_compute) {
+            observation.state.valid = false;
+            observation.state.stage = NativeStage::failed;
+            observation.state_bytes = 131072 + config.retained_context_bytes;
+            observation.quiescent = initializing_compute->receipt().quiescent;
         } else
             observation.quiescent = true;
         return observation;
@@ -198,6 +232,8 @@ struct ThreadNativeWorker::Impl {
             } else
                 (void)session.release();
         }
+        if (initializing_compute && !initializing_compute->close())
+            (void)initializing_compute.release();
         std::lock_guard lock(mutex);
         closed = true;
     }
@@ -205,15 +241,17 @@ struct ThreadNativeWorker::Impl {
 ThreadNativeWorker::ThreadNativeWorker(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {
     impl_->thread = std::thread([owner = impl_.get()] { owner->run(); });
 }
-Result<std::unique_ptr<ThreadNativeWorker>> ThreadNativeWorker::create(NativeWorkerConfig config) {
+Result<std::unique_ptr<ThreadNativeWorker>> ThreadNativeWorker::create(NativeWorkerConfig config,
+                                                                       ComputeFactory factory) {
     if (config.prompt.size() > 255 || config.artifact_sha256.size() > 64 ||
-        config.registered_artifact.native().size() > 4096)
+        config.registered_artifact.native().size() > 4096 ||
+        config.compute_identity.size() > 12288 || config.retained_context_bytes > 1073741824)
         return Result<std::unique_ptr<ThreadNativeWorker>>::failure(
             ErrorEnvelope::make(ErrorCode::invalid_request));
     try {
         return Result<std::unique_ptr<ThreadNativeWorker>>::success(
-            std::unique_ptr<ThreadNativeWorker>(
-                new ThreadNativeWorker(std::make_unique<Impl>(std::move(config)))));
+            std::unique_ptr<ThreadNativeWorker>(new ThreadNativeWorker(
+                std::make_unique<Impl>(std::move(config), std::move(factory)))));
     } catch (...) {
         return Result<std::unique_ptr<ThreadNativeWorker>>::failure(
             ErrorEnvelope::make(ErrorCode::resource_unavailable));
@@ -260,7 +298,8 @@ bool ThreadNativeWorker::idle() const noexcept {
 Result<void> ThreadNativeWorker::close() {
     {
         std::lock_guard lock(impl_->mutex);
-        if (impl_->busy || impl_->request || impl_->response || (impl_->loaded && !impl_->released))
+        if (impl_->busy || impl_->request || impl_->response || impl_->initializing_compute ||
+            (impl_->loaded && !impl_->released))
             return reject();
         impl_->closing = true;
     }
@@ -333,8 +372,8 @@ Result<void> InferenceMachine::accept(RunController &controller,
         return result;
     };
     if (observation.operation == NativeOperation::release) {
-        if (job.value().state != JobState::finalizing || !observation.release.quiescent ||
-            observation.error)
+        if (job.value().state != JobState::finalizing ||
+            (!observation.error && !observation.release.quiescent))
             return reject(ErrorCode::cleanup_failed);
         // Root reconciles physical allocation IDs before acknowledge_cleanup/finalize.
         return finish(Result<void>::success());
@@ -371,7 +410,9 @@ Result<void> InferenceMachine::accept(RunController &controller,
         if (observation.quiescent)
             return finish(controller.observe_stopped(
                 observation.ticket, {true, false, ExternalOutcome::not_applicable}));
-        return reject(ErrorCode::cleanup_timeout);
+        // A failed stop has completed its command, but has not proved quiescence.
+        // Consume its receipt so the root can retry or retain cleanup debt.
+        return finish(Result<void>::success());
     }
     if (job.value().state == JobState::cancelling) {
         if (observation.operation != NativeOperation::stop)

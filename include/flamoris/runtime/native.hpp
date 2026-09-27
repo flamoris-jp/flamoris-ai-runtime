@@ -118,6 +118,13 @@ struct NativeReleaseReceipt {
 // Single worker-owned mutable state. Each call is bounded and returns at a safe point.
 class NativeSession {
   public:
+    // Transfers compute only after complete successful session preparation;
+    // runtime owners retain any failed initialization for acknowledged cleanup.
+    static Result<std::unique_ptr<NativeSession>>
+    create_retaining_compute(std::shared_ptr<const TinyModel>,
+                             std::unique_ptr<ComputeImplementation> &, const ProcessorDefinition &,
+                             const TokenizerDefinition &, std::string_view prompt,
+                             NativeOptions options = {});
     static Result<std::unique_ptr<NativeSession>>
     create(std::shared_ptr<const TinyModel>, std::unique_ptr<ComputeImplementation>,
            const ProcessorDefinition &, const TokenizerDefinition &, std::string_view prompt,

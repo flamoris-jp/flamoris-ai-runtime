@@ -7,12 +7,14 @@ namespace {
 class FailingCompute : public ComputeImplementation {
     std::unique_ptr<ComputeImplementation> cpu = make_cpu_compute();
     std::size_t count = 0;
+    bool close_failure_;
 
   public:
+    explicit FailingCompute(bool close_failure = false) : close_failure_(close_failure) {}
     const ComputeDevice &device() const noexcept override { return cpu->device(); }
     Result<std::vector<float>> matvec(std::span<const float> m, std::size_t r, std::size_t c,
                                       std::span<const float> x) override {
-        if (++count == 9)
+        if (!close_failure_ && ++count == 9)
             return Result<std::vector<float>>::failure(
                 ErrorEnvelope::make(ErrorCode::native_execution_failure));
         return cpu->matvec(m, r, c, x);
@@ -24,6 +26,14 @@ class FailingCompute : public ComputeImplementation {
     }
     ComputeReceipt receipt() const noexcept override { return cpu->receipt(); }
     Result<void> synchronize() override { return cpu->synchronize(); }
+    Result<void> close() override {
+        if (close_failure_) {
+            close_failure_ = false;
+            return Result<void>::failure(
+                ErrorEnvelope::make(ErrorCode::cleanup_failed, ErrorStage::cleanup));
+        }
+        return cpu->close();
+    }
 };
 constexpr auto checksum = "5cd5a0bacb4cce1efd801fe2a4d7c1347467538ef6e393b37d955d2499ef74e2";
 std::shared_ptr<const TinyModel> model() {
@@ -182,6 +192,25 @@ TEST_CASE("B-REAL04 model ownership shared sessions and independent instances", 
     auto third = session();
     REQUIRE(third->step());
 }
+TEST_CASE("B-REAL03 rejected physical close retains state and model until acknowledged retry",
+          "[native][cpu]") {
+    auto weights = model();
+    std::weak_ptr<const TinyModel> lifetime = weights;
+    auto created =
+        NativeSession::create(weights, std::make_unique<FailingCompute>(true), {}, {}, "close");
+    REQUIRE(created);
+    weights.reset();
+    auto native = std::move(created).value();
+    REQUIRE(native->step(1));
+    REQUIRE(native->request_stop());
+    const auto retained = native->retained_bytes();
+    REQUIRE_FALSE(native->release());
+    REQUIRE(native->state().stage == NativeStage::stopped);
+    REQUIRE(native->retained_bytes() == retained);
+    REQUIRE_FALSE(lifetime.expired());
+    REQUIRE(native->release());
+    REQUIRE(lifetime.expired());
+}
 TEST_CASE("B-REAL05 unqualified controls reject", "[native][cpu]") {
     auto native = session();
     REQUIRE_FALSE(native->profile().offload);
@@ -297,4 +326,17 @@ TEST_CASE("B-REAL07 literal grammar split emoji carry preserved through pause an
     REQUIRE(native->causal_state().stop_matched);
     REQUIRE(native->causal_state().grammar_position ==
             std::string("👩‍💻日本語STOP").size());
+}
+TEST_CASE("B-REAL07 every small output budget leaves enough tokens to complete UTF8 scalars",
+          "[native][cpu]") {
+    for (std::size_t budget = 1; budget <= 16; ++budget) {
+        NativeOptions options;
+        options.max_output_tokens = budget;
+        auto native = session(options, "日本語😀");
+        finish(*native);
+        REQUIRE(native->state().valid);
+        REQUIRE(native->causal_state().decoder.carry.empty());
+        REQUIRE(tokenize(native->causal_state().output, {}, 128));
+        REQUIRE(native->release());
+    }
 }

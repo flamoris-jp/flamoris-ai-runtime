@@ -16,10 +16,13 @@ std::unique_ptr<ComputeImplementation> device() {
     const auto index_text = std::getenv("FLAMORIS_OPENCL_DEVICE");
     // Explicit opt-in test executable selects index 0 unless the caller overrides it.
     const auto index = index_text ? static_cast<std::size_t>(std::stoul(index_text)) : 0;
-    auto compute = make_opencl_compute(index, 65536);
-    REQUIRE(compute); // Missing device fails qualification; this lane never skips or passes a fake.
-    std::cout << "Qualified candidate: " << compute.value()->device().identity << '\n';
-    return std::move(compute).value();
+    auto compute = prepare_opencl_compute(index, 65536);
+    REQUIRE_FALSE(compute.error);
+    REQUIRE(
+        compute
+            .owner); // Missing device fails qualification; this lane never skips or passes a fake.
+    std::cout << "Qualified candidate: " << compute.owner->device().identity << '\n';
+    return std::move(compute.owner);
 }
 } // namespace
 TEST_CASE("B-OPENCL01 real device operations and cached uncached causal parity",
@@ -107,8 +110,9 @@ TEST_CASE("B-OPENCL01 same tokenizer IDs full session pause stop and repeated re
         REQUIRE(cpu.value()->request_stop());
         REQUIRE(cpu.value()->release());
     }
-    auto bounded = make_opencl_compute(0, 1);
-    REQUIRE(bounded);
-    REQUIRE_FALSE(bounded.value()->matvec(std::vector<float>{1}, 1, 1, std::vector<float>{1}));
-    REQUIRE(bounded.value()->receipt().live_device_bytes == 0);
+    auto bounded = prepare_opencl_compute(0, 1);
+    REQUIRE_FALSE(bounded.error);
+    REQUIRE(bounded.owner);
+    REQUIRE_FALSE(bounded.owner->matvec(std::vector<float>{1}, 1, 1, std::vector<float>{1}));
+    REQUIRE(bounded.owner->receipt().live_device_bytes == 0);
 }

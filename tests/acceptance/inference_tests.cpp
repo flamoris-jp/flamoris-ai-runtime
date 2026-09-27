@@ -162,6 +162,30 @@ TEST_CASE("C08 B-CALL01 invalid generation cannot consume reserved native comple
     REQUIRE_FALSE(f.machine->pending());
     REQUIRE_FALSE(f.machine->accept(*f.controller, *receipt));
 }
+TEST_CASE("C08 failed native cleanup consumes its command while retaining lifecycle debt") {
+    Fixture f;
+    REQUIRE(f.controller->request_stop(f.ticket.job));
+    REQUIRE(f.machine->submit(*f.controller, f.ticket, NativeOperation::stop, {}));
+    f.script->finish(false, false, ErrorEnvelope::make(ErrorCode::cleanup_timeout));
+    auto failed_stop = f.machine->take();
+    REQUIRE(failed_stop);
+    REQUIRE(f.machine->accept(*f.controller, *failed_stop));
+    REQUIRE_FALSE(f.machine->pending());
+    REQUIRE(f.job().state == JobState::cancelling);
+    REQUIRE(f.machine->submit(*f.controller, f.ticket, NativeOperation::stop, {}));
+    f.accept();
+    REQUIRE(f.job().state == JobState::finalizing);
+    REQUIRE(f.machine->submit(*f.controller, f.ticket, NativeOperation::release, {}));
+    f.script->finish(false, true, ErrorEnvelope::make(ErrorCode::cleanup_failed));
+    auto failed_release = f.machine->take();
+    REQUIRE(failed_release);
+    REQUIRE(f.machine->accept(*f.controller, *failed_release));
+    REQUIRE_FALSE(f.machine->pending());
+    REQUIRE(f.job().cleanup_pending);
+    REQUIRE(f.machine->submit(*f.controller, f.ticket, NativeOperation::release, {}));
+    f.accept();
+    REQUIRE(f.job().cleanup_pending); // The root still owes resource ledger reconciliation.
+}
 TEST_CASE("C08 B-INPUT01 rejected input and unsupported graceful stop preserve healthy Job") {
     Fixture f;
     REQUIRE(f.machine->submit(*f.controller, f.ticket, NativeOperation::load, allowed));
