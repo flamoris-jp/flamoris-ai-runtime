@@ -90,7 +90,7 @@ Implement the reviewed Phase A/B contracts in logical, frequently committed slic
 2. Job/Continuation lifecycle and deterministic fake backend;
 3. resources, simple Scheduler, authorization and budgets;
 4. validator/compiler and Workflow Machine;
-5. Inference Machine and evidence-selected first backend;
+5. Inference Machine and FLAMORIS native CPU/OpenCL compute;
 6. registered adapters and transport surfaces;
 7. bounded in-memory committed-event inspection and observation-only replay before baseline acceptance (including A32); durable journal persistence, recovery design and later optimizations follow only under separate reviewed contracts.
 
