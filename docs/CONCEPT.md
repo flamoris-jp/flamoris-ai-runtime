@@ -110,7 +110,7 @@ inject bounded results
 resume inference
 ```
 
-The important property is that the Runtime may preserve the relevant model/inference state across this handoff where the backend supports it.
+The important property is that the Runtime may preserve the relevant model/inference state across this handoff where the native execution profile supports it.
 
 This is intended to reduce avoidable re-tokenization, model re-entry, request serialization, and loss of execution context while making the control flow explicit.
 
@@ -146,7 +146,7 @@ Inference Machine resumes
 
 The same mechanism can connect Workflow Machine and Inference Machine without making them the same implementation.
 
-A continuation may retain a backend/model state reference where safe, but should not normally pin a physical **execution lease** while waiting. If that state remains resident in VRAM/RAM, its **retained state footprint** is still allocated and must remain visible to Resource Manager accounting. Resource affinity may be retained so the scheduler can prefer a warm model/device on resume.
+A continuation may retain a native model/state reference where safe, but should not normally pin a physical **execution lease** while waiting. If that state remains resident in VRAM/RAM, its **retained state footprint** is still allocated and must remain visible to Resource Manager accounting. Resource affinity may be retained so the scheduler can prefer a warm model/device on resume.
 
 ## Jobs are first-class runtime work
 
@@ -165,7 +165,7 @@ Conceptual job classes include:
 
 An `InferenceJob` is special because it may retain model execution state such as:
 
-- model/backend reference;
+- model/processor/execution-profile reference;
 - token position;
 - KV or equivalent cache state;
 - sampling state;
@@ -250,7 +250,7 @@ Conceptually:
 1. **Lifecycle** — timings, state changes, job transitions, resource use, stop reasons.
 2. **Token / sampling** — generated token IDs/text and selected sampling metadata where enabled.
 3. **Model-exposed reasoning stream** — only when the model/runtime intentionally exposes such a channel and the deployment policy permits recording it.
-4. **Deep debug probes** — logits, selected activations, cache inspection, or backend-specific diagnostics; disabled by default and strongly bounded.
+4. **Deep debug probes** — logits, selected activations, cache inspection, or native profile-specific diagnostics; disabled by default and strongly bounded.
 
 The Runtime should not require deep internal tensor logging for normal operation.
 
@@ -268,7 +268,7 @@ Possible actions include:
 - cancel child jobs;
 - inject new bounded input;
 - redirect workflow control;
-- later, rewind model state where a backend safely supports it.
+- later, rewind model state where a native execution profile safely supports it.
 
 An interrupt request and the point where it actually takes effect are separate events. This distinction matters for debugging and UI feedback.
 

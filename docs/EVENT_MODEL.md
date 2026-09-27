@@ -25,9 +25,9 @@ Each retained Run event has bounded structured fields:
 | `payload` | Kind-specific bounded, redacted data/references |
 
 Resource/adapter acknowledgement payloads additionally identify operation and relevant
-backend/host generation so stale acknowledgements cannot release new allocations or
+native-worker/host generation so stale acknowledgements cannot release new allocations or
 complete a later attempt. A Continuation inspection ID is provenance, not an independent
-Job or scheduling authority. Secrets, pointers and raw backend state are not event fields.
+Job or scheduling authority. Secrets, pointers and raw native state are not event fields.
 Wall-clock order is never used to settle a race, deadline or cancellation.
 Pre-admission rejection is a bounded request response; optional security audit records
 use request correlation outside the Run stream and do not fabricate a Run/Job lifecycle.
@@ -116,7 +116,7 @@ unbounded control records or block authoritative ledger cleanup.
 An operation that cannot reserve its required records cannot start. Repeated no-op
 commands are rate-limited/coalesced; they cannot consume unbounded control capacity.
 
-Slow/disconnected stream clients never block backend stop, resource release or lifecycle
+Slow/disconnected stream clients never block native-worker stop, resource release or lifecycle
 commit. Optional token/debug telemetry may be sampled, coalesced or dropped according to
 the advertised policy; every loss is represented by counters/ranges in the next available
 bounded telemetry summary. Control records are never silently treated as dropped telemetry.

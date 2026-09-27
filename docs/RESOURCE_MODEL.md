@@ -4,10 +4,10 @@
 
 ## Status and scope
 
-**Phase A architecture design; no allocator, scheduler, or backend is implemented.**
+**Phase A architecture design; no allocator, scheduler, or native compute is implemented.**
 
 This document defines resource invariants for one Runtime instance and one authoritative ledger.
-It does not define a distributed scheduler, a GPU Node Manager API, or a concrete device backend.
+It does not define a distributed scheduler, a GPU Node Manager API, or a concrete native compute implementation.
 Job transitions follow [State Machines](STATE_MACHINES.md); execution ownership follows
 [Execution Model](EXECUTION_MODEL.md). Exact interfaces and synchronization belong to Phase B.
 
@@ -18,7 +18,7 @@ Job transitions follow [State Machines](STATE_MACHINES.md); execution ownership 
 | GPU Node Manager / configured host authority | Host-wide device/service transitions and the host's permitted Runtime operating envelope | Runtime Job completion or successful preservation of inference state |
 | Runtime Resource Manager | Instance resource ledger, reservations, execution leases, allocation accounting, quarantine | Host-wide exclusivity from a local lock or stale free-memory sample |
 | Scheduler | Placement/order of eligible Jobs within admitted resources | A second lifecycle for Continuations or authority to override host policy |
-| Backend/adapter | Actual allocation, state validity, quiescence and release acknowledgement | Permission to increase allocation beyond its admitted envelope |
+| Native worker / Workflow adapter | Actual allocation, state validity, quiescence and release acknowledgement | Permission to increase allocation beyond its admitted envelope |
 | Job owner | State/control decisions and lifetime of resume-state references | Memory release from cancellation, suspension, or terminal status alone |
 
 Host transitions use the registered host-control integration; Runtime must not bypass it with
@@ -37,18 +37,18 @@ an unenforced assumption of exclusive access is insufficient.
 | Resource requirement | Bounded demand for an execution segment: memory, execution slots, concurrency, and transfer headroom; capability metadata supplies bounds |
 | Reservation | Incremental capacity promised but not yet materialized as a physical allocation; an admission may fail without performing work |
 | Execution lease | Permission to execute within an admitted vector and current generation; belongs to the active Job/attempt, never to its Continuation |
-| Allocation | Unique physical resident allocation or conservative backend-owned pool, with location, generation, size bound, references and release status |
+| Allocation | Unique physical resident allocation or conservative native-worker-owned pool, with location, generation, size bound, references and release status |
 | State reference | Reference to one or more allocations or validated preserved state; copying a reference does not allocate or release memory |
 | Affinity | Soft preference for a model/device; cannot preserve rights, stale handles or availability |
 | Quarantine record | Resource/operation whose release or completion cannot be proven; bounded tracking survives Job terminalization |
 
 Model weights shared by two Jobs have one allocation record. Both Jobs may reference that record;
-their private KV/state allocations remain separate. If a backend reports only aggregate pool size,
+their private KV/state allocations remain separate. If a native compute implementation reports only aggregate pool size,
 account the pool once and enforce internal sublimits; do not add its member sizes to the same
 physical total. Shared-allocation lifetime ends only when all required references are released
 and actual eviction is acknowledged.
 
-A model identity includes the relevant revision/backend configuration and device generation.
+A model identity includes the relevant revision/processor/profile/compute configuration and device generation.
 A similar name or warm-model hint is not evidence that preserved state is compatible.
 
 ## Capacity accounting
@@ -66,27 +66,27 @@ allowance or provide a conservative envelope; unresolved overlap makes capacity 
 
 Physical feasibility and per-run quotas are separate checks. Shared allocations are charged
 once physically; each Run must still satisfy its declared working-set quota, including shared
-state it needs, so shared models cannot bypass Run limits. Backend-private memory without
+state it needs, so shared models cannot bypass Run limits. Native-worker-private memory without
 reliable subdivision requires conservative bounds. Estimates are not guarantees against OOM.
 
 RAM, VRAM, transfer staging, scratch storage where enabled, execution slots, provider concurrency,
 and bounded event/result storage are distinct resources. Monetary/token budgets follow
 [Authorization Model](AUTHORIZATION_MODEL.md) and are not made available by releasing memory.
 Growth beyond admitted bounds requires another admission before allocation; otherwise fail the
-operation with a resource error. A backend unable to enforce growth must reserve its safe maximum
+operation with a resource error. A native worker unable to enforce growth must reserve its safe maximum
 or advertise the operation unsupported under that envelope.
 
 ## Admission and release protocol
 
 1. Determine that the Job is dependency-ready and still runnable under current policy.
 2. Validate resource requirements, preserved-state compatibility, budgets, capability availability
-   and current host/backend generations. Affinity does not replace these checks.
+   and current host/native-worker generations. Affinity does not replace these checks.
 3. Reserve the complete incremental resource vector atomically in the instance ledger, including
    transfer headroom and any capacity needed to load a cold model. Failure reserves nothing.
 4. Recheck cancellation/deadline and dispatch authorization at the dispatch boundary; issue the
    execution lease only for this Job/attempt and generation. If dispatch is aborted, roll back
    unmaterialized reservations. Materialized allocations require confirmed release or quarantine.
-5. Materialize allocations through the backend and convert their reservations without double
+5. Materialize allocations through the native worker or Workflow adapter and convert their reservations without double
    counting. A failed partial acquisition unwinds confirmed pieces; uncertain pieces remain charged.
 6. Start or resume useful segment work only after the complete required vector is available. No running Job retains
    some newly requested execution capacities while waiting indefinitely for the remainder.
@@ -113,7 +113,7 @@ to solve such a resource dependency deadlock.
 
 | Operation | Preconditions and accounting result |
 | --- | --- |
-| Suspend in place | Backend reaches a declared safe point and stops active work; release execution capacity after acknowledgement, retain model/state bytes |
+| Suspend in place | Native worker reaches a declared safe point and stops active work; release execution capacity after acknowledgement, retain model/state bytes |
 | Offload | Reserve target and transfer headroom before copying; source and target coexist and are counted during transfer; free source only after validation and release acknowledgement |
 | Snapshot | Require advertised state support, bounded approved storage and compatibility metadata; snapshot existence alone does not free source state |
 | Evict warm model | Only when no required live-state reference depends on it, or a verified preservation protocol explicitly removes that dependency; charge until release acknowledgement |
@@ -144,13 +144,13 @@ and does not put the Continuation in the scheduling queue or give it an executio
 ## Freshness, revocation and fencing
 
 Resource observations carry an origin, generation/epoch and freshness bound. Admission rejects
-unknown, stale or inconsistent required host/backend state. A free-memory estimate does not grant
+unknown, stale or inconsistent required host/native-worker state. A free-memory estimate does not grant
 authority. The Phase B integration must define which authority can fence old dispatch and how.
 
-Every local dispatch, backend completion, state reference and release acknowledgement is correlated
+Every local dispatch, native-worker or Workflow-adapter completion, state reference and release acknowledgement is correlated
 with its instance/attempt and relevant allocation/device generation. Late acknowledgements cannot
 free a replacement allocation or validate state created under a newer generation. A raw address
-or reusable backend handle is insufficient identity.
+or reusable native handle is insufficient identity.
 
 When a host epoch changes, ownership expires, or the authority becomes unknown:
 
@@ -160,7 +160,7 @@ When a host epoch changes, ownership expires, or the authority becomes unknown:
 - fail affected resumability if state is lost or its compatibility cannot be established;
 - continue unrelated work only where its independently verified resources/policy remain valid.
 
-Revoking permission does not prove physical preemption. If a backend cannot stop at a safe point,
+Revoking permission does not prove physical preemption. If a native worker cannot stop at a safe point,
 its capacity remains unavailable/quarantined. Runtime must not overlap a replacement worker merely
 because the previous worker missed a timeout. Host recovery/reset remains host authority's decision.
 
@@ -190,7 +190,7 @@ performance. Cost estimates, cache hits and affinity are advisory, with event pr
 | Admission does not fit | Queue within bounded policy if feasibility may change; reject/fail impossible requirements; no partial execution |
 | Allocation OOM after admission | Stop the failing attempt, reconcile actual allocations, emit resource failure; do not silently retry a side effect |
 | Partial transfer or unload failure | Preserve validated source if possible; retain all uncertain allocations; no successful evacuation claim |
-| Worker crash / lost completion | Fence its generation, mark state unavailable, account outstanding resources in quarantine and reconcile through backend/host authority |
+| Worker crash / lost completion | Fence its generation, mark state unavailable, account outstanding resources in quarantine and reconcile through native-worker/host authority |
 | Remote cancellation cannot be confirmed | Retain operation uncertainty/concurrency debt; do not infer remote completion or refund consumed cost |
 | Cleanup acknowledgement arrives late | Apply only to matching live cleanup identity/generation; never mutate a terminal Job back to runnable |
 | Quarantine reaches its tracking/capacity bound | Stop affected admissions and require recovery/reconciliation; never expire records merely to make capacity appear free |

@@ -22,7 +22,7 @@ identity and durable policy; the Runtime can restrict a request further, never e
 | Run admission | Authenticate context, authorize plan and inputs under current policy, enforce limits and reserve bounded bookkeeping | Reject without dispatch; cached plan confers no prior permission |
 | Job dispatch | Recheck caller context validity, capability pins/availability, concrete input scope, cancellation/deadline, budget and resources | Do not cross execution boundary; fail or wait only for explicitly transient conditions |
 | Retry dispatch | Repeat dispatch checks, then prove retry is permitted for the previous attempt's outcome | Refuse unsafe or uncertain repetition |
-| Resume | Revalidate active context, plan pins, state accessibility, current backend/resource epoch, remaining budget and deadline | Deny resume; discard pending resume state through accounted cleanup |
+| Resume | Revalidate active context, plan pins, state accessibility, current native-worker/resource epoch, remaining budget and deadline | Deny resume; discard pending resume state through accounted cleanup |
 | Result/event access | Authorize current requester for Run ownership, requested data/trace scope and retention | Redact or deny independently of historical execution permission |
 
 Every dispatch includes the current policy check, including `pure` and `read` work.

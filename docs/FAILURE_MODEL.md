@@ -45,8 +45,8 @@ to events and nested causes; hiding details only from the outer message fails.
 | --- | --- | --- |
 | Input/plan | `invalid_request`, `invalid_workflow`, `invalid_reference`, `unknown_capability`, `plan_stale` | Reject before admission/dispatch when detectable; no silent coercion. |
 | Policy | `permission_denied`, `budget_exceeded` | Stop the denied dispatch; reauthorization cannot retroactively permit it. |
-| Availability | `unsupported_model`, `capability_unavailable`, `backend_unavailable`, `resource_unavailable` | Distinguish unsupported capability from temporary capacity; neither permits fallback with different semantics. |
-| Execution | `backend_failure`, `upstream_failure`, `state_unavailable` | Stop affected work; preserve sanitized cause and known external outcome. |
+| Availability | `unsupported_model`, `capability_unavailable`, `native_compute_unavailable`, `resource_unavailable` | Distinguish unsupported capability from temporary capacity; neither permits fallback with different semantics. |
+| Execution | `native_execution_failure`, `upstream_failure`, `state_unavailable` | Stop affected work; preserve sanitized cause and known external outcome. |
 | Contract | `invalid_result`, `result_too_large` | Reject unsafe output before dependency binding or inference injection. |
 | Deadline | `job_timeout`, `run_timeout` | Stop admission/dispatch in scope and initiate bounded cleanup; not successful cancellation. |
 | Uncertainty | `outcome_unknown` | No proof of remote outcome; reconcile without redispatching. |
@@ -72,7 +72,7 @@ still be queried, and transport retry follows submission deduplication rules.
 Cancellation acknowledges a request first; it is not terminal on receipt.
 Stop new dispatch, request cooperative stops, prevent stale callbacks from
 mutating Job state, and settle descendants/resources before terminal commit.
-Do not claim a wedged native backend has stopped merely because a timer fired.
+Do not claim a wedged native worker has stopped merely because a timer fired.
 Fencing a callback alone does not isolate an in-process writer or free memory.
 
 For external work, distinguish rejection before dispatch, confirmed completion,
@@ -194,7 +194,7 @@ containment record. No required event relies on an observer remaining connected.
 | Run deadline during all-settled join | Stop parent and outstanding children; failed/timeout | Invalidate outstanding resume | Drain or quarantine each child | Deadline precedes propagated stops; preserve settled results |
 | Race winner with non-stopping loser | Winner stays selected; parent follows cleanup policy | Only declared winner binding | Loser capacity stays charged/contained | Winner plus separate loser unknown/cleanup evidence |
 | Provider result oversized after write | Child failed/result-too-large; normal propagation | Never inject rejected payload | Local buffers bounded; remote asset unchanged | Result rejection and confirmed/unknown write evidence |
-| Backend cannot stop before cleanup deadline | Stay unresolved until safe containment; no false stop | Never resume | Quarantine or supervisor termination | Cleanup timeout; no fictitious release/completion |
+| Native worker cannot stop before cleanup deadline | Stay unresolved until safe containment; no false stop | Never resume | Quarantine or supervisor termination | Cleanup timeout; no fictitious release/completion |
 | Process crashes after dispatch | No invented terminal outcome; restart cannot resume | Lost/nonrecoverable | Rediscover through proper resource authority | Last trace may end at dispatch; outcome needs reconciliation |
 
 ## Reconciliation and review gate

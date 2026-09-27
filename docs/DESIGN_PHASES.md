@@ -4,7 +4,7 @@
 
 **Phase A was reviewed and merged via PR #4. Phase B is proposed for review in [its design index](PHASE_B_DESIGN.md). No runtime code, build system, or tests are implemented.**
 
-This plan replaces the earlier interleaved Phase 0–3 research/implementation roadmap. The three stages are sequential review gates: architecture, C++ implementation design, then implementation. A merged architecture proposal does not claim backend feasibility or authorize skipping the next gate.
+This plan replaces the earlier interleaved Phase 0–3 research/implementation roadmap. The three stages are sequential review gates: architecture, C++ implementation design, then implementation. A merged architecture proposal does not claim native model/compute feasibility or authorize skipping the next gate.
 
 The purpose is to settle observable semantics before choosing convenient implementation types. It is not a promise that implementation can never uncover a design defect. Record a deviation with affected invariants, alternatives, migration impact, and new acceptance cases; update and review the design before implementing a semantic change.
 
@@ -74,7 +74,7 @@ Required design outputs:
 | Concurrency | State commit/linearization, concurrent submission claim and Run identity, duplicate-waiter decisions, worker callbacks, thread affinity, clocks and cancellation safety |
 | Resources | Handle/allocation ownership, cleanup/quarantine protocol, host-adapter contract |
 | Paid budgets | Optional future strict-cost profile, separately reviewed; finite Run limits and paid effect policy remain baseline |
-| Backend | Evidence-backed capability matrix, first integration contract and deterministic fake seams |
+| Native execution | FLAMORIS model, processor/tokenizer and compute contract, profile-specific capabilities and deterministic fake seams |
 | Serialization | Versioned IR, plan/event/error shapes, bounded post-terminal observation/retention, redaction, bounded parser and compatibility rules |
 | Delivery | Implementation slices, exact acceptance case mapping, CI/toolchain matrix and risk register |
 
@@ -87,7 +87,7 @@ Exit gate: all initial implementation interfaces are backed by evidence, ownersh
 Implement the reviewed Phase A/B contracts in logical, frequently committed slices:
 
 1. build/test foundation and domain/error/event types;
-2. Job/Continuation lifecycle and deterministic fake backend;
+2. Job/Continuation lifecycle and deterministic scripted native worker;
 3. resources, simple Scheduler, authorization and budgets;
 4. validator/compiler and Workflow Machine;
 5. Inference Machine and FLAMORIS native CPU/OpenCL compute;
@@ -105,6 +105,6 @@ Exact dependency order is a Phase B deliverable. A slice must not advertise a ca
 | Race | Explicit acceptance, fixed participants and bounded loser cleanup | Provisional/final/superseded result streams |
 | Resources | Conservative accounting, fair readiness and safe model reuse | Measured residency/reload optimization |
 | Events | Bounded ordered observation; inspection-only replay | Durable execution recovery under a separate protocol |
-| Backends | One researched, capability-honest backend | Additional backends, including Vem after a stable contract |
+| Native model execution | FLAMORIS CPU reference and qualified OpenCL compute under a pinned model/processor/profile identity | More FLAMORIS-native model families and compute implementations; external AI through Workflow capabilities |
 
 These later features are bounded by current authority rules; they are not silently enabled by being mentioned in the architecture.

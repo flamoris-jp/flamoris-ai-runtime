@@ -13,7 +13,7 @@ FLAMORIS AI Runtime is a single-user native model execution kernel: inference an
 | Authority | Owns | Does not own |
 | --- | --- | --- |
 | Runtime Kernel | Run admission, Job lifecycle, execution control, limits and provenance | Caller identity/memory or host-wide service policy |
-| Inference Machine | Tokenize/prefill/decode/sampling coordination and backend state for its Job | Independent terminal status, ambient tool authority |
+| Inference Machine | Native processing/prefill/decode/sampling coordination and profile state for its Job | Independent terminal status, ambient tool authority |
 | Workflow Machine | Immutable compiled plan, dependencies, binding, join/race decisions | Arbitrary code or a second Scheduler |
 | Scheduler | Selection of eligible Jobs under current resource/policy constraints | Continuation scheduling, external service authority |
 | Resource Manager | Reservations, execution leases, physical allocation accounting and cleanup debt | Claiming host exclusivity from a local lock |
@@ -37,12 +37,14 @@ flowchart TD
   Workflow --> Jobs
   Jobs --> Scheduler["Scheduler"]
   Scheduler --> Resources["Resource Manager"]
-  Resources --> Backends["Backends and capability adapters"]
+  Resources --> Native["Native execution / compute"]
+  Resources --> Adapters["Workflow capability adapters"]
   Jobs --> Events["Committed event stream"]
-  Backends --> Jobs
+  Native --> Jobs
+  Adapters --> Jobs
 ```
 
-This is one logical control architecture, not a requirement to execute all computation on one thread. Backend observations return through the Job authority. A callback cannot directly resurrect a terminal Job or bypass policy.
+This is one logical control architecture, not a requirement to execute all computation on one thread. Native worker and capability-adapter observations return through the Job authority. A callback cannot directly resurrect a terminal Job or bypass policy.
 
 C++ is the intended Kernel language. Transports, bindings and external services preserve the same semantics. See [Implementation Strategy](IMPLEMENTATION_STRATEGY.md).
 
@@ -74,15 +76,15 @@ Inference may propose work at a runtime safe point. That proposal is untrusted i
 
 See [Workflow IR](WORKFLOW_IR.md) and [Authorization Model](AUTHORIZATION_MODEL.md).
 
-## Inference control and backend capabilities
+## Native inference control and Workflow capabilities
 
-The intended decoder control boundary is after an internally consistent state update: prefill/decode, sampling, token/state update, committed observation, control request application, then the next segment. Exact safe points and maximum segment bounds must be established for the selected backend in Phase B.
+The initial causal-text decoder boundary follows an internally consistent state update: prefill/decode, sampling, token/state update, committed observation, control request application, then the next segment. Phase B defines safe points and maximum segment bounds for the native `ExecutionProfile`.
 
-A backend advertises independently whether it supports streaming, cooperative cancellation, state-preserving suspension, offload/snapshot, bounded input injection and rewind. An opaque server call must not advertise decode control merely because its transport streams tokens.
+A native `ExecutionProfile` advertises independently whether it supports streaming, cooperative cancellation, state-preserving suspension, offload/snapshot, bounded input injection and rewind. A Workflow capability adapter for an external AI service cannot advertise native decode control merely because its transport streams tokens.
 
-Preservation compatibility includes model/backend/configuration and state generation. Re-tokenization or re-inference after discarding KV/sampler state is a new execution strategy, not equivalent resume. Unsupported requested control is rejected explicitly.
+Preservation compatibility pins model, processor/tokenizer, execution profile, compute/state representation and state generation. Re-tokenization or re-inference after discarding causal-text KV/sampler state is a new execution strategy, not equivalent resume. Unsupported requested control is rejected explicitly.
 
-Backend compute abstractions do not force CUDA, ROCm, Vulkan, OpenCL or one model architecture into the public Runtime contract. This is an architectural requirement, not a compatibility claim about any runtime today.
+Native compute implementations may use CPU, OpenCL or a later accelerator under the FLAMORIS-owned execution loop. No external model runtime is an interchangeable native inference implementation. This is an architectural requirement, not a compatibility claim about any implementation today.
 
 ## Resources and host coordination
 

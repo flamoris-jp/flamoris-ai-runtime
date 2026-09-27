@@ -35,7 +35,7 @@ Capabilities / Inference
 
 Inference may itself be represented by a stateful `InferenceJob`.
 
-A running inference may yield, dispatch child jobs, wait for them, receive bounded results, and resume where the backend supports state preservation.
+A running inference may yield, dispatch child jobs, wait for them, receive bounded results, and resume where the native execution profile supports state preservation.
 
 The Workflow IR therefore must be able to express useful coordination without becoming a general programming language.
 
@@ -93,7 +93,7 @@ Exact names remain draft.
 
 Workflow IR is never scheduler state and should not be executed directly.
 
-The Runtime first validates the IR, resolves registered capabilities and bindings, applies caller/runtime limits, derives resource/effect information, and compiles an **Execution Plan**. Direct inference submission is normalized into a minimal single-root inference plan under the same compiler and admission contract, including pinned model/backend, effects, bounds and an explicit dynamic-child envelope; see [Execution Model](EXECUTION_MODEL.md). It does not bypass plan compilation merely because the caller did not supply Workflow IR.
+The Runtime first validates the IR, resolves registered capabilities and bindings, applies caller/runtime limits, derives resource/effect information, and compiles an **Execution Plan**. Direct inference submission is normalized into a minimal single-root inference plan under the same compiler and admission contract, including pinned model/processor/tokenizer/execution-profile and compute identity, effects, bounds and an explicit dynamic-child envelope; see [Execution Model](EXECUTION_MODEL.md). It does not bypass plan compilation merely because the caller did not supply Workflow IR.
 
 Conceptually:
 
@@ -296,13 +296,13 @@ inject selected bounded result
 InferenceJob resume
 ```
 
-The IR should not contain raw KV cache or backend pointers.
+The IR should not contain raw KV cache or native pointers.
 
 Those belong to runtime execution state.
 
 ## Continuations
 
-Workflow IR may describe control that can yield or wait, but it must not serialize raw Continuation objects, backend pointers, KV cache, GPU leases, or other live Runtime state.
+Workflow IR may describe control that can yield or wait, but it must not serialize raw Continuation objects, native pointers, KV cache, GPU leases, or other live Runtime state.
 
 The compiler may identify **potential suspension sites** and continuation policy from validated workflow/capability semantics, such as `await` or `join`. It does not pre-create concrete Continuations.
 
@@ -315,7 +315,7 @@ A Continuation may hold:
 - resume point;
 - waiting condition;
 - bounded result bindings;
-- backend/state reference where supported;
+- native state reference where supported;
 - resource requirements and affinity hints;
 - deadline/cancellation linkage.
 
