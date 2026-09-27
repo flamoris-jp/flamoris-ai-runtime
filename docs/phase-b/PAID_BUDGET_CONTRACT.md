@@ -1,10 +1,10 @@
-# Durable Paid Budget Contract
+# Optional strict-cost Paid Budget Authority profile
 
-**Phase B integration design; no budget service or adapter is implemented.**
-[Authorization Model](../AUTHORIZATION_MODEL.md) owns hard-budget semantics.
+**Future optional integration design; excluded from the single-user baseline, Phase C prerequisites and baseline completion gates. No budget service or adapter is implemented.**
+[Authorization Model](../AUTHORIZATION_MODEL.md) defines baseline finite Run limits; this document applies only if a later separately reviewed strict-cost profile is enabled.
 This document specifies the required external authority contract without selecting a
 database, service, or transport. A process-local ledger and retained event trace cannot
-satisfy this contract. A production paid adapter remains disabled until both durable
+satisfy this contract. A strict-cost paid adapter remains disabled until both durable
 authority conformance and provider-enforced maximum liability are demonstrated.
 
 ## Authority and identities

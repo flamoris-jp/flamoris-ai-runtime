@@ -15,20 +15,11 @@ and meaningful single-purpose commits. Do not auto-merge. The ordering below
 allows preparation in parallel, but a dependent slice must not invent an interface
 or silently substitute a pending design.
 
-The baseline has two distinct evidence gates:
-
-1. **Kernel semantics:** all A01–A42 plus supplemental implementation/activation
-   cases pass offline with controllable fakes. In-memory inspection replay is
-   included. A fake does not prove a real integration's capabilities.
-2. **First-backend qualification:** embedded llama.cpp CPU integration passes the
-   separately bounded real-model suite at a pinned revision with approved model
-   fixtures. Report exactly which controls are supported. GPU and deployed
-   host/provider integrations each need their own additional evidence.
-
-A kernel-only milestone may be published honestly as such. It is not the completed
-real-inference baseline. Lack of an external durable budget implementation keeps
-hard-budget paid capabilities disabled; lack of enforceable host arbitration keeps
-affected device execution disabled. The Runtime must not invent either authority.
+The baseline has distinct evidence gates: deterministic kernel tests, native
+CPU correctness/model control qualification, and native OpenCL compute parity.
+External host activation needs its own evidence. Strict cross-crash paid-cost
+control is an optional future integration and does not gate this baseline.
+A fixture unavailable for a real lane is recorded as not run, never passed.
 
 ## Dependency and responsibility index
 
@@ -38,17 +29,18 @@ inherits its prerequisites' completed regression suite.
 | Slice | Direct prerequisites | Main responsibility | Acceptance families exercised |
 | --- | --- | --- | --- |
 | C01 | Reviewed Phase B | Toolchain, IDs, bounded values/errors/effects, test kit | A06; B-SER01 primitives |
-| C02 | C01 | Process construction guard, Run/Job controller, Continuation, event commit and manual executor | A08–A09, A14–A19, A28, A37–A38, A40 controller cases; B-LIFE01/B-EVENT01/B-NATIVE01 factory cases |
+| C02 | C01 | Run/Job controller, Continuation, event commit and manual executor | A08–A09, A14–A19, A28, A37–A38, A40 controller cases; B-LIFE01/B-EVENT01/B-NATIVE01 instance/holder cases |
 | C03 | C02 | Resource ledger, host protocol, accounted cleanup | A10–A13, A28–A29; B-CALL01/B-DRAIN01 resource cases |
-| C04 | C03 | Current authorization, submission claim, Run limits, durable paid port | A04–A05, A24–A27, A33, A35, A41–A42 policy/port cases; B-RETRY01/B-PAID02 |
+| C04 | C03 | Single-user authorization, submission claim and finite Run limits | A04–A05, A24–A27, A33, A35, B-RETRY01; A41–A42/B-PAID02 optional |
 | C05 | C01, C04 | Bounded IR parser, validator/compiler, direct normalization | A01–A03, A06–A07, A24, A36, A39 compile/admission cases; B-SER01 |
 | C06 | C03, C04, C05 | Scheduler, fairness, backend activation and host lifecycle client | A10, A13, A15, A17–A19, A34, A37, A40; B-ACT01–B-ACT12 |
 | C07 | C02, C04, C05, C06 | WorkflowMachine, dependency binding, await/join/race | A07–A10, A16, A20–A26, A36–A40 workflow cases |
 | C08 | C03, C04, C05, C06, C07 | InferenceMachine and scripted controllable backend | A03–A04, A07–A10, A14–A20, A28, A38–A40; B-INPUT01 |
 | C09 | C02, C03, C04, C07 | Retained observation, gaps, bounded reconciliation, inspection replay | A29–A32, A35; B-EVENT01/B-SER01 observation cases |
-| C10 | C03, C06, C08 | Embedded llama.cpp CPU backend and conformance qualification | Real-backend suite; related A08–A19/A28 invariants |
-| C11 | C04, C05, C07, C08, C09 | Registered adapters and transport-facing projection | A25–A27, A31–A33, A35, A39, A41–A42 boundary regression |
-| C12 | C01–C11 | Complete baseline integration and evidence report | All A01–A42, supplemental cases and qualified real-backend suite |
+| C10 | C03, C06, C08 | FLAMORIS native CPU reference and conformance qualification | Real-backend suite; related A08–A19/A28 invariants |
+| C10a | C10 | FLAMORIS native OpenCL compute and CPU/OpenCL parity | Native parity/qualification suite |
+| C11 | C04, C05, C07, C08, C09 | Registered adapters and transport-facing projection | A25–A27, A31–A33, A35, A39, external outcome boundary regression |
+| C12 | C01–C11 plus C10a | Complete baseline integration and evidence report | All baseline A cases (A41–A42 optional), supplemental cases and qualified native CPU/OpenCL suite |
 
 Some scenarios appear in several rows deliberately: a controller unit test cannot
 establish end-to-end compiler/dispatch behavior. The closing suite must call the
@@ -75,7 +67,7 @@ test does not close an acceptance case.
 
 ## C02 — lifecycle and atomic local commits
 
-- **Scope:** composition-root ProcessRuntimeGuard and Runtime-owned control executor,
+- **Scope:** composition-root Runtime-owned control executor,
   Run/Job records/controllers,
   AttemptRecord, Continuation/PendingResume move ownership, pause causes/barriers,
   immutable finalizing intent, callback identities and bounded command/proposal
@@ -86,7 +78,7 @@ test does not close an acceptance case.
   generation rejection; both cancel/completion orders; exact deadline boundary;
   Run versus targeted pause projection and atomic child/barrier races. Exercise
   A08–A09, A14–A19, A28, A37–A38, A40 plus B-LIFE01/B-EVENT01 at controller level
-  and B-NATIVE01 construction rejection with fake native calls; C10 closes native teardown qualification.
+  and B-NATIVE01 native holder lifetime with fake operations; C10 closes real qualification.
 - **Commit units:** records/ownership; serialized proposal and event publication;
   suspension/control/finalization; deterministic arbitration/failure tests.
 - **Excluded:** useful real work, backend pause claims, resource feasibility,
@@ -105,43 +97,26 @@ test does not close an acceptance case.
   and release loss; source/target overlap; stale host/backend epochs; fake host
   grants versus unenforced capacity hints; unsafe native containment. A10–A13,
   A28–A29 with actual ResourceManager, B-CALL01/B-DRAIN01 lifetime checks, and
-  cross-Run full-vector contention and distinct process-owned native-global
-  allowance/accounting without partial useful execution.
+  cross-Run full-vector contention and shared model residency accounting without partial useful execution.
 - **Commit units:** accounting records/admission; allocation/reference lifetime;
   host epochs/receipt protocol; quarantine/reconciliation and fault tests.
 - **Excluded:** device reset/service control implementation, pretending existing
   GPU Node Manager supports a new API, real offload/allocator, GPU utilization
   heuristics, residency optimization and automatic recovery after crash.
 
-## C04 — admission, current policy and durable paid protocol
+## C04 — single-user admission, policy and finite Run limits
 
-- **Scope:** revocable current policy/capability projection, Run-local cumulative
-  budget and confirmation checks; atomic scoped submission claim plus one reserved
-  Run ID; independent fresh unkeyed PendingSubmission records; bounded keyed
-  same-digest waiters; admitted-claim retention; external
-  PaidBudgetPort adapter contract, proof-of-no-handoff release, settlement,
-  full paid-race `reserve_envelope`/`bind_attempt` funding gates with nested
-  subset ownership, durable `arm_handoff`/ticket protocol, bounded DeliveryGate
-  registry/cleanup ownership and atomic close/send with identity-bound no-send
-  proof, inventory/reconciliation and fail-closed
-  behavior. Async preparation receipts
-  never become independently spendable grants; final local dispatch checks commit
-  together under the control executor.
-- **Prerequisites:** C03. D fake storage is outside Runtime ownership so a new
-  Runtime construction can test durable liabilities without recovering Runs.
-- **Tests / acceptance:** revoke at each boundary; simultaneous same/conflicting
-  digest for explicit keys, independent sequential/concurrent unkeyed submissions
-  and invalid present keys; pre-Run rejection waiter release ordering; two Runs competing for one
-  tenant budget; lost reservation receipt; restart/unavailable/partial inventory;
-  aggregate paid-race funding before any participant handoff, including failure
-  of the last reservation; current handle/trace access. Close policy/port cases
-  in A04–A05, A24–A27, A33,
-  A35, A41–A42, B-PAID02 and B-RETRY01; retain integrated retests in C07/C08/C11.
-- **Commit units:** policy/scope and budget values; submission claim/waiters;
-  durable paid protocol/fake; eligibility/handoff guards; retry/uncertainty tests.
-- **Excluded:** concrete durable budget database/service, automatic refunds,
-  unbounded monetary estimates, provider implementation, cross-restart submission
-  exactly-once and Run recovery.
+- **Scope:** current per-capability/effect authorization, confirmation binding,
+  local cumulative child/attempt/resource limits, keyed submission dedup and
+  independent unkeyed admission. No tenant database or durable money ledger.
+- **Prerequisites:** C03.
+- **Tests:** A04–A05 (local Run limit), A24 (finite group allowance), A25–A27,
+  A33/A35 (current owner/scope), B-RETRY01. Test revocation versus dispatch,
+  duplicate claims, unknown external outcomes and retry refusal.
+- **Commit units:** authorization values; submission claims; limits and effect
+  dispatch; deterministic failure/race tests.
+- **Excluded:** tenant isolation, cross-crash monetary guarantees and Paid
+  Budget Authority. Its former A41–A42 and B-PAID02 belong to a separate task.
 
 ## C05 — parser, validator, compiler and normalized submission
 
@@ -173,7 +148,7 @@ test does not close an acceptance case.
   baseline; process start/dedup records belong to the external host gateway and are
   exercised through a deterministic gateway fake, not a new Kernel service manager.
 - **Prerequisites:** C03/C04/C05. Actual service startup remains an external port;
-  an unavailable host/paid authority cannot be replaced by local optimistic state.
+  an unavailable host authority cannot be replaced by local optimistic state.
 - **Tests / acceptance:** A10, A13, A15, A17–A19, A34, A37, A40; B-ACT01–B-ACT12:
   concurrent startup, initiating waiter cancellation, partial acquisition failure,
   model-cold admission, host changes, idle/new-submit ordering, loader cancellation,
@@ -206,9 +181,9 @@ test does not close an acceptance case.
 ## C08 — InferenceMachine with scripted backend
 
 - **Scope:** tokenize/prefill/bounded decode/sample/state-commit progression under
-  an existing Job, explicit backend capability descriptors, current-state checks,
+  an existing Job, explicit native execution-profile capabilities, current-state checks,
   safe-point stop/pause/resume, bounded dynamic proposal/result injection and
-  callback fencing. FakeBackend supplies deterministic state/sampler/callback
+  callback fencing. Scripted native fake supplies deterministic state/sampler/callback
   evidence; it does not emulate a real model's quality or universal capabilities.
 - **Prerequisites:** C03/C04/C05/C06/C07. Resource and child bookkeeping cannot be
   postponed behind inference execution.
@@ -245,31 +220,32 @@ test does not close an acceptance case.
   replay as retry and unbounded debug/tensor logging. A32 must pass before baseline
   acceptance regardless of any later durable-journal plan.
 
-## C10 — first real backend, embedded llama.cpp on CPU
+## C10 — FLAMORIS native CPU reference and causal-text execution
 
-- **Scope:** pin researched llama.cpp revision and licenses, implement the minimum
-  embedded C API adapter, ProcessRuntimeGuard enforcing one construction per
-  process, root-owned NativeBackendLifetime for global init/log/free ordering,
-  separately reserved and accounted process-owned RuntimeOverheadRecord,
-  one sequence/context per Job and serialized context
-  ownership, explicit tokenizer/model identity, bounded prefill/decode/sampler
-  progression, in-place preserved-state safe points and accounted release.
-  Revalidate primary API evidence if the pinned revision changes.
-- **Prerequisites:** C03/C06/C08 and review of real fixture license/checksum/resource
-  bounds. No production feature is advertised merely because the fake supports it.
-- **Tests / acceptance:** run the real-backend qualification matrix below and
-  relevant lifecycle invariants from A08–A19/A28; CPU model tests are a separate
-  opt-in, clearly reported integration lane. B-NATIVE01 uses instrumented native
-  calls and isolated process/factory tests, including first Job terminal → second
-  Run reuse → one process-owned overhead release and uncertain-init containment
-  before real integration. Default contract tests remain offline with no weights.
-  Unsupported offload/rewind/batching must reject explicitly.
-- **Commit units:** pinned dependency/licensing; model/context owner and resource
-  adapter; process-owned global overhead reservation/materialization/release
-  accounting; bounded step/sampler controls; pause/cancel/lifetime conformance;
-  qualified fixture and accurately scoped status documentation.
-- **Excluded:** GPU acceleration, continuous batching, cross-Job shared KV, durable
-  snapshots, offload/rewind, copying private model code and unsupported speed claims.
+- **Scope:** independently implement registered model/processor loading,
+  bounded tokenize/prefill/decode, explicit KV/cache and sampler/algorithm state,
+  deterministic CPU compute, segment safe points and release receipts. Preserve
+  model-neutral state envelope separately from causal-text profile state.
+- **Prerequisites:** C03/C06/C08 and approved fixture identity/license/checksum.
+- **Tests:** B-REAL01–B-REAL04/B-REAL06 as revised below; cached versus uncached
+  CPU correctness, uninterrupted versus paused progression, partial failure,
+  cancellation, shared model lifetime and bounded allocations.
+- **Commit units:** model/processor/artifact identity; CPU ops; incremental state
+  and sampler; Inference Machine integration; lifetime/conformance fixtures.
+- **Excluded:** copying private source, embedded third-party runtime, OpenCL
+  claims, portable checkpoints or universal model-family support.
+
+## C10a — native OpenCL compute and parity
+
+- **Scope:** implement FLAMORIS-owned OpenCL operations under the same native
+  model execution and resource accounting. Device-specific state compatibility
+  must be explicit; CPU remains the correctness oracle.
+- **Prerequisites:** qualified C10 and actual OpenCL build/device evidence.
+- **Tests:** CPU/OpenCL parity under declared numeric tolerances, cached/uncached
+  decode, repeated load/release, cancellation and resource/quiescence receipts.
+  A historical hardware note cannot establish this gate.
+- **Commit units:** device/context ownership; bounded operations; parity fixtures;
+  native conformance and honest capability metadata.
 
 ## C11 — registered capability and caller adapters
 
@@ -280,7 +256,7 @@ test does not close an acceptance case.
   semantics; no handler owns a separate Job or dispatch authority.
 - **Prerequisites:** C04/C05/C07/C08/C09. C10 is required only for real inference
   demonstrations, not for facade contract tests with a scripted backend.
-- **Tests / acceptance:** A25–A27, A31–A33, A35, A39, A41–A42 through in-process
+- **Tests / acceptance:** A25–A27, A31–A33, A35, A39, external outcome handling through in-process
   fake transport and faulting registered adapter; unauthenticated/unauthorized
   callers, lost response after accepted operation, oversized streamed output,
   disconnect without implicit cancellation, current observation access and expiry.
@@ -295,12 +271,11 @@ test does not close an acceptance case.
 - **Scope:** run complete compiled-plan-to-control scenarios with real kernel
   components and external fakes; repair integration defects in focused commits;
   qualify the pinned CPU backend; update README/capability/status only from code
-  and tests that exist. Publish supported versus unsupported controls and required
-  host/budget external contracts.
-- **Prerequisites:** C01–C11. If a component is deliberately not delivered, narrow
+  and tests that exist. Publish supported versus unsupported controls and required host external contracts.
+- **Prerequisites:** C01–C11 plus C10a. If a component is deliberately not delivered, narrow
   the milestone label; do not call the complete baseline accepted.
-- **Tests / acceptance:** every A01–A42 case in [test map](ACCEPTANCE_TEST_MAP.md),
-  B-LIFE/B-CALL/B-EVENT/B-RETRY/B-INPUT/B-SER/B-DRAIN, B-PAID02/B-NATIVE01, B-ACT01–B-ACT12, clean
+- **Tests / acceptance:** every baseline A case in [test map](ACCEPTANCE_TEST_MAP.md),
+  B-LIFE/B-CALL/B-EVENT/B-RETRY/B-INPUT/B-SER/B-DRAIN, B-NATIVE01 (B-PAID02 optional), B-ACT01–B-ACT12, clean
   configure/build and required compiler/static/sanitizer gates. Run optional real
   CPU qualification with explicitly available fixture; report an absent fixture as
   not run, not pass. Inspect final diff and public/private boundaries.
@@ -311,23 +286,23 @@ test does not close an acceptance case.
   tests for architecture acceptance, external paid-provider exercises without a
   dedicated task, durable Run recovery and deployment/automatic merge.
 
-## Real integration qualification matrix
+## Native qualification matrix
 
-These supplement, rather than replace, the A cases. All fixture identity, model
-revision/checksum, backend commit, configuration and capability claims are recorded
-with results. Real output quality is not an architecture assertion.
+These are proposed tests, not passing results. Record fixture license/checksum,
+model/configuration, CPU/OpenCL implementation, device/driver and supported
+profile for each actual run.
 
-| ID | Required evidence | Environment / gate |
+| ID | Required evidence | Gate |
 | --- | --- | --- |
-| B-REAL01 | Approved tiny model/tokenizer loads within conservative measured envelope; tokenize → bounded prefill → decode → sampler → committed token progression is observable. | CPU, provisioned licensed weights; no download inside deterministic suite. |
-| B-REAL02 | Same pinned build/config/seed/input: uninterrupted versus in-place paused/resumed execution retains matching token/state progression at advertised quiescent boundaries. | CPU fixture; no cross-device numerical identity promise. |
-| B-REAL03 | Cancel at tokenize/prefill/decode boundaries produces genuine quiescence before context destruction/release; no next useful step after applied stop. Unsupported partial-step control rejects honestly. | CPU fixture with safe-point instrumentation and sanitizer lane where supported. |
-| B-REAL04 | Sole-instance process guard and root-owned global init/log/free ordering (including callback context alive through free); first Job init, terminal, second Run reuse and exactly one process-owned global overhead release at shutdown, with partial/uncertain init containment; context/model/sampler lifetime, partial load failure, retained state, unload acknowledgement and finite memory growth are accounted; state invalidation never becomes silent fresh inference. | CPU fixture and controlled allocator/failure seams; native hang containment remains A28/supervisor boundary. |
-| B-REAL05 | Snapshot/offload/rewind/continuous batching capabilities remain false until independently implemented and qualified; opaque providers do not inherit embedded controls. | Capability metadata/conformance; no weights needed for rejection checks. |
-| B-REAL06 | With and without a pending emitted token, approved bounded child-input append consumes that token and injected penalty history once, preserves sampler/RNG/decoder/stop state, and samples only after the last admitted prefill chunk; rejected grammar/injection profiles cannot silently substitute another strategy. | CPU fixture under a pinned injection-qualified profile and current policy/resource checks. |
-| B-HOST01 | Deployed authority actually enforces ownership/capacity and generation fencing, including another process attempting allocation; unavailable/expired authority blocks affected dispatch. | Separate host integration task; no success claim from process-local mutex. |
-| B-GPU01 | Chosen device/backend build, resource envelope, safe-point/quiescence latency and release/epoch handling satisfy the same controls under actual acceleration. | Separate GPU qualification after B-HOST01; no hardware assumption from historical notes. |
-| B-PAID01 | Chosen external authority demonstrates durable atomic reservation, crash inventory, idempotent settlement and failure behavior; provider enforces the declared finite liability. | Separate durable-authority/provider contract qualification; fake D alone cannot enable hard paid budgets. |
+| B-REAL01 | Licensed tiny model and processor load; bounded tokenize, prefill, decode and sample; CPU reference outputs checked. | Native CPU fixture |
+| B-REAL02 | Same profile/input/seed: uninterrupted and safe-point paused/resumed state/output progression agrees. | Native CPU fixture |
+| B-REAL03 | Stop at segment boundaries really quiesces before state release; unsupported partial-step control rejects. | Native CPU fixture and failure hooks |
+| B-REAL04 | Multiple independently owned Runtime instances may construct/destroy without cross-release; shared native model/context allocations stay charged until the last reference and actual release. | CPU fixture and allocator hooks |
+| B-REAL05 | Offload/snapshot/rewind/batching remain false until separately qualified. | Capability rejection suite |
+| B-REAL06 | Causal-text pending token, sampler/RNG, penalty/grammar, decoder carry and bounded injection remain exactly once across pause. | Native CPU causal-text fixture |
+| B-OPENCL01 | Native OpenCL operations match CPU oracle within declared tolerance, with bounded allocations and valid cancellation/release evidence. | Actual qualified OpenCL device |
+| B-HOST01 | External host authority enforces capacity and generation fencing across processes. | Separate host integration |
+| B-PAID01 | Optional future strict-cost authority and provider enforce durable maximum liability. | Separate optional integration |
 
 ## Completion recording and stop conditions
 

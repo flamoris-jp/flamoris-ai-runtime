@@ -1,4 +1,4 @@
-# Phase B: acceptance-to-test design
+# Phase B: baseline and optional acceptance-to-test design
 
 ## Status and authority
 
@@ -12,6 +12,8 @@ All A01–A42 cases are required **offline deterministic contract tests**: GPU,
 network, provider account and model weights are each **not required**. This
 integration flag applies individually to every case below. Real-backend and
 host/provider qualification is a separate gate in [Phase C plan](PHASE_C_PLAN.md).
+
+**Scope correction:** single-user FLAMORIS native model/runtime. A41–A42 and B-PAID02 are optional strict-cost profile tests, not baseline gates. A05/A24 test finite local Run limits, A35 checks current local owner/scope. CPU reference and OpenCL are internal compute; third-party runtimes never serve as interchangeable inference backends.
 
 ## Shared fixture and oracle
 
@@ -136,20 +138,15 @@ stores, and construct a different Runtime instance identity.
 - **Resources:** rollback unused grants; cleanup/approved reconciliation still
   runs under bounded internal authority. Revocation cannot strand accounting.
 
-### A05 — shared paid budget competition
+### A05 — shared finite Run allowance competition
 
-- **Boundary / active doubles:** Run budget ledger, dispatch eligibility and D;
-  A, R, H, P, D, O.
-- **Injection:** two paid children each need maximum 6 units with only 10 available;
-  enumerate both reservation orders. Repeat across two Runs of the same tenant,
-  with 12 available, and with D replying late after local cancellation.
-- **State / events:** only the fitting set may commit handoff; `budget.reserved`
-  precedes each `attempt.dispatch_committed`. Non-fitting work has a stable
-  `budget_exceeded` outcome; no independently approved partial child grant is spent.
-- **Resources:** at most 6 of the 10 units are reserved for these competing
-  attempts, or 12 when both fit. Local child/event/resource grants and durable
-  liability agree; handoff requires a durable armed ticket, and unused D reservation
-  releases only with proof of no handoff.
+- **Boundary / doubles:** Run ledger and dispatch eligibility; A, R, O.
+- **Injection:** two child attempts each require six slots/units from a Run
+  allowance of ten. Enumerate both orderings and cancellation versus dispatch.
+- **State / events:** only the fitting set commits; rejection is bounded and
+  does not spend a different Job's allowance. No tenant or durable money ledger.
+- **Resources:** local cumulative reservations and real allocations agree;
+  unknown external effects remain in provenance, not an invented refund.
 
 ### A06 — effect algebra
 
@@ -406,26 +403,15 @@ stores, and construct a different Runtime instance identity.
 - **Resources:** loser remote concurrency/debt and full unresolved D liability stay
   charged; terminal follows bounded quarantine transfer, never imaginary release.
 
-### A24 — forbidden or over-budget races
+### A24 — forbidden or over-limit races
 
-- **Boundary / active doubles:** compiler/admission race policy; P, D, O.
-- **Injection:** race containing write or write+destructive, then an external/paid
-  race whose aggregate permitted participants/attempts cost exceeds Run or tenant
-  bounds. Include affordable non-write race as a control. Reserve all permitted
-  participant/attempt maxima, then reject or lose the acknowledgement of the final
-  required reservation to test the group funding gate. Nest a paid race and
-  bind funded dynamic/retry slots; lose a bind acknowledgement, repeat the same
-  binding, then attempt a changed digest/attempt.
-- **State / events:** invalid race rejects before any participant dispatch with
-  typed plan/policy/budget error. No inference that only the eventual winner costs
-  money; aggregate maximum includes losers and permitted attempts. No participant
-  crosses handoff until the entire authorized group's worst-case funding is
-  certified; failure of the last reservation leaves adapter call count zero.
-- **Resources:** rejection creates no lease, allocation or provider operation;
-  rollback any provisional bookkeeping/paid reservation only with no-handoff
-  proof. A permitted race reserves the full bounded authorized liability;
-  nested subsets and repeated bind acknowledgements never charge twice, and
-  a conflicting binding cannot arm or consume a different slot.
+- **Boundary / doubles:** compiler, Run ledger, dispatch guard; P, R, O.
+- **Injection:** forbidden write/destructive race; an allowed group whose
+  aggregate participants/attempt slots exceed the finite Run envelope.
+- **State / events:** reject before any participant dispatch with a typed
+  plan/policy/limit error. Include losing and retry attempts in the bound.
+- **Resources:** no partially useful dispatch or unaccounted reservation.
+  Strict monetary race funding is an optional profile, not this case's gate.
 
 ### A25 — accepted write with lost response
 
@@ -591,17 +577,13 @@ is accepted subject to ordinary checks. Digest equality alone never deduplicates
 
 ### A35 — current observation and handle access
 
-- **Boundary / active doubles:** status/result/media/trace/export/replay facade;
-  P, A, O.
-- **Injection:** same tenant different unauthorized principal, different tenant,
-  revoked historic owner, reduced trace scope and expired service-owned media
-  handle. Include permitted redacted lifecycle access as a control.
-- **State / events:** each surface independently enforces current scope and
-  retention. No cross-tenant payload, raw sensitive nested cause or expired handle
-  materialization. Playback authorization does not imply execution permission;
-  observation denial never changes a Run lifecycle.
-- **Resources:** no hidden media fetch on denied access; bounded authorized handle
-  checks use only the registered contract. No execution or paid-budget mutation.
+- **Boundary / doubles:** status/result/media/trace/export/replay facade; P,A,O.
+- **Injection:** current local user with insufficient trace or object scope,
+  revoked owner permission and expired handle; authorized redacted access control.
+- **State / events:** independent current checks for each surface, no sensitive
+  nested cause or expired handle materialization. Denial does not change Run.
+- **Resources:** denied access performs no hidden media fetch or execution.
+  Multi-tenant/cross-user isolation is outside baseline.
 
 ### A36 — conflicting unordered effects
 
@@ -670,36 +652,20 @@ is accepted subject to ordinary checks. Digest equality alone never deduplicates
 - **Resources:** rejected later child acquires no lease/budget; existing admitted
   state remains accounted. Captured in-flight work must genuinely quiesce.
 
-### A41 — restart with unresolved paid liability
+### A41 — optional strict-cost crash accounting
 
-- **Boundary / active doubles:** D inventory/reservation and fresh admission;
-  A, R, H, P, D, O.
-- **Injection:** tenant budget 10, durably reserve maximum 7, hand off paid work,
-  crash with unknown cost, reconstruct Runtime and request 4 more. Branch into
-  incomplete inventory, conservative full-liability certification and authoritative
-  settlement to actual cost 2; also try a request of 3 under certified liability.
-- **State / events:** incomplete scope fails closed. Certified 7-unit liability
-  still rejects 4 but may admit 3; authoritative 2-unit settlement may admit 4.
-  No assumed zero cost/refund, old Run restoration or duplicate provider execution.
-  New handoff always follows its own durable reservation.
-- **Resources:** unresolved 7 persists across instance destruction and terminal
-  retention. Repeated reservation/settlement is idempotent under stable external
-  identities; incomplete inventory cannot advertise a safe balance.
+This ID is retained for the separately reviewed Paid Budget Authority profile.
+The baseline makes no cross-crash monetary ceiling promise. When that profile is
+implemented, use the original durable reserve → unknown outcome → restart →
+conservative liability/settlement interleavings in the
+[optional contract](PAID_BUDGET_CONTRACT.md). Exclude from baseline completion.
 
-### A42 — unavailable or incomplete durable authority
+### A42 — optional strict-cost authority unavailability
 
-- **Boundary / active doubles:** paid admission/dispatch, D and affected-scope fence;
-  A, R, H, P, D, O.
-- **Injection:** authority unavailable before admission, reserve acknowledgement
-  lost, restart inventory incomplete, revision stale, or provider unable to enforce
-  finite maximum. In parallel submit independently authorized non-paid work.
-- **State / events:** affected paid path has no handoff until atomic reservation
-  and safe remaining balance are certified. Lost reply resolves via the same
-  reservation identity, never a new spend. Non-paid work can proceed on independent
-  policy/resources. Authority restoration does not reconstruct old Runs.
-- **Resources:** uncertain D reservation remains conservatively charged; unused
-  local grants release without refunding unknown remote liability. No process-local
-  budget fallback, unbounded provider estimate or new scope evasion.
+This ID is retained for the same optional profile: missing/incomplete authority
+must prevent a claimed strict monetary guarantee. No baseline paid-budget fake
+or durable inventory is required. Ordinary external capability authorization,
+finite local limits and retry/uncertainty rules remain baseline.
 
 ## Supplemental Phase B test obligations
 
@@ -716,59 +682,28 @@ not replacements for Phase A behavior:
 | B-SER01 | Duplicate JSON keys, unsupported versions, oversized nesting/counts/strings and invalid encoding/non-finite numbers reject deterministically before side effects; canonicalization preserves distinct semantic fields and normalizes only specified non-semantic variation; sensitive nested causes are redacted before storage. |
 | B-DRAIN01 | Graceful shutdown closes new admission, fixes drain and cleanup deadlines, cancels remaining work, joins genuinely stopped workers before releasing their owners, and exposes unresolved containment without pretending destructors prove deallocation. |
 
-### B-PAID02 — delivery gate, no-send proof and accounting lifetime
+### B-PAID02 — optional strict-cost delivery proof
 
-- **Boundary / active doubles:** actual DeliveryGate/registry and control dispatch,
-  with C/X/A/R/P/D/O; manually step worker claim separately from provider receipt.
-- **Injection:** arm success then deny local dispatch (cancel, deadline, revocation
-  or event-capacity failure); lose arm acknowledgement then cancel; fail enqueue;
-  race cancel versus worker claim in both orders after dispatch. Duplicate queued
-  sends, late arm replies, wrong gate/attempt/digest proof and authority revision
-  conflicts must be included. Crash immediately before/after claim and durable
-  closure; expire Run observation while accounting acknowledgement is delayed.
-- **State / events:** only final successful dispatch commits attempt intent;
-  denied dispatch/closed gate produces zero sends. Close-first makes every worker
-  claim fail; claim-first permits at most one invocation and cannot issue local
-  no-send proof even before I/O. Late observations never revive a Job. Inspect
-  complete event groups and the independent A send transcript at each boundary.
-- **Resources / liability:** release only after matching durable closure or
-  settlement; outage/unknown claim retains full maximum. Tombstoned closure rejects
-  delayed arm; repeated proof never refunds twice. Gate survives lifecycle expiry
-  until worker/callback quiescence and accounting acknowledgement/transfer. Fake
-  crashes discard local proof but preserve D state. Exhausted gate storage rejects
-  before arm; wrong identity proof changes no balance. No network/GPU/money needed.
+The one-shot delivery gate, durable no-send proof and crash accounting are
+specified only for the optional Paid Budget Authority profile. They are not
+baseline acceptance or a Phase C prerequisite.
 
-### B-NATIVE01 — exclusive construction and native teardown order
+### B-NATIVE01 — native holder lifetime and instance independence
 
-- **Boundary / doubles:** composition-root factory/ProcessRuntimeGuard and
-  NativeBackendLifetime with instrumented fake native init/log/free and worker/
-  callback barriers; C/X/B/R/O. No model, GPU or network required.
-- **Injection:** race two factory creates in one isolated subprocess; attempt
-  another create while active, draining, after shutdown and after failed creation.
-  Fail before init, simulate uncertain partial init, and block a callback/native
-  call during shutdown. First admitted Job triggers init, reaches terminal, then
-  a second Run reuses the native globals before process shutdown. Cancel the
-  initiating Job while init is in flight; inject a global-overhead reservation
-  refusal, partial materialization, and lost/unknown release evidence. Exercise
-  multiple model load/unload cycles in the winner.
-- **State / events:** one construction wins; every rejected creator makes zero
-  native init/log/free calls and cannot alter the winner's status/events. Multiple
-  loads have at most one global init. Fresh process creation is a separate case,
-  with a new incarnation and no inherited live state or guard reset.
-- **Lifetime / resources:** assert calls/callbacks quiesce before handle destruction,
-  then free once after successful init, then log detachment/context destruction,
-  then worker join. A fake callback during free still has valid storage; held
-  callbacks block teardown. Global init must reserve a distinct bounded
-  process-owned overhead allowance before first dispatch, convert it once to an
-  allocation/uncertainty record, and leave the initiating Run quota charged only
-  for its working set. First Job terminal, cancellation or model unload cannot
-  subtract global bytes/handles; the second Run sees the same physical charge
-  with no second init/reservation. Proven `backend_free`/release at shutdown
-  settles exactly once. Reservation refusal starts no native init; partial or
-  uncertain init/release stays charged and requires containment, never a Job
-  refund or a fabricated release. After failed/finished lifetime no second
-  construction is admitted. Real native ordering is additionally qualified in
-  B-REAL04.
+- **Boundary / doubles:** two Runtime roots, instrumented model/session holders,
+  allocation ledger and callback barriers; C/X/B/R/O.
+- **Injection:** construct and destroy instances sequentially and concurrently;
+  fail one partial model load; block a callback while its owning instance drains.
+  Admit two Runs sharing one model, terminate the first, then release the second.
+- **State / events:** no instance can release another's native state. No universal
+  process guard rejects a second instance. A Job terminal does not imply model
+  allocation release. A genuine process-scoped OpenCL context, if introduced,
+  outlives all users and settles once after last release.
+- **Resources:** unique physical charge until matching quiescence/release;
+  uncertain partial allocation remains charged or safely contained. Never infer
+  release from queue emptiness or a destructor alone.
+
+
 
 Activation/startup cases B-ACT01–B-ACT12 are defined by the
 [activation contract](ACTIVATION_CONTRACT.md) and
