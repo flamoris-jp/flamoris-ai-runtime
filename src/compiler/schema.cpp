@@ -17,8 +17,10 @@ ValueSchema schema(const JsonValue &v, unsigned depth) {
         s.kind = type == "integer" ? ValueSchema::Kind::integer : ValueSchema::Kind::number;
         s.minimum = numeric(o.at("minimum"));
         s.maximum = numeric(o.at("maximum"));
-        if (s.minimum > s.maximum || (type == "integer" && (std::floor(s.minimum) != s.minimum ||
-                                                            std::floor(s.maximum) != s.maximum)))
+        if (s.minimum > s.maximum ||
+            (type == "integer" &&
+             (!o.at("minimum").exact_integer || !o.at("maximum").exact_integer ||
+              std::floor(s.minimum) != s.minimum || std::floor(s.maximum) != s.maximum)))
             reject();
     } else if (type == "string") {
         keys(o, {"type", "max_bytes"});
@@ -120,7 +122,7 @@ bool valid(const JsonValue &v, const ValueSchema &s, unsigned depth) {
     case K::number: {
         auto *n = std::get_if<double>(&v.data);
         return n && std::isfinite(*n) && *n >= s.minimum && *n <= s.maximum &&
-               (s.kind != K::integer || std::floor(*n) == *n);
+               (s.kind != K::integer || (v.exact_integer && std::floor(*n) == *n));
     }
     case K::string: {
         auto *t = std::get_if<std::string>(&v.data);
@@ -219,7 +221,23 @@ bool schema_assignable(const ValueSchema &a, const ValueSchema &b) {
         return true;
     }
 }
-JsonValue schema_export(const ValueSchema &s) {
+namespace {
+JsonValue export_schema(const ValueSchema &s, unsigned depth, std::size_t &nodes) {
+    if (depth > 16 || ++nodes > 65536 || s.properties.size() > 4096 || s.max_bytes > 262144 ||
+        s.max_items > 65536 || s.tuple_items.size() > 65536 || s.variants.size() > 256)
+        reject();
+    if (s.service_handle_type &&
+        (s.service_handle_type->empty() || s.service_handle_type->size() > 128))
+        reject();
+    if ((s.kind == ValueSchema::Kind::integer || s.kind == ValueSchema::Kind::number) &&
+        (!std::isfinite(s.minimum) || !std::isfinite(s.maximum) || s.minimum > s.maximum ||
+         std::abs(s.minimum) > 9007199254740991.0 || std::abs(s.maximum) > 9007199254740991.0 ||
+         (s.kind == ValueSchema::Kind::integer &&
+          (std::floor(s.minimum) != s.minimum || std::floor(s.maximum) != s.maximum))))
+        reject();
+    for (const auto &key : s.required)
+        if (!s.properties.contains(key))
+            reject();
     using K = ValueSchema::Kind;
     JsonValue::Object out;
     switch (s.kind) {
@@ -243,11 +261,11 @@ JsonValue schema_export(const ValueSchema &s) {
         out["type"] = "array";
         out["max_items"] = integer(s.max_items);
         if (s.items)
-            out["items"] = schema_export(*s.items);
+            out["items"] = export_schema(*s.items, depth + 1, nodes);
         if (!s.tuple_items.empty()) {
             JsonValue::Array tuple;
             for (const auto &t : s.tuple_items)
-                tuple.push_back(schema_export(t));
+                tuple.push_back(export_schema(t, depth + 1, nodes));
             out["tuple_items"] = std::move(tuple);
         }
         break;
@@ -256,7 +274,7 @@ JsonValue schema_export(const ValueSchema &s) {
         out["additional_properties"] = false;
         JsonValue::Object props;
         for (const auto &[k, v] : s.properties)
-            props[k] = schema_export(v);
+            props[k] = export_schema(v, depth + 1, nodes);
         out["properties"] = std::move(props);
         JsonValue::Array req;
         for (const auto &r : s.required)
@@ -268,7 +286,7 @@ JsonValue schema_export(const ValueSchema &s) {
         out["type"] = "union";
         JsonValue::Array variants;
         for (const auto &v : s.variants)
-            variants.push_back(schema_export(v));
+            variants.push_back(export_schema(v, depth + 1, nodes));
         out["variants"] = std::move(variants);
         break;
     }
@@ -276,6 +294,11 @@ JsonValue schema_export(const ValueSchema &s) {
     if (s.service_handle_type)
         out["service_handle_type"] = *s.service_handle_type;
     return out;
+}
+} // namespace
+JsonValue schema_export(const ValueSchema &s) {
+    std::size_t nodes = 0;
+    return export_schema(s, 0, nodes);
 }
 Result<JsonValue> resolve_binding(const Binding &b, const JsonValue::Object &inputs,
                                   const JsonValue::Object &outputs) {

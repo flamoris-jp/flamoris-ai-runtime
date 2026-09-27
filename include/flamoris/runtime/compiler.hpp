@@ -1,6 +1,7 @@
 #pragma once
 #include "flamoris/runtime/effects.hpp"
 #include "flamoris/runtime/result.hpp"
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -21,12 +22,14 @@ struct JsonValue {
     JsonValue() = default;
     JsonValue(std::nullptr_t) : data(nullptr) {}
     JsonValue(bool v) : data(v) {}
-    JsonValue(double v) : data(v) {}
+    JsonValue(double v) : data(v), exact_integer(std::isfinite(v) && std::floor(v) == v) {}
     JsonValue(std::string v) : data(std::move(v)) {}
     JsonValue(const char *v) : data(std::string(v)) {}
     JsonValue(Array v) : data(std::move(v)) {}
     JsonValue(Object v) : data(std::move(v)) {}
-    bool operator==(const JsonValue &) const = default;
+    // Parsing provenance for integer/count schemas; binary64 value equality stays semantic.
+    bool exact_integer{true};
+    bool operator==(const JsonValue &other) const { return data == other.data; }
 };
 struct JsonBounds {
     std::size_t max_bytes{1048576}, max_depth{32}, max_string_bytes{262144};
@@ -170,6 +173,11 @@ class Compiler {
   private:
     CompilerProfile profile_;
 };
+// Pure compilation only. The owning Run charges proposals before this call and
+// atomically reserves admitted child/attempt/resource obligations afterwards.
+Result<CompiledSubmission> compile_child_fragment(std::string_view json, const CapabilitySnapshot &,
+                                                  const ChildEnvelope &, const RunLimits &remaining,
+                                                  std::uint64_t child_depth);
 Result<void> verify_plan_pins(const ExecutionPlan &, const CapabilitySnapshot &,
                               bool require_available = true);
 } // namespace flamoris::runtime

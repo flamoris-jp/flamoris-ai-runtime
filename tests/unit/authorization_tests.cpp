@@ -105,6 +105,8 @@ TEST_CASE("A05 finite cumulative reservation is atomic in both competition order
         last.attempts = 1;
         REQUIRE_FALSE(budget.reserve(last));
         REQUIRE(budget.used().attempts == 10);
+        REQUIRE(budget.remaining().max_attempts == 0);
+        REQUIRE(budget.remaining().max_output_bytes == 0);
     }
 }
 TEST_CASE("A25 B-RETRY01 unknown writes cannot blindly retry and prior attempts cannot overlap",
@@ -286,4 +288,26 @@ TEST_CASE(
     request.now_ms = 0;
     std::get<JsonValue::Object>(request.concrete_inputs["asset"].data)["scope"] = "object.b";
     REQUIRE_FALSE(gate.check(c, p, plan, registry, request));
+}
+TEST_CASE(
+    "A04 plan admission checks every potential capability without fabricating dependent inputs",
+    "[authorization][A04]") {
+    auto capability = cap();
+    CapabilitySnapshot registry;
+    registry.capabilities.emplace(capability.identifier, capability);
+    ExecutionPlan plan;
+    plan.pins = {fingerprint_capability(capability).value()};
+    auto c = context();
+    auto p = policy();
+    AuthorizationGate gate;
+    REQUIRE(gate.authorize_plan_admission(c, p, plan, registry, 0));
+    p.permitted_effects = 0;
+    REQUIRE_FALSE(gate.authorize_plan_admission(c, p, plan, registry, 0));
+    p = policy();
+    c.capabilities.clear();
+    REQUIRE_FALSE(gate.authorize_plan_admission(c, p, plan, registry, 0));
+    c = context();
+    REQUIRE_FALSE(gate.authorize_plan_admission(c, p, plan, registry, 100));
+    registry.capabilities.at(capability.identifier).available = false;
+    REQUIRE_FALSE(gate.authorize_plan_admission(c, p, plan, registry, 0));
 }

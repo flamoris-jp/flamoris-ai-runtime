@@ -33,7 +33,7 @@ inline double numeric(const JsonValue &v) {
 }
 inline std::uint64_t count(const JsonValue &v, bool positive = false) {
     double x = numeric(v);
-    if (x < 0 || std::floor(x) != x || (positive && x == 0))
+    if (!v.exact_integer || x < 0 || std::floor(x) != x || (positive && x == 0))
         reject();
     return static_cast<std::uint64_t>(x);
 }

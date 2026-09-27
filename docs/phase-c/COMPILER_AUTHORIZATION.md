@@ -54,3 +54,10 @@ Targeted commands after the normal CMake configuration are:
 cmake --build build/gcc-debug --target unit_compiler_tests_cpp unit_authorization_tests_cpp -j2
 ctest --test-dir build/gcc-debug -R 'unit_(compiler|authorization)_tests_cpp' --output-on-failure
 ```
+
+Dynamic proposals use `compile_child_fragment` with the parent's immutable
+`ChildEnvelope`, remaining Run limits and current child depth. The helper permits
+only the envelope's exact pins and intersects finite child/attempt/output/depth
+bounds; it rejects a submission idempotency key. The owning Run charges a proposal
+before parsing, including failed proposals, and commits child/resource reservations
+separately. This helper never creates a new Run or a fresh cumulative allowance.

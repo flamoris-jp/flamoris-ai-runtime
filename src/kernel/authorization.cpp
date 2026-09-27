@@ -42,6 +42,36 @@ bool handles_valid(const JsonValue &value, const ValueSchema &schema, const Capa
     return true;
 }
 } // namespace
+Result<void> AuthorizationGate::authorize_plan_admission(const AuthorizationContext &context,
+                                                         const PolicySnapshot &policy,
+                                                         const ExecutionPlan &plan,
+                                                         const CapabilitySnapshot &registry,
+                                                         std::uint64_t now_ms) const {
+    try {
+        auto pins = verify_plan_pins(plan, registry);
+        if (!pins)
+            return pins;
+        if (context.subject.empty() || context.subject.size() > 128 || context.revoked ||
+            now_ms >= context.expires_at_ms || !policy.enabled || policy.revision == 0 ||
+            plan.pins.empty())
+            return Result<void>::failure(
+                ErrorEnvelope::make(ErrorCode::permission_denied, ErrorStage::admission));
+        for (const auto &pin : plan.pins) {
+            const auto &cap = registry.capabilities.at(pin.identifier);
+            const auto effects = cap.effects.mask();
+            if (!context.capabilities.contains(pin.identifier) ||
+                !policy.capabilities.contains(pin.identifier) ||
+                (effects & context.permitted_effects) != effects ||
+                (effects & policy.permitted_effects) != effects)
+                return Result<void>::failure(
+                    ErrorEnvelope::make(ErrorCode::permission_denied, ErrorStage::admission));
+        }
+        return Result<void>::success();
+    } catch (...) {
+        return Result<void>::failure(
+            ErrorEnvelope::make(ErrorCode::internal_error, ErrorStage::admission));
+    }
+}
 Result<AuthorizationDecision> AuthorizationGate::check(const AuthorizationContext &context,
                                                        const PolicySnapshot &policy,
                                                        const ExecutionPlan &plan,
@@ -160,6 +190,18 @@ Result<void> RunBudget::reserve(const BudgetCharge &c) {
     used_.commands += c.commands;
     used_.resource_operations += c.resource_operations;
     return Result<void>::success();
+}
+RunLimits RunBudget::remaining() const noexcept {
+    auto remaining = limits_;
+    remaining.max_jobs -= used_.jobs;
+    remaining.max_attempts -= used_.attempts;
+    remaining.max_dynamic_proposals -= used_.proposals;
+    remaining.max_output_bytes -= used_.output_bytes;
+    remaining.max_control_steps -= used_.control_steps;
+    remaining.max_suspensions -= used_.suspensions;
+    remaining.max_control_commands -= used_.commands;
+    remaining.max_resource_operations -= used_.resource_operations;
+    return remaining;
 }
 Result<void> authorize_retry(const CapabilityContract &cap, const RetryEvidence &e,
                              std::uint64_t now, std::uint64_t deadline) {

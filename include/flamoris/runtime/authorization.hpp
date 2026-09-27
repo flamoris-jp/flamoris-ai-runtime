@@ -52,6 +52,9 @@ struct AuthorizationDecision {
 // Called only by the owning serialized control executor. No historical allow is a grant.
 class AuthorizationGate {
   public:
+    Result<void> authorize_plan_admission(const AuthorizationContext &, const PolicySnapshot &,
+                                          const ExecutionPlan &, const CapabilitySnapshot &,
+                                          std::uint64_t now_ms) const;
     Result<AuthorizationDecision> check(const AuthorizationContext &, const PolicySnapshot &,
                                         const ExecutionPlan &, const CapabilitySnapshot &,
                                         const AuthorizationRequest &) const;
@@ -70,6 +73,8 @@ class RunBudget {
     Result<void> reserve(
         const BudgetCharge &); // all-or-none; cumulative charges are never refunded by cancellation
     const BudgetCharge &used() const noexcept { return used_; }
+    // Caller also clamps timeout_ms to the original absolute deadline.
+    RunLimits remaining() const noexcept;
 
   private:
     RunLimits limits_;

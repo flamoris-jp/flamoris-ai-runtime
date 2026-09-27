@@ -1,5 +1,6 @@
 #include "catch_amalgamated.hpp"
 #include "flamoris/runtime/compiler.hpp"
+#include <bit>
 using namespace flamoris::runtime;
 namespace {
 ValueSchema text_schema(std::uint64_t bound = 128) {
@@ -245,4 +246,145 @@ TEST_CASE("A27 structurally validated request digest preserves input limits and 
     workflow(input)["limits"] = JsonValue::Object{{"max_attempts", 128.0}};
     REQUIRE(validate_submission_identity(json(input)).value().request_digest !=
             original.value().request_digest);
+}
+TEST_CASE("A07 child compilation intersects exact pins remaining limits and depth",
+          "[compiler][A07]") {
+    auto r = registry();
+    ChildEnvelope envelope;
+    envelope.identifier = "children";
+    envelope.revision = "1";
+    envelope.capabilities = {fingerprint_capability(r.capabilities.at("algorithm.echo")).value()};
+    envelope.max_children = 2;
+    envelope.max_attempts = 1;
+    envelope.max_depth = 1;
+    envelope.max_output_bytes = 1024;
+    RunLimits remaining;
+    auto input = request();
+    REQUIRE(compile_child_fragment(json(input), r, envelope, remaining, 1));
+    REQUIRE_FALSE(compile_child_fragment(json(input), r, envelope, remaining, 2));
+    auto small = remaining;
+    small.max_jobs = 1;
+    REQUIRE_FALSE(compile_child_fragment(json(input), r, envelope, small, 1));
+    obj(input)["idempotency_key"] = "escape";
+    REQUIRE_FALSE(compile_child_fragment(json(input), r, envelope, remaining, 1));
+    input = request({node("a", "model.native")});
+    REQUIRE_FALSE(compile_child_fragment(json(input), r, envelope, remaining, 1));
+    input = request();
+    r.capabilities.at("algorithm.echo").adapter_revision = "changed";
+    REQUIRE_FALSE(compile_child_fragment(json(input), r, envelope, remaining, 1));
+}
+TEST_CASE("B-SER01 arbitrary result roots keep strict numeric encoding limits",
+          "[compiler][B-SER01]") {
+    REQUIRE(parse_bounded_json_value("\"result\""));
+    REQUIRE(parse_bounded_json_value("[true,null,3]"));
+    REQUIRE_FALSE(parse_bounded_json_value("[1e-999]"));
+    REQUIRE_FALSE(parse_bounded_json_value("[\"\\udc00\"]"));
+    REQUIRE_FALSE(parse_bounded_json("[true,null,3]"));
+}
+TEST_CASE("A07 service handles remain typed input slots and cannot be literal plan constants",
+          "[compiler][A07]") {
+    auto r = registry();
+    auto &cap = r.capabilities.at("algorithm.echo");
+    cap.input_schema.properties.at("text").service_handle_type = "service.object/1";
+    cap.handle_validator_revision = "local-validator/1";
+    cap.handle_validator = [](const JsonValue &, std::string_view subject, std::uint64_t) {
+        return Result<ValidatedHandleAccess>::success({std::string(subject), "object.a", 100});
+    };
+    auto input = request();
+    REQUIRE_FALSE(Compiler{}.compile_submission(json(input), r));
+    input = request({node("a", "algorithm.echo", reference("input", "handle"))});
+    workflow(input)["inputs"] = JsonValue::Object{{"handle", schema_export(text_schema())}};
+    obj(input)["input_values"] = JsonValue::Object{{"handle", "opaque-id"}};
+    auto compiled = Compiler{}.compile_submission(json(input), r);
+    REQUIRE(compiled);
+    REQUIRE(compiled.value().plan->inputs.at("handle").service_handle_type == "service.object/1");
+    REQUIRE(compiled.value().plan->canonical_export.find("opaque-id") == std::string::npos);
+    JsonValue group = JsonValue::Object{
+        {"id", "a"},
+        {"type", "control.await"},
+        {"with", JsonValue::Object{{"handle", literal("opaque-id")}}},
+        {"control",
+         JsonValue::Object{{"members", JsonValue::Array{node("child", "algorithm.echo",
+                                                             reference("input", "handle"))}},
+                           {"timeout_ms", 100.0}}}};
+    REQUIRE_FALSE(Compiler{}.compile_submission(json(request({group})), r));
+}
+TEST_CASE("A01 semantic changes remain in fingerprint while JSON key order does not",
+          "[compiler][A01]") {
+    const std::string first =
+        R"({"schema_version":"flamoris.submit/1","kind":"workflow","workflow":{"schema_version":"flamoris.workflow/0.1","workflow":{"id":"example"},"inputs":{},"nodes":[{"id":"a","type":"algorithm.echo","with":{"text":{"literal":"hello"}}}],"edges":[],"outputs":{"result":{"ref":{"source":"node","name":"a","path":[]}}},"limits":{}},"input_values":{}})";
+    const std::string second =
+        R"({"input_values":{},"workflow":{"limits":{},"outputs":{"result":{"ref":{"path":[],"name":"a","source":"node"}}},"edges":[],"nodes":[{"with":{"text":{"literal":"hello"}},"type":"algorithm.echo","id":"a"}],"inputs":{},"workflow":{"id":"example"},"schema_version":"flamoris.workflow/0.1"},"kind":"workflow","schema_version":"flamoris.submit/1"})";
+    auto r = registry();
+    auto a = Compiler{}.compile_submission(first, r), b = Compiler{}.compile_submission(second, r);
+    REQUIRE(a);
+    REQUIRE(b);
+    REQUIRE(a.value().plan->fingerprint == b.value().plan->fingerprint);
+    REQUIRE(a.value().request_digest == b.value().request_digest);
+    auto changed = request({node("a", "algorithm.echo", literal("changed"))});
+    REQUIRE(Compiler{}.compile_submission(json(changed), r).value().plan->fingerprint !=
+            a.value().plan->fingerprint);
+}
+TEST_CASE("A02 registered schemas cannot introduce recursion or oversized bounded types",
+          "[compiler][A02]") {
+    auto r = registry();
+    r.capabilities.at("algorithm.echo").output_schema.max_bytes = 262145;
+    REQUIRE_FALSE(Compiler{}.compile_submission(json(request()), r));
+    r = registry();
+    auto recursive = std::make_shared<ValueSchema>();
+    recursive->kind = ValueSchema::Kind::array;
+    recursive->max_items = 1;
+    recursive->items = recursive;
+    r.capabilities.at("algorithm.echo").output_schema = *recursive;
+    REQUIRE_FALSE(fingerprint_capability(r.capabilities.at("algorithm.echo")));
+    recursive->items.reset();
+}
+TEST_CASE("B-SER01 count and integer schemas reject fractional tokens rounded to integers",
+          "[compiler][B-SER01]") {
+    auto value = parse_bounded_json_value("1.00000000000000001");
+    REQUIRE(value);
+    REQUIRE(std::get<double>(value.value().data) == 1.0);
+    ValueSchema integer;
+    integer.kind = ValueSchema::Kind::integer;
+    integer.minimum = 0;
+    integer.maximum = 10;
+    REQUIRE_FALSE(validate_value(value.value(), integer));
+    REQUIRE(validate_value(parse_bounded_json_value("100e-2").value(), integer));
+    auto raw = json(request());
+    const auto offset = raw.find("\"limits\":{}");
+    REQUIRE(offset != std::string::npos);
+    raw.replace(offset, std::string("\"limits\":{}").size(),
+                "\"limits\":{\"max_jobs\":2.00000000000000001}");
+    REQUIRE_FALSE(validate_submission_identity(raw));
+}
+// RFC 8785 Appendix B: https://www.rfc-editor.org/rfc/rfc8785.html#appendix-B
+// The reviewed Runtime profile intentionally rejects values above +/- (2^53-1).
+TEST_CASE("B-SER01 RFC8785 Appendix B binary64 vectors and stricter profile ceiling",
+          "[compiler][B-SER01]") {
+    const std::pair<std::uint64_t, const char *> accepted[]{
+        {0x0000000000000000ULL, "0"},
+        {0x8000000000000000ULL, "0"},
+        {0x0000000000000001ULL, "5e-324"},
+        {0x8000000000000001ULL, "-5e-324"},
+        {0x3eb0c6f7a0b5ed8cULL, "9.999999999999997e-7"},
+        {0x3eb0c6f7a0b5ed8dULL, "0.000001"},
+        {0x41b3de4355555553ULL, "333333333.3333332"},
+        {0x41b3de4355555554ULL, "333333333.33333325"},
+        {0x41b3de4355555555ULL, "333333333.3333333"},
+        {0x41b3de4355555556ULL, "333333333.3333334"},
+        {0x41b3de4355555557ULL, "333333333.33333343"},
+        {0xbecbf647612f3696ULL, "-0.0000033333333333333333"},
+        {0x43143ff3c1cb0959ULL, "1424953923781206.2"}};
+    for (const auto &[bits, expected] : accepted) {
+        auto encoded = canonical_json(JsonValue(std::bit_cast<double>(bits)));
+        REQUIRE(encoded);
+        REQUIRE(encoded.value() == expected);
+    }
+    const std::uint64_t rejected[]{
+        0x7fefffffffffffffULL, 0xffefffffffffffffULL, 0x4340000000000000ULL, 0xc340000000000000ULL,
+        0x4430000000000000ULL, 0x7fffffffffffffffULL, 0x7ff0000000000000ULL, 0x44b52d02c7e14af5ULL,
+        0x44b52d02c7e14af6ULL, 0x44b52d02c7e14af7ULL, 0x444b1ae4d6e2ef4eULL, 0x444b1ae4d6e2ef4fULL,
+        0x444b1ae4d6e2ef50ULL};
+    for (auto bits : rejected)
+        REQUIRE_FALSE(canonical_json(JsonValue(std::bit_cast<double>(bits))));
 }

@@ -12,6 +12,41 @@ namespace {
 using Json = nlohmann::json;
 constexpr double numeric_max = 9007199254740991.0;
 struct Invalid {};
+bool integral_token(std::string_view token) {
+    if (token.starts_with('-'))
+        token.remove_prefix(1);
+    const auto e = token.find_first_of("eE");
+    const auto significand = token.substr(0, e);
+    if (significand.find_first_of("123456789") == std::string_view::npos)
+        return true;
+    std::int64_t exponent = 0;
+    if (e != std::string_view::npos) {
+        auto exp = token.substr(e + 1);
+        bool negative = exp.starts_with('-');
+        if (exp.starts_with('+') || negative)
+            exp.remove_prefix(1);
+        for (char c : exp) {
+            if (exponent > 2000000)
+                break;
+            exponent = exponent * 10 + (c - '0');
+        }
+        if (negative)
+            exponent = -exponent;
+    }
+    const auto point = significand.find('.');
+    const std::int64_t fractional = point == std::string_view::npos
+                                        ? 0
+                                        : static_cast<std::int64_t>(significand.size() - point - 1);
+    std::int64_t trailing = 0;
+    for (auto it = significand.rbegin(); it != significand.rend(); ++it) {
+        if (*it == '.')
+            continue;
+        if (*it != '0')
+            break;
+        ++trailing;
+    }
+    return exponent >= fractional - trailing;
+}
 struct BoundedSax final : nlohmann::json_sax<Json> {
     struct Frame {
         JsonValue value;
@@ -67,7 +102,9 @@ struct BoundedSax final : nlohmann::json_sax<Json> {
             if (significand.find_first_of("123456789") != std::string::npos)
                 return false;
         }
-        return scalar(8) && put(v == 0 ? 0.0 : v);
+        JsonValue number(v == 0 ? 0.0 : v);
+        number.exact_integer = integral_token(token);
+        return scalar(8) && put(std::move(number));
     }
     bool string(string_t &v) override {
         return v.size() <= bounds.max_string_bytes && scalar(v.size()) && put(std::move(v));

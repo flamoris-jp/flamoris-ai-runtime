@@ -440,7 +440,8 @@ ValueSchema literal_schema(const JsonValue &v) {
         return s;
     }
     if (auto *n = std::get_if<double>(&v.data)) {
-        s.kind = std::floor(*n) == *n ? ValueSchema::Kind::integer : ValueSchema::Kind::number;
+        s.kind = v.exact_integer && std::floor(*n) == *n ? ValueSchema::Kind::integer
+                                                         : ValueSchema::Kind::number;
         s.minimum = s.maximum = *n;
         return s;
     }
@@ -969,36 +970,82 @@ Result<CompiledSubmission> Compiler::compile_submission(std::string_view json,
         return Result<CompiledSubmission>::failure(ErrorEnvelope::make(ErrorCode::internal_error));
     }
 }
+Result<CompiledSubmission> compile_child_fragment(std::string_view json,
+                                                  const CapabilitySnapshot &registry,
+                                                  const ChildEnvelope &envelope,
+                                                  const RunLimits &remaining,
+                                                  std::uint64_t child_depth) {
+    try {
+        if (child_depth == 0 || child_depth > envelope.max_depth ||
+            child_depth > remaining.max_child_depth || envelope.max_children == 0 ||
+            envelope.max_attempts == 0 || envelope.max_output_bytes == 0 ||
+            envelope.capabilities.empty())
+            reject(ErrorCode::budget_exceeded);
+        CompilerProfile profile;
+        profile.revision = "flamoris.child-profile/1";
+        for (const auto &[name, member] : limit_members) {
+            (void)name;
+            profile.limits.*member = std::min(profile.limits.*member, remaining.*member);
+        }
+        profile.limits.max_jobs = std::min(profile.limits.max_jobs, envelope.max_children);
+        profile.limits.max_attempts = std::min(profile.limits.max_attempts, envelope.max_attempts);
+        profile.limits.max_output_bytes =
+            std::min(profile.limits.max_output_bytes, envelope.max_output_bytes);
+        profile.limits.max_child_depth =
+            std::min(envelope.max_depth - child_depth, remaining.max_child_depth - child_depth);
+        auto compiled = Compiler(profile).compile_submission(json, registry);
+        if (!compiled)
+            return compiled;
+        if (compiled.value().idempotency_key)
+            reject(ErrorCode::invalid_request);
+        for (const auto &pin : compiled.value().plan->pins) {
+            auto allowed =
+                std::find(envelope.capabilities.begin(), envelope.capabilities.end(), pin);
+            if (allowed == envelope.capabilities.end())
+                reject(ErrorCode::permission_denied);
+        }
+        return compiled;
+    } catch (const Failure &failure) {
+        return Result<CompiledSubmission>::failure(ErrorEnvelope::make(failure.code));
+    } catch (...) {
+        return Result<CompiledSubmission>::failure(ErrorEnvelope::make(ErrorCode::internal_error));
+    }
+}
 Result<void> verify_plan_pins(const ExecutionPlan &plan, const CapabilitySnapshot &registry,
                               bool available) {
-    for (const auto &pin : plan.pins) {
-        auto it = registry.capabilities.find(pin.identifier);
-        if (it == registry.capabilities.end())
-            return Result<void>::failure(ErrorEnvelope::make(ErrorCode::plan_stale));
-        auto current = fingerprint_capability(it->second);
-        if (!current || current.value() != pin)
-            return Result<void>::failure(ErrorEnvelope::make(ErrorCode::plan_stale));
-        if (available && !it->second.available)
-            return Result<void>::failure(ErrorEnvelope::make(ErrorCode::capability_unavailable));
-    }
-    std::function<bool(const PlanStep &)> check = [&](const PlanStep &s) {
-        if (s.child_envelope) {
-            auto it = registry.child_policies.find(s.child_envelope->identifier);
-            if (it == registry.child_policies.end())
-                return false;
-            auto a = canonical_json(envelope_export(it->second)),
-                 b = canonical_json(envelope_export(*s.child_envelope));
-            if (!a || !b || a.value() != b.value())
-                return false;
+    try {
+        for (const auto &pin : plan.pins) {
+            auto it = registry.capabilities.find(pin.identifier);
+            if (it == registry.capabilities.end())
+                return Result<void>::failure(ErrorEnvelope::make(ErrorCode::plan_stale));
+            auto current = fingerprint_capability(it->second);
+            if (!current || current.value() != pin)
+                return Result<void>::failure(ErrorEnvelope::make(ErrorCode::plan_stale));
+            if (available && !it->second.available)
+                return Result<void>::failure(
+                    ErrorEnvelope::make(ErrorCode::capability_unavailable));
         }
-        for (const auto &m : s.members)
-            if (!check(m))
-                return false;
-        return true;
-    };
-    for (const auto &s : plan.steps)
-        if (!check(s))
-            return Result<void>::failure(ErrorEnvelope::make(ErrorCode::plan_stale));
-    return Result<void>::success();
+        std::function<bool(const PlanStep &)> check = [&](const PlanStep &s) {
+            if (s.child_envelope) {
+                auto it = registry.child_policies.find(s.child_envelope->identifier);
+                if (it == registry.child_policies.end())
+                    return false;
+                auto a = canonical_json(envelope_export(it->second)),
+                     b = canonical_json(envelope_export(*s.child_envelope));
+                if (!a || !b || a.value() != b.value())
+                    return false;
+            }
+            for (const auto &m : s.members)
+                if (!check(m))
+                    return false;
+            return true;
+        };
+        for (const auto &s : plan.steps)
+            if (!check(s))
+                return Result<void>::failure(ErrorEnvelope::make(ErrorCode::plan_stale));
+        return Result<void>::success();
+    } catch (...) {
+        return Result<void>::failure(ErrorEnvelope::make(ErrorCode::internal_error));
+    }
 }
 } // namespace flamoris::runtime
