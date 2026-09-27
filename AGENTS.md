@@ -283,7 +283,9 @@ rather than embedding inference/workflow semantics inside MCP handlers.
 
 Current implementation is authoritative.
 
-At the moment this repository is design-only. Do not claim implemented inference, scheduling, pause/resume, race, MCP, or workflow features until code and tests exist.
+This repository contains Phase C code under integration review. Describe implemented
+behavior from the actual code and executable evidence, and distinguish it from
+unqualified native profiles, external host integrations, and future proposals.
 
 When implementation begins:
 
