@@ -71,6 +71,7 @@ class ActivationClient {
     Result<void> request_stop(OperationId, TimePoint deadline, TimePoint now);
     Result<ActivationObservation> inspect(OperationId);
     Result<void> authorize_model(OperationId);
+    Result<void> authorize_stop(OperationId);
     void host_epoch_lost(HostEpoch) noexcept;
     void expire(TimePoint now) noexcept;
     std::size_t retire_detached() noexcept;
@@ -150,6 +151,9 @@ class ModelLoadRegistry {
     Result<void> cancel(const ModelResidencyKey &, ResourceOwner);
     Result<void> cleanup_settled(const ModelResidencyKey &, ResourceOwner, ContainmentProof);
     Result<void> can_pause(const ModelResidencyKey &) const;
+    Result<void> begin_release(const ModelResidencyKey &, AllocationIdentity);
+    Result<void> released(const ModelResidencyKey &, AllocationIdentity);
+    std::size_t retire_absent() noexcept;
     void fence(HostEpoch) noexcept;
     std::optional<ModelResidencySnapshot> inspect(const ModelResidencyKey &) const;
 

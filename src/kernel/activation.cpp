@@ -208,6 +208,13 @@ Result<void> ActivationClient::authorize_model(OperationId request) {
     return it->current.status == ProcessStatus::ready ? Result<void>::success()
                                                       : unavailable<void>();
 }
+Result<void> ActivationClient::authorize_stop(OperationId request) {
+    auto it = std::find_if(pending_.begin(), pending_.end(),
+                           [&](const auto &p) { return p.request.request == request; });
+    if (it == pending_.end())
+        return fail<void>(ErrorCode::invalid_request);
+    return authorize(policy_, ActivationScope::stop, it->request.key);
+}
 void ActivationClient::host_epoch_lost(HostEpoch epoch) noexcept {
     for (auto &p : pending_)
         if (p.request.expected_epoch == epoch && p.current.status != ProcessStatus::stopped)
@@ -367,6 +374,37 @@ Result<void> ModelLoadRegistry::can_pause(const ModelResidencyKey &key) const {
             ErrorCode::invalid_request, ErrorStage::execution, ExternalOutcome::not_applicable,
             RetryDisposition::prohibited, ErrorReason::unsupported_operation));
     return Result<void>::success();
+}
+Result<void> ModelLoadRegistry::begin_release(const ModelResidencyKey &key,
+                                              AllocationIdentity allocation) {
+    auto it = std::find_if(models_.begin(), models_.end(),
+                           [&](const auto &model) { return model.snapshot.key == key; });
+    if (it == models_.end() || it->snapshot.allocation != allocation ||
+        (it->snapshot.state != ModelResidencyState::resident &&
+         it->snapshot.state != ModelResidencyState::unknown &&
+         it->snapshot.state != ModelResidencyState::releasing))
+        return fail<void>(ErrorCode::state_unavailable);
+    it->snapshot.state = ModelResidencyState::releasing;
+    return Result<void>::success();
+}
+Result<void> ModelLoadRegistry::released(const ModelResidencyKey &key,
+                                         AllocationIdentity allocation) {
+    auto it = std::find_if(models_.begin(), models_.end(),
+                           [&](const auto &model) { return model.snapshot.key == key; });
+    if (it == models_.end() || it->snapshot.allocation != allocation ||
+        it->snapshot.state != ModelResidencyState::releasing || resources_.allocation(allocation))
+        return fail<void>(ErrorCode::cleanup_failed);
+    it->snapshot.state = ModelResidencyState::absent;
+    it->snapshot.allocation.reset();
+    it->snapshot.owner.reset();
+    return Result<void>::success();
+}
+std::size_t ModelLoadRegistry::retire_absent() noexcept {
+    auto before = models_.size();
+    std::erase_if(models_, [](const auto &model) {
+        return model.snapshot.state == ModelResidencyState::absent;
+    });
+    return before - models_.size();
 }
 void ModelLoadRegistry::fence(HostEpoch epoch) noexcept {
     for (auto &model : models_)
