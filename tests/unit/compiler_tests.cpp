@@ -447,3 +447,40 @@ TEST_CASE("A03 absent declared reference values fail binding without fallback", 
     outputs["source"] = JsonValue::Array{"only-element"};
     REQUIRE_FALSE(resolve_binding(binding, {}, outputs));
 }
+
+TEST_CASE("A07 dynamic depth is an absolute Run ceiling without nested renewal",
+          "[compiler][A07]") {
+    auto r = registry();
+    ChildEnvelope nested;
+    nested.identifier = "nested";
+    nested.revision = "1";
+    nested.capabilities = {fingerprint_capability(r.capabilities.at("algorithm.echo")).value()};
+    nested.max_children = 2;
+    nested.max_attempts = 1;
+    nested.max_depth = 4;
+    nested.max_output_bytes = 1024;
+    r.child_policies.emplace(nested.identifier, nested);
+    auto parent = nested;
+    parent.identifier = "parent";
+    parent.capabilities.push_back(
+        fingerprint_capability(r.capabilities.at("model.native")).value());
+    parent.max_children = 8;
+    parent.max_attempts = 8;
+    auto child = node("a", "model.native");
+    obj(child)["child_policy"] = "nested";
+    RunLimits remaining;
+    remaining.max_child_depth = 4;
+    auto level_one = compile_child_fragment(json(request({child})), r, parent, remaining, 1);
+    REQUIRE(level_one);
+    REQUIRE(level_one.value().plan->limits.max_child_depth == 4);
+    REQUIRE(compile_child_fragment(json(request()), r, parent, remaining, 4));
+    REQUIRE_FALSE(compile_child_fragment(json(request()), r, parent, remaining, 5));
+    r.child_policies.at("nested").max_depth = 5;
+    REQUIRE_FALSE(compile_child_fragment(json(request({child})), r, parent, remaining, 1));
+}
+TEST_CASE("B-SER01 programmatic canonicalization bounds values and key storage",
+          "[compiler][B-SER01]") {
+    JsonValue::Array values(65536, JsonValue(nullptr));
+    REQUIRE_FALSE(canonical_json(values));
+    REQUIRE_FALSE(canonical_json(JsonValue::Object{{std::string(257, 'k'), nullptr}}));
+}

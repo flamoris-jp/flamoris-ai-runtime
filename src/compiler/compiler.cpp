@@ -1005,8 +1005,7 @@ Result<CompiledSubmission> compile_child_fragment(std::string_view json,
         profile.limits.max_attempts = std::min(profile.limits.max_attempts, envelope.max_attempts);
         profile.limits.max_output_bytes =
             std::min(profile.limits.max_output_bytes, envelope.max_output_bytes);
-        profile.limits.max_child_depth =
-            std::min(envelope.max_depth - child_depth, remaining.max_child_depth - child_depth);
+        profile.limits.max_child_depth = std::min(envelope.max_depth, remaining.max_child_depth);
         auto compiled = Compiler(profile).compile_submission(json, registry);
         if (!compiled)
             return compiled;

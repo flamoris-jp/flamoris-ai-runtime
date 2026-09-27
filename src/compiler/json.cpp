@@ -280,8 +280,8 @@ std::string number(double v) {
     }
     return neg ? '-' + result : result;
 }
-void emit(std::string &out, const JsonValue &v, std::size_t depth) {
-    if (depth > 32 || out.size() > 10485760)
+void emit(std::string &out, const JsonValue &v, std::size_t depth, std::size_t &nodes) {
+    if (depth > 32 || ++nodes > 65536 || out.size() > 10485760)
         throw Invalid{};
     std::visit(
         [&](const auto &value) {
@@ -295,21 +295,28 @@ void emit(std::string &out, const JsonValue &v, std::size_t depth) {
             else if constexpr (std::is_same_v<T, std::string>)
                 quote(out, value);
             else if constexpr (std::is_same_v<T, JsonValue::Array>) {
+                if (value.size() > 65536)
+                    throw Invalid{};
                 out += '[';
                 bool first = true;
                 for (const auto &item : value) {
                     if (!first)
                         out += ',';
                     first = false;
-                    emit(out, item, depth + 1);
+                    emit(out, item, depth + 1, nodes);
                 }
                 out += ']';
             } else {
                 std::vector<
                     std::pair<std::vector<std::uint16_t>, const JsonValue::Object::value_type *>>
                     keys;
-                for (const auto &entry : value)
+                if (value.size() > 65536)
+                    throw Invalid{};
+                for (const auto &entry : value) {
+                    if (entry.first.size() > 256)
+                        throw Invalid{};
                     keys.emplace_back(utf16(entry.first), &entry);
+                }
                 std::sort(keys.begin(), keys.end(),
                           [](const auto &a, const auto &b) { return a.first < b.first; });
                 out += '{';
@@ -320,7 +327,7 @@ void emit(std::string &out, const JsonValue &v, std::size_t depth) {
                     first = false;
                     quote(out, entry.second->first);
                     out += ':';
-                    emit(out, entry.second->second, depth + 1);
+                    emit(out, entry.second->second, depth + 1, nodes);
                 }
                 out += '}';
             }
@@ -356,7 +363,8 @@ Result<JsonValue> parse_bounded_json(std::string_view text, JsonBounds bounds) {
 Result<std::string> canonical_json(const JsonValue &value) {
     try {
         std::string out;
-        emit(out, value, 0);
+        std::size_t nodes = 0;
+        emit(out, value, 0, nodes);
         if (out.size() > 10485760)
             throw Invalid{};
         return Result<std::string>::success(std::move(out));

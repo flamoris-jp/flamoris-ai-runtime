@@ -79,3 +79,9 @@ their handle restrictions. Retained result access revalidates typed handles with
 the current available registered validator and its pinned revision; plain
 historical values remain readable under current result-access authorization even
 when execution availability or registry revisions have changed.
+
+Dynamic child depth is absolute within the original Run. Both the Run limit and
+every enclosing child envelope cap that same depth; entering a fragment neither
+subtracts the level from a newly declared policy nor renews its allowance. Every
+proposal checks its concrete child depth before compilation/admission, so a leaf
+at the ceiling is permitted and another child beyond it is rejected.

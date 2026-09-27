@@ -178,6 +178,7 @@ class Compiler {
 };
 // Pure compilation only. The owning Run charges proposals before this call and
 // atomically reserves admitted child/attempt/resource obligations afterwards.
+// child_depth and max_child_depth/max_depth are absolute depths within the original Run.
 Result<CompiledSubmission> compile_child_fragment(std::string_view json, const CapabilitySnapshot &,
                                                   const ChildEnvelope &, const RunLimits &remaining,
                                                   std::uint64_t child_depth);
