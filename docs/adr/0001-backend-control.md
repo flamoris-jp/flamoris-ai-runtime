@@ -1,4 +1,4 @@
-# ADR 0001: own inference steps; qualify an embedded backend first
+# ADR 0001: FLAMORIS native model runtime and compute
 
 ## Status
 
@@ -10,19 +10,19 @@ Phase A [execution](../EXECUTION_MODEL.md), [state](../STATE_MACHINES.md), and
 
 ## Decision
 
-Build a deterministic scripted backend first. Select the **embedded llama.cpp C
-API, CPU-only initially**, as the first real backend direction. FLAMORIS drives
-bounded prefill/decode steps and owns when sampling, observation, interruption,
-child dispatch and resume can advance. Do not use the llama.cpp HTTP server as
-the implementation of this controlled backend. External inference servers may
-separately be registered opaque capabilities with narrower promises.
+FLAMORIS AI Runtime **is** the native model runtime. It owns model loading,
+processing/tokenization, execution state/cache, incremental inference, sampling,
+control points and cleanup. The initial causal-text profile is an implementation
+slice, not the universal Runtime state. Begin with a deterministic fake, then an
+independently implemented native CPU correctness reference, then native OpenCL
+compute and CPU/OpenCL parity tests. CPU and OpenCL are compute implementations
+within this Runtime, not interchangeable third-party model runtimes.
 
-The first qualification profile is one approved decoder-only model family,
-one sequence per context, greedy or explicitly seeded supported sampling, and
-in-place state preservation at successful synchronized step boundaries. All
-mutable native calls initially run on one backend worker. There is no claim of
-GPU support, cross-Job batching, rewind, portable snapshots, or state evacuation.
-Adding any such capability requires its own conformance evidence.
+The four third-party projects below are comparative research evidence only. No
+llama.cpp embedding, provider-specific inference-backend API, process-global
+llama lifecycle or adapter compatibility is a Phase C requirement. External AI
+runtimes/providers, if used, are registered Workflow external capabilities.
+They cannot own FLAMORIS Run/Job/Continuation/native inference state.
 
 ## Reproducible evidence
 
@@ -76,45 +76,30 @@ state preservation nor control over the next model iteration.
 
 ## Consequences for FLAMORIS
 
-1. Own the complete state tuple and each permission to advance, rather than only
-   a request ID and output iterator. [Backend Contract](../phase-b/BACKEND_CONTRACT.md)
-   specifies evaluated versus sampled positions, sampler/RNG, decoder buffers,
-   retained allocations and the immutable model/backend identity.
-2. Require a quiescent receipt distinct from a stop request, and a release receipt
-   distinct from quiescence. Current llama.cpp explicitly permits partial state
-   mutation on abort. Successful in-place pause therefore waits for a completed
-   step; cancellation may invalidate state and clean it up.
-3. Keep optional capabilities granular. Re-inference after cache loss is not
-   the state-preserving resume promised by Phase A. Transformers soft reset and
-   vLLM sleep/KV discard are examples of why a method named “resume” is insufficient.
-4. Preserve the Runtime Scheduler as sole selector of Jobs. A future batched
-   backend needs an explicit sub-scheduling contract that cannot advance a
-   paused, cancelled, unauthorized or lease-expired Job. No such contract is
-   silently inherited from a serving engine.
-5. Treat state/weights memory as accounted native allocations or conservative
-   pools. Token completion, cache serialization and released execution slots
-   never imply deallocation. Unsupported measurable bounds reject the profile.
+1. Keep a model-neutral native execution envelope: model/configuration identity,
+   execution stage, state references, progress, algorithm-state identity,
+   resource allocations and suspension validity. Causal-text KV, pending token,
+   sampler/RNG, penalty/grammar, decoder carry and stop matcher belong to its
+   causal-text profile. Do not promise these fields for Vision, embedding or audio.
+2. Own bounded native steps and require distinct quiescence and release evidence.
+   An abort request or freed logical reference is not physical release.
+3. Use CPU as the correctness oracle, including cached versus uncached decoding,
+   then compare native OpenCL results under documented tolerances. Numerical
+   parity is a qualification task, not a claim of current implementation.
+4. Keep Scheduler ownership of Jobs. A future batching optimization is internal
+   to FLAMORIS and needs explicit permits; one sequence/context and serialized
+   calls are initial qualification limits, not permanent architecture rules.
+5. Third-party runtime APIs supply design comparisons, not substitute inference
+   state/lifetime contracts. Their licenses matter only if a separate Workflow
+   integration actually incorporates them.
 
-The choice prioritizes visible control and a small native boundary, not benchmark
-superiority. CPU-first lets real inference qualification run without a GPU and
-keeps hardware/host integration independent from baseline semantic tests.
+## Alternatives considered
 
-## Alternatives not selected for the first controlled backend
-
-- **llama.cpp server / generic completion API**: suitable as a limited capability,
-  but token streaming is not the per-iteration state/authorization boundary.
-- **Transformers custom loop**: exposes valuable controls and remains a plausible
-  research/reference adapter; a Python/PyTorch lifetime boundary and model/cache
-  diversity increase the first C++ integration surface. Current continuous
-  batching exists; it is not rejected on the obsolete claim that it does not.
-- **vLLM**: valuable future serving adapter. Engine-wide preserved pause is real,
-  but coupling unrelated Runs to a global pause would violate targeted Job
-  semantics. A deeper per-request ownership adapter needs separate evidence.
-- **TensorRT-LLM**: valuable accelerator/throughput direction, but its current
-  architecture and historical C++ interface must be distinguished. No claim that
-  historical executor callbacks supply our current per-Job state contract.
-- **Private foundation as first port**: useful design evidence, but no cleared
-  native controlled-backend implementation was established for direct adoption.
+Embedding llama.cpp, wrapping Transformers, vLLM or TensorRT-LLM, and generic
+server completion APIs would delegate some execution control to their own
+interfaces. They may be useful through Workflow capability registration, but
+are outside native inference. The earlier embedded-llama.cpp selection and its
+process-global construction guard are superseded by this decision.
 
 ## Private foundation reuse and publication boundary
 
@@ -141,24 +126,17 @@ explicit authorization plus provenance and license clearance.
 
 ## Dependency and licensing boundary
 
-The inspected [llama.cpp license](https://github.com/ggml-org/llama.cpp/blob/2145525a4081d66ff1a87cf43ef809f95a85ac0c/LICENSE)
-is MIT. Preserve its notice when distributing included code/binaries; audit the
-selected build's transitive backend dependencies separately. The examined root
-licenses for [Transformers](https://github.com/huggingface/transformers/blob/96331a9f93b72697f160a958d2883d4b49a56739/LICENSE),
-[vLLM](https://github.com/vllm-project/vllm/blob/379e9a1ea8a5995464d9bf775bcd36bb03a0995f/LICENSE), and
-[TensorRT-LLM](https://github.com/NVIDIA/TensorRT-LLM/blob/b88149e535265b52e8ddb1339e35710e10b7ecf8/LICENSE)
-identify Apache 2.0; TensorRT-LLM additionally lists incorporated third-party
-components. This source inventory does not grant rights to weights, datasets,
-tokenizers, proprietary SDKs or services. Phase C's qualification fixture needs
-its own recorded license/provenance and checksum; it is not bundled by this ADR.
+No third-party model runtime dependency is selected. Model weights, tokenizers,
+datasets and fixtures require their own provenance, license and checksum checks.
+OpenCL is the approved native compute API direction. Private `flamoris-LLM`
+source is not copied into this public repository without a specific publication,
+provenance and licensing review. The linked third-party source revisions above
+remain research pins, not dependency pins.
 
 ## Qualification gate and remaining evidence
 
-The selected direction is resolved; declaring runtime support remains gated.
-Phase C must pin a dependency and approved model fixture, build the CPU adapter,
-verify bounded allocations, compare uninterrupted versus paused/resumed state
-and output, exercise partial abort/error cleanup and stale receipts, and verify
-that no step runs without a current dispatch permit. A model/backend/configuration
-that fails is unavailable; do not silently downgrade preservation into recompute.
-Optional GPU qualification must separately prove its safe points, stop latency
-and host/resource boundary. None of these experiments is claimed completed here.
+Phase C must prove native CPU load/tokenization, bounded prefill/decode,
+stateful cache/sampler progress, pause/resume equivalence at safe points, cancel,
+resource ownership and release. OpenCL then needs a qualified device/profile,
+measured bounds and CPU/OpenCL parity. Unsupported controls reject explicitly.
+No model was loaded or tested in this Phase B design correction.
