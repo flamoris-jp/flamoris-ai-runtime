@@ -1,5 +1,7 @@
 # MCP Contract
 
+**Deployment scope:** the initial Runtime is single-user. Transport authentication and current per-capability authorization still apply. Tenant isolation and billing are not baseline promises; external AI participates as a Workflow capability.
+
 ## Status
 
 **Phase A semantic design. No MCP server is implemented; exact wire schemas and tool names remain Phase B decisions.**

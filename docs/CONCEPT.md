@@ -69,9 +69,7 @@ MODEL
        └─ observability
 ```
 
-The exact backend may vary. The design should allow a native FLAMORIS model path, an existing low-level runtime, or another future backend where appropriate.
-
-However, a backend abstraction must not hide the control points required by FLAMORIS. If pause, interrupt, streaming observation, or state-preserving continuation requires control of the decode loop, the Runtime should keep that control rather than delegating it behind an opaque request/response boundary.
+FLAMORIS AI Runtime itself owns native model execution, cache/state and inference control. CPU reference and OpenCL are internal compute implementations. Third-party runtimes and providers, if used, are registered Workflow external capabilities, never interchangeable Inference Machine backends.
 
 ## Inference as a controllable loop
 
@@ -440,7 +438,7 @@ The purpose is not compatibility with all of them. It is to identify the smalles
 
 Reusing it should be evaluated at the code/contract level rather than copied wholesale.
 
-Model-specific code may become a backend or model layer, while the new Runtime adds the inference controller, jobs, workflow execution, event stream, interrupts, and resource scheduling around it.
+Model-specific code becomes a native model layer, while the new Runtime adds the inference controller, jobs, workflow execution, event stream, interrupts, and resource scheduling around it.
 
 This is a design direction, not yet an implementation claim.
 

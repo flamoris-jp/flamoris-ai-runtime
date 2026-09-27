@@ -42,7 +42,7 @@ In scope:
 - structured events, journal retention, trace replay and process failure limitations;
 - external AI/MCP, Agent, Generation, products and GPU Node Manager boundaries.
 
-The baseline is a single Runtime process controlling its own Runs and resource accounting ledger. Hard tenant paid-budget authority is an external durable ledger as specified in [Authorization Model](AUTHORIZATION_MODEL.md); it does not confer Run recovery. The Runtime may call external services. It is not a distributed scheduler and does not promise restart-safe continuation, exactly-once external effects, universal pause/rewind, or automatic rollback.
+The baseline is a single-user Runtime process controlling its own Runs and resource accounting ledger. Strict cross-crash monetary limits belong to an optional future external authority, not baseline acceptance. The Runtime may call external services. It is not a distributed scheduler and does not promise restart-safe continuation, exactly-once external effects, universal pause/rewind, or automatic rollback.
 
 Exit gate:
 
@@ -60,7 +60,7 @@ Required evidence:
 - inspect current `flamoris-net/flamoris-LLM` through authenticated GitHub access;
 - compare current primary-source contracts of `llama.cpp`, Transformers, vLLM and TensorRT-LLM;
 - record source revisions/date, actual control points, limitations and reuse/licensing decisions;
-- choose the first backend only from this evidence; do not assume a server endpoint supports decode-level control or state preservation.
+- choose the FLAMORIS native model and compute contract using this evidence; do not assume a server endpoint supports decode-level control or state preservation.
 
 Research must cover tokenization, prefill/decode, sampling, KV/state ownership, streaming, cancellation, pause/resume, offload/snapshot/rewind, batching, observability, and embedded versus server APIs. An unavailable source remains an explicit research blocker, not a guessed implementation description. Private code/topology must not be copied into public documentation.
 
@@ -73,7 +73,7 @@ Required design outputs:
 | Errors | Result/exception boundary, typed failure propagation and cancellation representation |
 | Concurrency | State commit/linearization, concurrent submission claim and Run identity, duplicate-waiter decisions, worker callbacks, thread affinity, clocks and cancellation safety |
 | Resources | Handle/allocation ownership, cleanup/quarantine protocol, host-adapter contract |
-| Paid budgets | External durable authority protocol for atomic tenant/attempt reservation, crash inventory/reconciliation, full-liability fallback and fail-closed availability; no Runtime recovery implication |
+| Paid budgets | Optional future strict-cost profile, separately reviewed; finite Run limits and paid effect policy remain baseline |
 | Backend | Evidence-backed capability matrix, first integration contract and deterministic fake seams |
 | Serialization | Versioned IR, plan/event/error shapes, bounded post-terminal observation/retention, redaction, bounded parser and compatibility rules |
 | Delivery | Implementation slices, exact acceptance case mapping, CI/toolchain matrix and risk register |

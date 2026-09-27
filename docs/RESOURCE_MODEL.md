@@ -1,5 +1,7 @@
 # Resource Model
 
+**Product boundary correction:** baseline is single-user; model state and compute are FLAMORIS native. Per-Run resource accounting remains mandatory; tenant quotas and strict monetary authority are optional future extensions.
+
 ## Status and scope
 
 **Phase A architecture design; no allocator, scheduler, or backend is implemented.**

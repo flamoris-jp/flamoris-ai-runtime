@@ -1,5 +1,7 @@
 # Workflow IR
 
+**Product boundary:** native inference uses FLAMORIS-owned execution state. External AI runtimes/providers are registered Workflow capabilities with effect and authorization checks; they cannot substitute for the native Inference Machine. Baseline is single-user.
+
 ## Status
 
 **Phase A semantic design. No schema is implemented; wire representation is deferred to Phase B.**

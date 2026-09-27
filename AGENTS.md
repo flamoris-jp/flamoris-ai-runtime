@@ -2,7 +2,7 @@
 
 This repository is part of the FLAMORIS ecosystem.
 
-FLAMORIS AI Runtime is currently a **design-stage model-adjacent AI execution runtime**. It is intended to control model inference, workflow execution, jobs, interrupts, and observability in one runtime kernel.
+FLAMORIS AI Runtime is currently a **design-stage single-user FLAMORIS native model runtime**. It is intended to control model inference, workflow execution, jobs, interrupts, and observability in one runtime kernel.
 
 Do not implement behavior from chat context alone. Read current repository documentation first and keep planned behavior clearly separated from implemented behavior.
 
@@ -12,8 +12,8 @@ Do not implement behavior from chat context alone. Read current repository docum
 
 Planned ownership:
 
-- model-adjacent inference lifecycle for supported/controlled backends;
-- model/backend execution contracts;
+- FLAMORIS-owned native model execution and inference lifecycle;
+- native model and internal CPU/OpenCL compute contracts;
 - active inference state such as token position, cache/state, sampling state, and stop conditions;
 - runtime workflow IR and validation;
 - job lifecycle, dependencies, scheduling, cancellation, and results;
@@ -47,7 +47,7 @@ Do not reduce the model to an opaque remote `generate()` call when the feature b
 - bounded result injection;
 - backend state inspection.
 
-A limited opaque provider may still exist as a capability, but it must advertise its limitations honestly.
+An external provider may exist only as a registered Workflow capability, but it must advertise its limitations honestly.
 
 ## Runtime concepts
 
@@ -110,9 +110,9 @@ tokenize -> prefill -> decode iteration -> sampling -> token/state update
                                       -> continue
 ```
 
-Exact backend behavior must be verified before freezing interfaces.
+Native compute behavior must be verified before freezing execution guarantees.
 
-Do not promise universal rewind, pause, or cache mutation. These are backend capabilities.
+Do not promise universal rewind, pause, or cache mutation. These are native model/profile capabilities.
 
 ## Observability
 
@@ -249,13 +249,13 @@ In particular:
 - Event replay is observation only; the baseline is not durable execution recovery.
 - Concurrent submission deduplication atomically claims the scoped key and one Run identity before work dispatch; failed pre-Run admission releases the claim only after waiters share its rejection.
 - Terminal lifecycle state is immutable, while bounded post-terminal reconciliation may append to the Run observation stream within retention; ledger cleanup survives its expiry.
-- Hard tenant paid budgets require an external durable authority for pre-handoff attempt reservation, reconciliation and fail-closed restart/availability behavior; an in-process ledger alone cannot enforce them.
+- The baseline is single-user and enforces finite Run/resource limits. Strict cross-crash monetary guarantees are an optional future external-capability integration.
 
 Phase B additionally fixes these implementation boundaries:
 
 - An absent submission idempotency key means independent fresh admission; only explicit valid keys enter SubmissionIndex.
-- Paid handoff uses an identity-bound one-shot DeliveryGate created before arm; only absorbing closure proves no-send, never a stop hint or missing event.
-- Baseline allows one Runtime construction per process; the guard stays spent after failure/shutdown. The sole root owns global native init/log/free through actual quiescence. Tests needing multiple instances model separate processes.
+- Optional strict-cost paid integration alone uses a durable handoff protocol; baseline does not claim a hard monetary ceiling.
+- Runtime construction and teardown follow FLAMORIS native ownership; no llama.cpp-derived process-global lifetime or permanent one-construction rule is imposed.
 
 Do not jump directly to distributed scheduling, a plugin marketplace, or a generic graph programming language.
 

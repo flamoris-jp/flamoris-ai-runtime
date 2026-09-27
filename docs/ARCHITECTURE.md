@@ -18,7 +18,7 @@ FLAMORIS AI Runtime is a model-adjacent execution kernel: inference and workflow
 | Scheduler | Selection of eligible Jobs under current resource/policy constraints | Continuation scheduling, external service authority |
 | Resource Manager | Reservations, execution leases, physical allocation accounting and cleanup debt | Claiming host exclusivity from a local lock |
 | Capability Registry | Versioned schemas, effects and adapter capability descriptions | Permission to invoke a registered capability |
-| Paid Budget Authority (external, durable) | Atomic tenant/attempt paid liability reservations, settlement and restart reconciliation for hard budgets | Run/Job recovery, provider execution or general resource scheduling |
+| Paid Budget Authority (optional future integration) | Strict monetary guarantees for external paid capabilities when explicitly enabled | Baseline native inference or Run/Job recovery |
 | Agent | Identity, goals, personality, conversation and durable memory | Runtime lifecycle state |
 | Generation | Generation workflows, service Jobs and media assets | Runtime Job identity and lifecycle |
 | GPU Node Manager | Host-wide device/service lifecycle and coordination | Runtime dependency decisions |
@@ -100,7 +100,7 @@ Effects are a validated nonempty set: `pure`, `read`, `write`, `external`, `dest
 
 Plan-level aggregation validates each member first, then combines observable effects without retaining `pure` beside them. An effect set is neither an authorization grant nor proof of idempotency. Current input-specific scopes, cost reservations and registered adapter restrictions control dispatch.
 
-[Authorization Model](AUTHORIZATION_MODEL.md) defines revocation, confirmation binding, budget accounting, deduplication and uncertainty. The Runtime's process-local Run ledger does not replace the external durable Paid Budget Authority for hard tenant limits. Affected paid admission fails closed when reservation/reconciliation status is unavailable; that authority cannot restore a crashed Run. Raw credentials, arbitrary endpoints, ambient shell/filesystem/network authority and model-authored permission claims are excluded.
+[Authorization Model](AUTHORIZATION_MODEL.md) defines revocation, confirmation binding, budget accounting, deduplication and uncertainty. The baseline Run ledger enforces finite local limits without promising a hard monetary ceiling across crashes. A future strict paid profile requires separate durable authority and cannot restore a crashed Run. Raw credentials, arbitrary endpoints, ambient shell/filesystem/network authority and model-authored permission claims are excluded.
 
 ## Events, failure and replay
 
@@ -112,7 +112,7 @@ Trace replay reads retained evidence and never invokes models, tools, authorizat
 
 ## Scope and review
 
-The initial scope is one Runtime process, bounded DAG/control semantics and one researched backend. GUI metadata is non-semantic. Durable Agent memory, training, distributed scheduling, arbitrary code, a plugin marketplace, universal pause/rewind and speculative result replacement remain outside the baseline.
+The initial scope is a single-user FLAMORIS native model runtime, bounded DAG/control semantics, CPU reference and OpenCL compute. GUI metadata is non-semantic. Durable Agent memory, training, distributed scheduling, arbitrary code, a plugin marketplace, universal pause/rewind and speculative result replacement remain outside the baseline.
 
 Before freezing interfaces, Phase B must inspect current `flamoris-net/flamoris-LLM` and current primary-source runtime contracts for llama.cpp, Transformers, vLLM and TensorRT-LLM. Public documents must not copy private topology/code. No backend has been selected or validated by this Phase A proposal.
 

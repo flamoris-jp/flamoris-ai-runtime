@@ -1,5 +1,7 @@
 # Phase A Design Acceptance
 
+**Scope update (Phase A correction):** baseline is single-user native inference with finite Run/resource limits. A05 and A24 test local cumulative attempt limits; A35 tests current owner/scope checks. A41–A42 are retained IDs for an explicitly optional future strict monetary profile, not baseline completion gates. No baseline test requires a tenant ledger or durable paid authority.
+
 ## Status and method
 
 **Review scenarios, not executed tests. No Runtime code exists.** These cases turn architecture claims into observable obligations. Phase B must map them to types, state commit points, fake clocks/backends/adapters and test seams; Phase C implements the tests. Passing a Markdown check is not passing these scenarios.
@@ -14,7 +16,7 @@ Read with [Execution Model](EXECUTION_MODEL.md), [State Machines](STATE_MACHINES
 | A02 | Missing binding, incompatible schema, reference-derived cycle, excessive expansion | Reject before execution; no partial graph or hidden reference I/O |
 | A03 | Cache plan, then change a pinned effect/schema/adapter contract | `plan_stale` before dispatch/resume; no silent substitution or live migration |
 | A04 | Revoke permission after compile/admission but before dispatch | Current check denies the operation; no effect handoff; cleanup authority retained |
-| A05 | Two parallel paid children compete for the remaining budget | Atomic cumulative reservation permits only the fitting set; no per-Job overspend |
+| A05 | Two parallel children compete for the remaining Run attempt/resource budget | Atomic cumulative reservation permits only the fitting set; no per-Job overspend |
 | A06 | Effect sets empty, unknown, pure+write, destructive without write | Deterministic rejection; composition of valid pure + external/paid drops pure from summary |
 | A07 | Model proposes a new endpoint, out-of-scope capability, recursive child or repeated invalid call | No new authority; bounded rejection/recovery within original count/depth/deadline budgets |
 | A08 | Inference yields, child succeeds, parent waits for capacity | Same Job ID; Continuation consumed once into queued payload; no execution lease while queued; retained allocation still charged |
@@ -33,7 +35,7 @@ Read with [Execution Model](EXECUTION_MODEL.md), [State Machines](STATE_MACHINES
 | A21 | all_settled has successes and failures | Wait for all terminal outcomes; bounded typed collection in declared order; group deadline still applies |
 | A22 | Race candidates finish together or first candidate fails acceptance | Run commit order/declaration tie-break chooses one accepted success; failed/unacceptable result cannot win |
 | A23 | Race winner selected while remote loser will not confirm stop | Winner immutable; loser outcome/cost/quarantine explicit; loser terminal before parent terminal, no rollback claim |
-| A24 | Race requests writes or more paid attempts than aggregate budget permits | Reject initial write/destructive race or budget violation before any participant dispatch |
+| A24 | Race requests writes or more attempts than the finite Run allowance permits | Reject initial write/destructive race or budget violation before any participant dispatch |
 | A25 | Provider accepts write but response is lost | Unknown outcome; no blind retry; reconcile under a bounded registered contract |
 | A26 | Provider write completes but output is invalid/oversized | Fail result validation, preserve effect evidence, never inject rejected data or repeat write to obtain output |
 | A27 | Concurrent same-key/same-digest and same-key/different-digest submissions; owner admission succeeds or rejects; key expires or process restarts | Atomic key claim plus one Run identity before dispatch; same digest waiters share admitted Run or one pre-Run rejection, different digest conflicts while pending; rejected claim releases only after notifying waiters; no cross-restart exactly-once claim |
@@ -44,14 +46,14 @@ Read with [Execution Model](EXECUTION_MODEL.md), [State Machines](STATE_MACHINES
 | A32 | Replay retained in-memory trace containing paid/write/cancel/resource events before baseline acceptance | Only isolated observation changes; zero backend, adapter, scheduler or cleanup dispatch; no durable recovery claim |
 | A33 | Crash immediately before/after external handoff | Trace may be incomplete; new instance does not resume or infer outcome; reconcile host/provider before reuse |
 | A34 | Unbounded stream of warm-model Jobs competes with older cold work | Fairness bound prevents indefinite bypass; dependencies/effect ordering never relaxed for residency |
-| A35 | Another principal requests status, media handle, trace or replay | Current scope checked for each surface; no cross-tenant/expired-handle leakage |
+| A35 | Unauthorized caller requests status, media handle, trace or replay | Current scope checked for each surface; no cross-tenant/expired-handle leakage |
 | A36 | Two unordered writes may target the same object | Reject ambiguous ordering unless trusted contract proves disjoint scopes; physical serialization is not semantic order |
 | A37 | Targeted pause quiesces every remaining Job without a Run barrier | Defined activity projection with pause reason; Run.resume never clears unrelated targeted pauses |
 | A38 | Deadline/cancel arrives after success entered finalizing | Frozen result intent remains; bounded cleanup continues and residue is separately reported |
 | A39 | Submit equivalent direct inference and single-root inference workflow under the same capability snapshot | Both follow the compiler/plan admission path with pinned model/backend, effects, finite limits and explicit child envelope; direct submission cannot bypass stale pins or current policy |
 | A40 | Dynamic child creation races with Run pause preflight | One serialized commit validates targets, closes dispatch/child gates and snapshots barrier generation; child committed earlier is included or pause rejected, child proposed later cannot enter |
-| A41 | Paid handoff accepted, Runtime crashes with unknown outcome, restarts, then another paid Run submits | Durable tenant/attempt reservation remains; affected paid admission fails closed until reconciliation or conservative full-liability accounting certifies safe remaining balance; no new hard-budget overspend or invented refund |
-| A42 | Durable paid-budget authority is unavailable or its restart inventory is incomplete when hard-budget paid work submits | No paid handoff/admission in affected scope until atomic reservation and safe remaining balance can be certified; unaffected non-paid work follows independent policy; no Run recovery inferred from ledger state |
+| A41 | Optional strict-cost profile: paid handoff accepted, Runtime crashes, then another paid Run submits | Durable tenant/attempt reservation remains; affected paid admission fails closed until reconciliation or conservative full-liability accounting certifies safe remaining balance; no new hard-budget overspend or invented refund |
+| A42 | Optional strict-cost profile: durable paid authority unavailable or restart inventory incomplete | No paid handoff/admission in affected scope until atomic reservation and safe remaining balance can be certified; unaffected non-paid work follows independent policy; no Run recovery inferred from ledger state |
 
 ## Worked failure trace: inference awaits an MCP child
 

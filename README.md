@@ -415,7 +415,7 @@ Inference   Workflow    Scheduler
 
 C++ does **not** mean every capability must run in-process. External AI, MCP, Generation, and other services remain registered external capabilities with their own authority.
 
-The [Phase B design proposal](docs/PHASE_B_DESIGN.md) selects a C++20 library-first baseline and an evidence-backed first backend direction. Its toolchain, ownership, concurrency and integration contracts require review before implementation. No stable ABI or language binding is promised.
+The [Phase B design proposal](docs/PHASE_B_DESIGN.md) selects a C++20 library-first baseline and FLAMORIS native model execution with CPU reference and OpenCL compute. Its toolchain, ownership, concurrency and integration contracts require review before implementation. No stable ABI or language binding is promised.
 
 See [Implementation Strategy](docs/IMPLEMENTATION_STRATEGY.md).
 
@@ -564,7 +564,7 @@ pause / stop / child job / input injection
 
 という形を想定します。
 
-Phase Bでは `llama.cpp`、Hugging Face Transformers、vLLM、TensorRT-LLMの一次資料を比較し、prefill/decode、KV cache、streaming、cancel、scheduler、pause/resume、state rewind、observabilityの制御点と制約を記録しました。最初はdeterministic fakeで契約を検証し、その後に埋め込み型llama.cppのCPU adapterを検証する設計です。実装済みのbackend対応を意味しません。
+Phase Bでは `llama.cpp`、Hugging Face Transformers、vLLM、TensorRT-LLMの一次資料を比較し、prefill/decode、KV cache、streaming、cancel、scheduler、pause/resume、state rewind、observabilityの制御点と制約を記録しました。最初はdeterministic fakeで契約を検証し、その後FLAMORIS native CPU referenceとOpenCL computeを実装・比較する設計です。外部Runtimeは必要ならWorkflow capabilityとして利用します。実装済みを意味しません。
 
 既存の `flamoris-net/flamoris-LLM` も現行コードを調査しました。概念・テスト方針を参考にし、privateコードは移植していません。コードの再利用には公開権限とライセンスの確認が別途必要です。
 

@@ -52,7 +52,7 @@ Names below describe required responsibilities, not declarations or a frozen ABI
 | Resource Manager | Allocation/lease/reservation handles, generations and cleanup debt |
 | Capability | Registry snapshot, effect set, current availability and adapter dispatch |
 | Authorization | Current policy decision, scoped execution input, atomic submission claim and Run identity, and process-local limits |
-| Paid Budget Authority | External durable reservation before paid handoff, scoped attempt liability, reconciliation/settlement, restart inventory and fail-closed availability |
+| Paid Budget Authority | Optional future strict-cost external capability integration; not a baseline dependency |
 | Event | Envelope, sequence, bounded payload and journal/subscriber boundary |
 | Failure | Typed code, external outcome certainty, retry and cleanup disposition |
 
@@ -86,7 +86,7 @@ Choose only what the first implementation needs:
 - worker model, synchronization, clocks, timers and cancellation tokens;
 - event/ID/schema representation and parser/resource bounds, including bounded post-terminal Run observation;
 - atomic process-local submission claim/Run admission and duplicate-waiter arbitration;
-- external durable paid-budget integration contract: atomic tenant/attempt reservation, stable IDs, finite provider-enforced liability, settlement/reconciliation after crash, unavailable/partial-inventory fail-closed behavior and deterministic fake seams;
+- optional strict-cost profile may later define durable reservation and reconciliation, without blocking baseline native inference;
 - backend adapter and host coordination protocol;
 - deterministic fake clocks, backend callbacks and allocation test seams.
 

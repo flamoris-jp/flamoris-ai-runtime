@@ -9,9 +9,8 @@ types, backend APIs, or a transport schema.
 The initial execution authority is one Runtime process. Its Runs, Jobs,
 Continuations, leases, and request deduplication records are process-lifetime
 state. A restart does not resume them. Persisted traces are evidence, not a
-recovery log. Hard tenant paid-budget authority is an external durable ledger,
-not reconstructable from those process-lifetime records; see
-[Authorization Model](AUTHORIZATION_MODEL.md). Durable Run recovery and
+recovery log. The single-user baseline has no durable tenant paid-budget ledger or hard
+cross-crash monetary ceiling; see [Authorization Model](AUTHORIZATION_MODEL.md). Durable Run recovery and
 distributed ownership require a later design.
 
 ## Authority and ownership
