@@ -10,7 +10,7 @@ authority conformance and provider-enforced maximum liability are demonstrated.
 ## Authority and identities
 
 The external Paid Budget Authority serializes all charged and reserved liability for
-one tenant/budget scope, including other Runtime instances using that scope. Runtime
+one configured single-user budget scope, including other Runtime instances using that scope. Runtime
 retains a cumulative Run ledger, but cannot increase a durable balance, refund unknown
 cost, or recover Jobs from budget records. `PaidBudgetAdapter` owns bounded request/
 response translation; only the control executor commits the returned evidence to a
@@ -18,12 +18,12 @@ live Run or cleanup observation. The adapter cannot schedule provider work.
 
 | Proposed value | Binding and lifetime |
 | --- | --- |
-| `TenantBudgetId` | Trusted tenant plus budget/unit/period identity; caller input cannot choose another tenant's ledger |
+| `BudgetScopeId` | Trusted local budget/unit/period identity; workflow input cannot select a different ledger |
 | `OperationId` | Stable logical operation and provider idempotency scope; immutable principal, capability, request digest and provider-contract revision |
 | `AttemptId` | Unique attempt under the same Job and operation; a retry uses its own reservation and never resets cumulative limits |
 | `DurableReservationId` | Authority-issued durable identity bound to scope and concrete operation/attempt or unbound FundingSlotId, maximum liability and current record revision |
 | `PaidReservationReceipt` | Bounded reference to the durable record; current reserved/armed/settled state and authority revision; not a bearer permission |
-| `DeliveryGateId` | Fresh incarnation-scoped one-shot identity allocated before arm, permanently bound to concrete tenant/operation/attempt/reservation/digest; never recycled or used for another retry |
+| `DeliveryGateId` | Fresh incarnation-scoped one-shot identity allocated before arm, permanently bound to concrete budget-scope/operation/attempt/reservation/digest; never recycled or used for another retry |
 | `HandoffTicket` | Authority-issued marker bound to that attempt and DeliveryGateId before local dispatch; armed liability survives lost response/crash |
 | `BudgetScopeCertificate` | Current inventory/reconciliation status and conservative remaining balance for the scope; a stale balance snapshot cannot authorize spending |
 | `RaceFundingPreparation` | Run-owned bounded bookkeeping for one closed race group: all participant/operation/attempt slots, maxima, receipts and funding gate; no independent scheduling identity |
@@ -94,7 +94,7 @@ propose retirement of unused slots, but the owning preparation releases them onl
 proving their future dispatch paths are closed and no enclosing obligation still needs
 them. Nested maximums are not added both as a group total and as member totals.
 
-Next obtain durable reservations for every slot against the same tenant scope.
+Next obtain durable reservations for every slot against the same configured budget scope.
 Sequential `reserve_envelope` calls are sufficient: the race funding gate stays closed and
 **no slot may be armed or sent** until all required receipts are present and one
 control turn validates the entire funding set. That turn opens the group funding gate;
@@ -213,7 +213,7 @@ a new physical attempt requires the normal reconciled retry protocol.
 
 The authority validates a bounded `NoSendProof` from the configured trusted
 adapter/Runtime identity, never from client/model input: DeliveryGateId,
-incarnation, tenant/operation/attempt/reservation/digest binding and closure
+incarnation, budget-scope/operation/attempt/reservation/digest binding and closure
 state. The implementation can construct this proof only from the absorbing
 closed state of the still-live registry/cleanup-owned gate. An armed record also
 checks its stored gate binding. `cancel_before_handoff` durably closes/tombstones
@@ -290,7 +290,7 @@ Within retained Run observation, late matching settlement produces correlated
 Run sequence, without changing terminal intent. After the reserved observation window
 closes, the durable ledger still settles; no expired stream is reopened. Public records
 contain bounded logical identities/amounts, never provider credentials, raw invoices or
-unrestricted tenant inventory. Budget inspection has its own current access check.
+unrestricted budget inventory. Budget inspection has its own current access check.
 
 ## Deterministic contract tests
 
@@ -304,7 +304,7 @@ Assert A05, A23–A25, A33, A41 and A42, plus crash/failure injection immediatel
 and after reserve acknowledgement, arm acknowledgement, local dispatch commitment,
 provider receipt and settlement acknowledgement. Repeat every accounting callback and
 verify no double charge/refund; race cancel with arm/send and verify full liability
-unless no-handoff is proved. Run two Runtime fakes against one authority to verify tenant
+unless no-handoff is proved. Run two Runtime fakes against one authority to verify budget-scope
 aggregation. For A24, let a first race-slot reservation succeed and a later one fail,
 time out, or lose its acknowledgement: assert zero `arm_handoff`, participant dispatch
 and provider calls; only proof-backed rollback/reconciliation may occur. Also test full
