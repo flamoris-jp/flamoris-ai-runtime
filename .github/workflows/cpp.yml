@@ -59,8 +59,8 @@ jobs:
       - name: Verify format and local documentation links
         run: |
           test "$ImageVersion" = "20260920.314.1"
-          clang-format-18 --version | rg -F '18.1.3'
-          rg --files include src tests -g '*.hpp' -g '*.cpp' | xargs clang-format-18 --dry-run --Werror
+          clang-format-18 --version | grep -F '18.1.3'
+          find include src tests -type f \( -name '*.hpp' -o -name '*.cpp' \) -print0 | xargs -0 clang-format-18 --dry-run --Werror
           python3 cmake/check_links.py
           python3 tools/check_docs.py
           python3 tools/check_boundaries.py
