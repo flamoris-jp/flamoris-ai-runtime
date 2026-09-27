@@ -426,6 +426,35 @@ ValueSchema with_handle_types(ValueSchema source, const ValueSchema &target) {
     if (source.items && target.items)
         source.items =
             std::make_shared<const ValueSchema>(with_handle_types(*source.items, *target.items));
+    for (std::size_t i = 0; i < std::min(source.tuple_items.size(), target.tuple_items.size()); ++i)
+        source.tuple_items[i] = with_handle_types(source.tuple_items[i], target.tuple_items[i]);
+    for (std::size_t i = 0; i < std::min(source.variants.size(), target.variants.size()); ++i)
+        source.variants[i] = with_handle_types(source.variants[i], target.variants[i]);
+    return source;
+}
+ValueSchema with_handle_at_path(ValueSchema source, const std::vector<PathComponent> &path,
+                                std::size_t position, const ValueSchema &target) {
+    if (position == path.size())
+        return with_handle_types(std::move(source), target);
+    if (const auto *key = std::get_if<std::string>(&path[position])) {
+        auto found = source.properties.find(*key);
+        if (found == source.properties.end())
+            reject(ErrorCode::invalid_reference);
+        found->second = with_handle_at_path(std::move(found->second), path, position + 1, target);
+    } else {
+        const auto index = std::get<std::uint64_t>(path[position]);
+        if (!source.tuple_items.empty()) {
+            if (index >= source.tuple_items.size())
+                reject(ErrorCode::invalid_reference);
+            auto &item = source.tuple_items[static_cast<std::size_t>(index)];
+            item = with_handle_at_path(std::move(item), path, position + 1, target);
+        } else {
+            if (!source.items)
+                reject(ErrorCode::invalid_reference);
+            source.items = std::make_shared<const ValueSchema>(
+                with_handle_at_path(*source.items, path, position + 1, target));
+        }
+    }
     return source;
 }
 ValueSchema without_handle_types(ValueSchema source) {
@@ -436,6 +465,10 @@ ValueSchema without_handle_types(ValueSchema source) {
     }
     if (source.items)
         source.items = std::make_shared<const ValueSchema>(without_handle_types(*source.items));
+    for (auto &item : source.tuple_items)
+        item = without_handle_types(std::move(item));
+    for (auto &variant : source.variants)
+        variant = without_handle_types(std::move(variant));
     return source;
 }
 ValueSchema literal_schema(const JsonValue &v) {
@@ -816,6 +849,8 @@ std::shared_ptr<const ExecutionPlan> compile(const JsonValue &workflow,
     if (edge_count > 1024)
         reject();
     std::map<std::string, ValueSchema> outputs;
+    std::map<std::string, std::vector<CapabilityPin>> input_handle_validators;
+    std::map<std::string, CapabilityPin> node_handle_validators;
     std::set<std::string> ready;
     std::set<std::string> done;
     while (done.size() < raw.size()) {
@@ -832,13 +867,18 @@ std::shared_ptr<const ExecutionPlan> compile(const JsonValue &workflow,
         if (step.capability_pin) {
             const auto &cap = registry.capabilities.at(step.type);
             for (const auto &[key, bind] : step.inputs)
-                if (bind.reference && bind.reference->source == Reference::Source::input &&
-                    bind.reference->path.empty()) {
+                if (bind.reference && bind.reference->source == Reference::Source::input) {
                     auto it = cap.input_schema.properties.find(key);
-                    if (it != cap.input_schema.properties.end() && has_handle(it->second))
+                    if (it != cap.input_schema.properties.end() && has_handle(it->second)) {
                         plan->inputs.at(bind.reference->name) =
-                            with_handle_types(plan->inputs.at(bind.reference->name), it->second);
+                            with_handle_at_path(plan->inputs.at(bind.reference->name),
+                                                bind.reference->path, 0, it->second);
+                        input_handle_validators[bind.reference->name].push_back(
+                            *step.capability_pin);
+                    }
                 }
+            if (has_handle(step.output_schema))
+                node_handle_validators.emplace(id, *step.capability_pin);
         }
         outputs[id] = step.output_schema;
         plan->steps.push_back(std::move(step));
@@ -863,7 +903,28 @@ std::shared_ptr<const ExecutionPlan> compile(const JsonValue &workflow,
                 reject();
     for (const auto &[name, v] : object(w.at("outputs"))) {
         auto bind = binding(v, b.counters.refs);
-        (void)binding_schema(bind, plan->inputs, outputs, false);
+        ResultOutputContract exposed;
+        exposed.schema = binding_schema(bind, plan->inputs, outputs, false);
+        if (has_handle(exposed.schema)) {
+            if (!bind.reference)
+                reject(ErrorCode::invalid_reference);
+            const auto &reference = *bind.reference;
+            if (reference.source == Reference::Source::node) {
+                auto pin = node_handle_validators.find(reference.name);
+                if (pin != node_handle_validators.end())
+                    exposed.handle_validator = pin->second;
+            } else {
+                const auto pins = input_handle_validators.find(reference.name);
+                if (pins != input_handle_validators.end() && !pins->second.empty() &&
+                    std::all_of(pins->second.begin(), pins->second.end(),
+                                [&](const auto &pin) { return pin == pins->second.front(); }))
+                    exposed.handle_validator = pins->second.front();
+            }
+            // A handle without a unique trusted validator must never reach a result surface.
+            if (!exposed.handle_validator)
+                reject(ErrorCode::invalid_reference);
+        }
+        plan->result_outputs.emplace(name, std::move(exposed));
         plan->outputs.emplace(name, std::move(bind));
     }
     plan->single_root_inference = plan->steps.size() == 1 && plan->steps[0].capability_pin &&
@@ -913,6 +974,16 @@ std::shared_ptr<const ExecutionPlan> compile(const JsonValue &workflow,
     JsonValue::Object schemas;
     for (const auto &[k, s] : plan->inputs)
         schemas[k] = schema_export(s);
+    JsonValue::Object exposed_outputs;
+    for (const auto &[name, contract] : plan->result_outputs) {
+        JsonValue::Object exposed{{"schema", schema_export(contract.schema)}};
+        if (contract.handle_validator)
+            exposed.emplace(
+                "validator",
+                JsonValue::Object{{"identifier", contract.handle_validator->identifier},
+                                  {"fingerprint", contract.handle_validator->fingerprint}});
+        exposed_outputs.emplace(name, std::move(exposed));
+    }
     JsonValue export_value =
         JsonValue::Object{{"schema_revision", plan->schema_revision},
                           {"compiler_revision", plan->compiler_revision},
@@ -923,6 +994,7 @@ std::shared_ptr<const ExecutionPlan> compile(const JsonValue &workflow,
                           {"steps", std::move(steps)},
                           {"inputs", std::move(schemas)},
                           {"outputs", bindings_export(plan->outputs)},
+                          {"result_outputs", std::move(exposed_outputs)},
                           {"limits", limits_export(plan->limits)},
                           {"effects", effect_export(plan->effects)},
                           {"single_root_inference", plan->single_root_inference},

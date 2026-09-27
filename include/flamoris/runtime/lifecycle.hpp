@@ -153,6 +153,8 @@ class RunController {
 
     Result<JobId> register_child(JobId parent, Deadline, bool pause_supported);
     Result<void> queue(JobId);
+    // Read-only eligibility under the owning control executor, before committing a resource lease.
+    [[nodiscard]] Result<void> dispatch_eligible(JobId) const;
     Result<DispatchTicket> dispatch(JobId, DispatchChecks);
     Result<std::uint64_t> suspend(DispatchTicket, ResumePayload, SafePointEvidence);
     Result<SpawnResult> spawn_and_suspend(DispatchTicket, std::span<const ChildSpec>, ResumePayload,

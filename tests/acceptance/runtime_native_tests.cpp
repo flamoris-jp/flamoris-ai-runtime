@@ -35,6 +35,10 @@ class NativeHost final : public HostAuthorityPort {
     Result<void> reconcile(OperationId, const ResourceTicket &, OperationId) override {
         return Result<void>::success();
     }
+    bool pending_acquisition() {
+        std::lock_guard lock(mutex_);
+        return !acquired_.empty();
+    }
     void acknowledge(RuntimeInstance &runtime, bool release = true) {
         std::vector<ResourceTicket> acquire;
         std::vector<RuntimeHostRelease> released;
@@ -96,6 +100,10 @@ class HeldNativeWorker final : public NativeWorkerPort {
             if (!(held_->operation == NativeOperation::load ? barrier_->release_load.load()
                                                             : barrier_->release.load()))
                 return {};
+            if (held_->operation == NativeOperation::step) {
+                barrier_->release = false;
+                barrier_->blocked = false;
+            }
             return std::exchange(held_, {});
         }
         auto receipt = worker_->take();
@@ -145,7 +153,8 @@ struct NativeRuntimeFixture {
     NativeWorkerConfig recipe;
     std::unique_ptr<RuntimeInstance> runtime;
     explicit NativeRuntimeFixture(std::uint64_t instance = 711, bool opencl = false,
-                                  bool dynamic = false, bool sharing = false) {
+                                  bool dynamic = false, bool sharing = false,
+                                  bool scoped_child = false) {
         NativeWorkerConfig native;
         native.registered_artifact =
             std::filesystem::path(FLAMORIS_SOURCE_DIR) / "fixtures/native/tiny-causal-v1.bin";
@@ -185,6 +194,8 @@ struct NativeRuntimeFixture {
         config.policy.capabilities = native_caller().capabilities;
         config.policy.permitted_effects = 63;
         config.policy.access = native_caller().access;
+        if (scoped_child)
+            config.policy.object_scopes = {"object.a", "object.b"};
         auto gate = barrier;
         auto second_gate = second_barrier;
         auto count = std::make_shared<std::atomic<unsigned>>(0);
@@ -218,6 +229,8 @@ struct NativeRuntimeFixture {
             child_capability.identifier = "algorithm.child";
             child_capability.inference = child_capability.pausable = false;
             child_capability.native_pins.clear();
+            if (scoped_child)
+                child_capability.object_scope_fields = {"text"};
             config.capabilities.capabilities.emplace(child_capability.identifier, child_capability);
             ChildEnvelope envelope;
             envelope.identifier = "native.children";
@@ -412,6 +425,74 @@ TEST_CASE("C12 B-INPUT01 real native parent yields to compiled child and injects
         REQUIRE(oracle.value()->step());
     REQUIRE(result.value == JsonValue{oracle.value()->causal_state().output});
     REQUIRE(oracle.value()->release());
+}
+TEST_CASE("A24 proposed child retains the admitted Run object-scope ceiling", "[native][runtime]") {
+    NativeRuntimeFixture fixture(913, false, true, false, true);
+    auto narrow = native_caller();
+    narrow.object_scopes = {"object.a"};
+    auto broad = narrow;
+    broad.object_scopes.insert("object.b");
+    auto request = native_submission("scoped-child");
+    request.insert(request.find("\"limits\""), "\"child_policy\":\"native.children\",");
+    auto submitted = fixture.runtime->submit(narrow, request);
+    REQUIRE(submitted);
+    fixture.until([&] { return fixture.barrier->blocked.load(); });
+    const auto root = fixture.runtime->status(narrow, submitted.value().id).value().root;
+    const auto fragment =
+        R"({"schema_version":"flamoris.submit/1","kind":"workflow","workflow":{"schema_version":"flamoris.workflow/0.1","workflow":{"id":"child"},"inputs":{},"nodes":[{"id":"call","type":"algorithm.child","with":{"text":{"literal":"object.b"}}}],"edges":[],"outputs":{"value":{"ref":{"source":"node","name":"call","path":[]}}},"limits":{}},"input_values":{}})";
+    auto proposed = fixture.runtime->propose_children(broad, submitted.value().id, root, fragment);
+    REQUIRE_FALSE(proposed);
+    REQUIRE(proposed.error().code() == ErrorCode::permission_denied);
+    fixture.barrier->release = true;
+    REQUIRE_FALSE(fixture.finish(submitted.value().id).error);
+    REQUIRE(fixture.child->calls == 0);
+    REQUIRE(fixture.runtime->status(narrow, submitted.value().id).value().jobs.size() == 1);
+}
+TEST_CASE("A05 exhausted attempts cannot activate an acknowledged child lease",
+          "[native][runtime]") {
+    NativeRuntimeFixture fixture(914, false, true);
+    auto request = native_submission("attempt-bound");
+    request.insert(request.find("\"limits\""), "\"child_policy\":\"native.children\",");
+    request.replace(request.find("\"limits\":{}"), sizeof("\"limits\":{}") - 1,
+                    "\"limits\":{\"max_attempts\":4}");
+    auto admitted = fixture.runtime->submit(native_caller(), request);
+    REQUIRE(admitted);
+    const auto id = admitted.value().id;
+    const auto fragment =
+        R"({"schema_version":"flamoris.submit/1","kind":"workflow","workflow":{"schema_version":"flamoris.workflow/0.1","workflow":{"id":"child"},"inputs":{},"nodes":[{"id":"call","type":"algorithm.child","with":{"text":{"literal":"x"}}}],"edges":[],"outputs":{"value":{"ref":{"source":"node","name":"call","path":[]}}},"limits":{}},"input_values":{}})";
+    fixture.until([&] { return fixture.barrier->blocked.load(); });
+    const auto root = fixture.runtime->status(native_caller(), id).value().root;
+    REQUIRE(fixture.runtime->propose_children(native_caller(), id, root, fragment));
+    fixture.barrier->armed = true;
+    fixture.barrier->release = true;
+    fixture.until([&] {
+        return fixture.child->calls == 1 && fixture.barrier->blocked && !fixture.barrier->release;
+    });
+    REQUIRE(fixture.runtime->propose_children(native_caller(), id, root, fragment));
+    fixture.barrier->release = true;
+    bool pending = false;
+    for (unsigned turn = 0; turn < 20000; ++turn) {
+        fixture.poll();
+        pending = fixture.host->pending_acquisition();
+        if (pending)
+            break;
+    }
+    REQUIRE(pending);
+    fixture.host->acknowledge(*fixture.runtime, false);
+    REQUIRE(fixture.runtime->poll());
+    auto ledger = fixture.runtime->resource_snapshot({1});
+    REQUIRE(ledger);
+    REQUIRE(ledger.value().executing.empty());
+    REQUIRE(fixture.child->calls == 1);
+    auto jobs = fixture.runtime->status(native_caller(), id);
+    REQUIRE(jobs);
+    REQUIRE(jobs.value().jobs.size() == 5);
+    const auto denied_job = jobs.value().jobs.back().id;
+    auto events = fixture.runtime->events(native_caller(), id, 0, 256);
+    REQUIRE(events);
+    for (const auto &group : events.value().groups)
+        for (const auto &event : group.events)
+            REQUIRE_FALSE((event.job == denied_job && event.kind == "attempt.dispatch_committed"));
 }
 TEST_CASE("C12 A11 actual concurrent native Runs share one load and preserve the last residency",
           "[native][runtime]") {

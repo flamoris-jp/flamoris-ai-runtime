@@ -444,6 +444,21 @@ Result<void> RunController::queue(JobId id) {
     return impl_->commit({changed(id, job->state, JobState::queued)},
                          [&]() noexcept { job->state = JobState::queued; });
 }
+Result<void> RunController::dispatch_eligible(JobId id) const {
+    const auto *job = impl_->find(id);
+    auto deny = [](ErrorCode code) { return Result<void>::failure(error(code)); };
+    if (!job || job->state != JobState::queued || !impl_->dispatch_open || !impl_->healthy ||
+        !job->pauses.empty())
+        return deny(ErrorCode::invalid_request);
+    if (impl_->due(*job))
+        return deny(ErrorCode::job_timeout);
+    if (impl_->clock.now() < job->not_before)
+        return deny(ErrorCode::resource_unavailable);
+    if ((job->attempt == 0 && impl_->attempts >= impl_->limits.attempts) ||
+        job->dispatch_generation == std::numeric_limits<std::uint64_t>::max())
+        return deny(ErrorCode::budget_exceeded);
+    return Result<void>::success();
+}
 Result<DispatchTicket> RunController::dispatch(JobId id, DispatchChecks checks) {
     auto *job = impl_->find(id);
     auto deny = [](ErrorCode code) { return Result<DispatchTicket>::failure(error(code)); };

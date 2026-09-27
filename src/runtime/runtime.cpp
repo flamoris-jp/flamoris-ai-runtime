@@ -11,6 +11,7 @@
 #include <condition_variable>
 #include <deque>
 #include <future>
+#include <iterator>
 #include <limits>
 #include <mutex>
 #include <random>
@@ -25,6 +26,33 @@ std::uint64_t milliseconds(TimePoint time) noexcept {
     return static_cast<std::uint64_t>(std::max<Duration::rep>(0, time.count()) / 1000000);
 }
 bool done(JobState state) { return is_terminal(state); }
+AuthorizationContext attenuate(const AuthorizationContext &ceiling,
+                               const AuthorizationContext &current) {
+    AuthorizationContext result;
+    result.subject = ceiling.subject == current.subject ? ceiling.subject : std::string{};
+    result.expires_at_ms = std::min(ceiling.expires_at_ms, current.expires_at_ms);
+    result.revoked = ceiling.revoked || current.revoked;
+    std::set_intersection(ceiling.capabilities.begin(), ceiling.capabilities.end(),
+                          current.capabilities.begin(), current.capabilities.end(),
+                          std::inserter(result.capabilities, result.capabilities.end()));
+    std::set_intersection(ceiling.object_scopes.begin(), ceiling.object_scopes.end(),
+                          current.object_scopes.begin(), current.object_scopes.end(),
+                          std::inserter(result.object_scopes, result.object_scopes.end()));
+    std::set_intersection(ceiling.access.begin(), ceiling.access.end(), current.access.begin(),
+                          current.access.end(), std::inserter(result.access, result.access.end()));
+    result.permitted_effects = ceiling.permitted_effects & current.permitted_effects;
+    for (const auto &claim : ceiling.confirmations)
+        for (const auto &presented : current.confirmations)
+            if (claim.subject == presented.subject && claim.capability == presented.capability &&
+                claim.input_digest == presented.input_digest &&
+                claim.effects == presented.effects) {
+                auto bounded = claim;
+                bounded.expires_at_ms = std::min(claim.expires_at_ms, presented.expires_at_ms);
+                result.confirmations.push_back(std::move(bounded));
+                break;
+            }
+    return result;
+}
 JsonValue::Object arguments(const PlanStep &step, const JsonValue::Object &inputs) {
     JsonValue::Object result;
     for (const auto &[name, binding] : step.inputs) {
@@ -95,6 +123,10 @@ Result<void> bind_registration_contracts(CapabilitySnapshot &capabilities,
             return Result<void>::failure(digest.error());
         cap->second.resource_contract_digest = std::move(digest).value();
     }
+    // The compiler must never admit a capability that this Runtime cannot dispatch.
+    for (const auto &[id, cap] : capabilities.capabilities)
+        if (cap.available && !seen.contains(id))
+            return failure<void>(ErrorCode::capability_unavailable);
     for (auto &[id, envelope] : capabilities.child_policies) {
         (void)id;
         for (auto &pin : envelope.capabilities) {
@@ -178,6 +210,7 @@ struct RuntimeInstance::Impl final : RunObservationLookupPort,
             host_released{}, published{}, resuming{};
     };
     struct Run {
+        const AuthorizationContext admission_context;
         AuthorizationContext context;
         std::shared_ptr<const ExecutionPlan> plan;
         std::unique_ptr<RunController> controller;
@@ -188,8 +221,8 @@ struct RuntimeInstance::Impl final : RunObservationLookupPort,
         RunResult result;
         explicit Run(AuthorizationContext c, std::shared_ptr<const ExecutionPlan> p,
                      std::unique_ptr<RunController> ctl)
-            : context(std::move(c)), plan(std::move(p)), controller(std::move(ctl)),
-              budget(plan->limits) {}
+            : admission_context(c), context(std::move(c)), plan(std::move(p)),
+              controller(std::move(ctl)), budget(plan->limits) {}
     };
     struct ClaimWait {
         SubmissionTicket ticket;
@@ -496,7 +529,12 @@ struct RuntimeInstance::Impl final : RunObservationLookupPort,
         if (observation.operation == NativeOperation::pause && d.proposal && !observation.error) {
             auto auth = authorize(run, d, AuthorizationBoundary::dispatch);
             auto pins = verify_plan_pins(*d.proposal->compiled.plan, config.capabilities);
+            auto child_auth =
+                gate.authorize_known_inputs(run.context, config.policy, *d.proposal->compiled.plan,
+                                            config.capabilities, d.proposal->compiled.input_values,
+                                            now_ms(), milliseconds(d.invocation.deadline.time()));
             if (accepting && auth && pins && run.controller->snapshot().child_creation_open &&
+                child_auth &&
                 d.proposal->dispatch_generation == observation.ticket.dispatch_generation) {
                 auto budget = run.budget;
                 auto charged = budget.reserve(
@@ -570,7 +608,11 @@ struct RuntimeInstance::Impl final : RunObservationLookupPort,
                 }
             }
             d.proposal.reset();
-            stop(run, d, auth ? ErrorEnvelope::make(ErrorCode::budget_exceeded) : auth.error());
+            stop(run, d,
+                 !auth ? auth.error()
+                       : (!pins ? pins.error()
+                                : (!child_auth ? child_auth.error()
+                                               : ErrorEnvelope::make(ErrorCode::budget_exceeded))));
         }
         auto accepted = d.native->accept(*run.controller, observation);
         if (!accepted) {
@@ -1131,6 +1173,20 @@ struct RuntimeInstance::Impl final : RunObservationLookupPort,
             }
             d.reservation = reservation.value();
         }
+        // Budget eligibility is checked before the resource ledger can gain an active lease.
+        // The actor is serialized, so no competing dispatch can consume this budget in between.
+        auto eligible = run.controller->dispatch_eligible(d.invocation.job);
+        if (!eligible) {
+            if (eligible.error().code() != ErrorCode::resource_unavailable)
+                stop(run, d, eligible.error());
+            return;
+        }
+        auto next_budget = run.budget;
+        auto charged = next_budget.reserve({.attempts = job.value().attempt ? 0ULL : 1ULL});
+        if (!charged) {
+            stop(run, d, charged.error());
+            return;
+        }
         auto lease = resources.commit_dispatch(*d.reservation, {true, true, true, true},
                                                config.clock->now());
         if (!lease)
@@ -1144,13 +1200,6 @@ struct RuntimeInstance::Impl final : RunObservationLookupPort,
                 return;
             }
         }
-        auto charged = run.budget.reserve({.attempts = job.value().attempt ? 0ULL : 1ULL});
-        if (!charged) {
-            stop(run, d, charged.error());
-            d.native_quiescent = true;
-            request_host_release(d);
-            return;
-        }
         auto ticket = run.controller->dispatch(d.invocation.job, {true, true, true, true});
         if (!ticket) {
             stop(run, d, ticket.error());
@@ -1158,6 +1207,7 @@ struct RuntimeInstance::Impl final : RunObservationLookupPort,
             request_host_release(d);
             return;
         }
+        run.budget = std::move(next_budget);
         d.ticket = ticket.value();
         d.resuming = job.value().pending_resume;
         scheduler.remove(d.invocation.job);
@@ -1688,15 +1738,31 @@ Result<RunResult> RuntimeInstance::result(const AuthorizationContext &c, RunId i
         auto allowed = state->access(c, *it->second, AccessSurface::result);
         if (!allowed)
             return Result<RunResult>::failure(allowed.error());
-        for (const auto &[job, d] : it->second->drivers) {
-            (void)job;
-            if (d.output && d.invocation.capability_pin) {
-                auto handles = state->gate.check_retained_result_handles(
-                    c, state->config.policy, *d.invocation.capability_pin,
-                    d.invocation.output_schema, state->config.capabilities, *d.output,
-                    state->now_ms());
-                if (!handles)
-                    return Result<RunResult>::failure(handles.error());
+        const auto &run = *it->second;
+        if (run.result.value && run.plan->single_root_inference) {
+            const auto &step = run.plan->steps.front();
+            if (!step.capability_pin)
+                return failure<RunResult>(ErrorCode::invalid_result);
+            auto checked = state->gate.check_retained_result_handles(
+                c, state->config.policy, *step.capability_pin, step.output_schema,
+                state->config.capabilities, *run.result.value, state->now_ms());
+            if (!checked)
+                return Result<RunResult>::failure(checked.error());
+        } else if (run.result.value) {
+            const auto *values = std::get_if<JsonValue::Object>(&run.result.value->data);
+            if (!values || values->size() != run.plan->result_outputs.size())
+                return failure<RunResult>(ErrorCode::invalid_result);
+            for (const auto &[name, contract] : run.plan->result_outputs) {
+                auto found = values->find(name);
+                if (found == values->end() || !validate_value(found->second, contract.schema))
+                    return failure<RunResult>(ErrorCode::invalid_result);
+                if (contract.handle_validator) {
+                    auto checked = state->gate.check_retained_result_handles(
+                        c, state->config.policy, *contract.handle_validator, contract.schema,
+                        state->config.capabilities, found->second, state->now_ms());
+                    if (!checked)
+                        return Result<RunResult>::failure(checked.error());
+                }
             }
         }
         return Result<RunResult>::success(it->second->result);
@@ -1756,7 +1822,7 @@ Result<CommandReceipt> RuntimeInstance::resume(const AuthorizationContext &c, Ru
         auto result = it->second->controller->resume_run(command, true);
         if (!result)
             return Result<CommandReceipt>::failure(result.error());
-        it->second->context = c;
+        it->second->context = attenuate(it->second->context, c);
         return Result<CommandReceipt>::success({true, true, false});
     });
 }
@@ -1929,11 +1995,19 @@ Result<CommandReceipt> RuntimeInstance::propose_children(const AuthorizationCont
                 job_state.value().dispatch_generation != generation || d.proposal ||
                 !run.controller->snapshot().child_creation_open)
                 return failure<CommandReceipt>(ErrorCode::invalid_request);
+            const auto effective =
+                attenuate(attenuate(run.admission_context, run.context), context);
             auto auth = state->gate.authorize_plan_admission(
-                context, state->config.policy, *compiled.value().plan, state->config.capabilities,
+                effective, state->config.policy, *compiled.value().plan, state->config.capabilities,
                 state->now_ms());
             if (!auth)
                 return Result<CommandReceipt>::failure(auth.error());
+            auto known = state->gate.authorize_known_inputs(
+                effective, state->config.policy, *compiled.value().plan, state->config.capabilities,
+                compiled.value().input_values, state->now_ms(),
+                milliseconds(d.invocation.deadline.time()));
+            if (!known)
+                return Result<CommandReceipt>::failure(known.error());
             auto budget = run.budget;
             auto charge =
                 budget.reserve({.jobs = compiled.value().plan->static_jobs, .suspensions = 1});

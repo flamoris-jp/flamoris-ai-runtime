@@ -139,12 +139,18 @@ struct PlanStep {
     bool pause_supported{false};
     std::uint64_t timeout_ms{0}, max_attempts{1}, backoff_ms{0};
 };
+struct ResultOutputContract {
+    ValueSchema schema;
+    std::optional<CapabilityPin> handle_validator;
+};
 struct ExecutionPlan {
     std::string schema_revision{"flamoris.plan/1"}, compiler_revision{"flamoris.compiler/1"};
     std::string profile_revision, canonical_export, fingerprint;
     std::vector<PlanStep> steps;
     std::map<std::string, ValueSchema> inputs;
     std::map<std::string, Binding> outputs;
+    // Schema and trusted validator provenance of the values actually exposed by result().
+    std::map<std::string, ResultOutputContract> result_outputs;
     std::vector<CapabilityPin> pins;
     RunLimits limits;
     EffectSet effects{EffectSet::from_mask(1).value()};

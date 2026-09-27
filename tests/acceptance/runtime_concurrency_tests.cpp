@@ -149,6 +149,30 @@ std::string workflow(bool keyed = true, std::string_view text = "hello") {
            "\"}}}],\"edges\":[],\"outputs\":{\"result\":{\"ref\":{\"source\":\"node\",\"name\":"
            "\"a\",\"path\":[]}}},\"limits\":{}},\"input_values\":{}}";
 }
+std::string input_result_workflow(std::string_view final_source) {
+    return std::string(
+               R"({"schema_version":"flamoris.submit/1","kind":"workflow","workflow":{"schema_version":"flamoris.workflow/0.1","workflow":{"id":"input-handle"},"inputs":{"original":{"type":"string","max_bytes":128}},"nodes":[{"id":"a","type":"algorithm.echo","with":{"text":{"ref":{"source":"input","name":"original","path":[]}}}}],"edges":[],"outputs":{"result":)") +
+           (final_source == "input" ? R"({"ref":{"source":"input","name":"original","path":[]}})"
+                                    : R"({"literal":"plain"})") +
+           R"(},"limits":{}},"input_values":{"original":"opaque-handle"}})";
+}
+std::string nested_input_result_workflow() {
+    auto request = input_result_workflow("input");
+    const auto schema = std::string{R"("original":{"type":"string","max_bytes":128})"};
+    request.replace(
+        request.find(schema), schema.size(),
+        R"("original":{"type":"object","properties":{"asset":{"type":"string","max_bytes":128}},"required":["asset"],"additional_properties":false})");
+    const auto path = std::string{R"("path":[])"};
+    std::size_t offset = 0;
+    while ((offset = request.find(path, offset)) != std::string::npos) {
+        request.replace(offset, path.size(), R"("path":["asset"])");
+        offset += sizeof(R"("path":["asset"])") - 1;
+    }
+    request.replace(request.find(R"("original":"opaque-handle")"),
+                    sizeof(R"("original":"opaque-handle")") - 1,
+                    R"("original":{"asset":"opaque-handle"})");
+    return request;
+}
 struct Fixture {
     std::shared_ptr<Clock> clock = std::make_shared<Clock>();
     std::shared_ptr<Host> host = std::make_shared<Host>();
@@ -470,5 +494,95 @@ TEST_CASE("A35 production stored result rechecks current handle access and produ
     REQUIRE(fixture.runtime->result(context, admitted.value().id));
     fixture.clock->ticks = 50000000;
     REQUIRE_FALSE(fixture.runtime->result(context, admitted.value().id));
+    REQUIRE(fixture.provider->calls == 1);
+}
+TEST_CASE("A35 final input-origin handle is checked and private intermediate is not returned") {
+    Fixture fixture({}, [](RuntimeConfiguration &config) {
+        auto &contract = config.capabilities.capabilities.at("algorithm.echo");
+        contract.input_schema.properties.at("text").service_handle_type = "asset/1";
+        contract.output_schema.service_handle_type = "asset/1";
+        contract.handle_validator_revision = "asset-validator/1";
+        contract.handle_validator = [](const JsonValue &value, std::string_view, std::uint64_t) {
+            if (std::get<std::string>(value.data) != "opaque-handle")
+                return Result<ValidatedHandleAccess>::failure(
+                    ErrorEnvelope::make(ErrorCode::permission_denied));
+            return Result<ValidatedHandleAccess>::success({"owner", "object.a", 50});
+        };
+        config.policy.access.insert(AccessSurface::handle);
+        config.policy.object_scopes.insert("object.a");
+    });
+    auto context = caller();
+    context.access.insert(AccessSurface::handle);
+    context.object_scopes.insert("object.a");
+    fixture.envelope();
+    auto input = fixture.runtime->submit(context, input_result_workflow("input"));
+    REQUIRE(input);
+    REQUIRE_FALSE(fixture.finish(input.value().id, context).error);
+    auto no_scope = context;
+    no_scope.object_scopes.clear();
+    REQUIRE_FALSE(fixture.runtime->result(no_scope, input.value().id));
+    auto nested = fixture.runtime->submit(context, nested_input_result_workflow());
+    REQUIRE(nested);
+    REQUIRE_FALSE(fixture.finish(nested.value().id, context).error);
+    REQUIRE_FALSE(fixture.runtime->result(no_scope, nested.value().id));
+    auto plain = fixture.runtime->submit(context, input_result_workflow("plain"));
+    REQUIRE(plain);
+    REQUIRE_FALSE(fixture.finish(plain.value().id, context).error);
+    fixture.clock->ticks = 50000000;
+    auto visible = fixture.runtime->result(context, plain.value().id);
+    REQUIRE(visible);
+    REQUIRE(std::get<JsonValue::Object>(visible.value().value->data).at("result") ==
+            JsonValue{"plain"});
+    REQUIRE_FALSE(fixture.runtime->result(context, input.value().id));
+    REQUIRE_FALSE(fixture.runtime->result(context, nested.value().id));
+}
+
+TEST_CASE("Runtime rejects available capabilities without a dispatch registration") {
+    RuntimeConfiguration configuration;
+    auto orphan = capability();
+    configuration.capabilities.capabilities.emplace(orphan.identifier, orphan);
+    auto created = RuntimeInstance::create(std::move(configuration));
+    REQUIRE_FALSE(created);
+    Fixture fixture;
+    auto changed = fixture.registry;
+    orphan.identifier = "algorithm.orphan";
+    changed.capabilities.emplace(orphan.identifier, orphan);
+    REQUIRE_FALSE(fixture.runtime->replace_capabilities(changed));
+    changed.capabilities.at(orphan.identifier).available = false;
+    REQUIRE(fixture.runtime->replace_capabilities(changed));
+    auto context = caller();
+    context.capabilities.insert("algorithm.orphan");
+    auto request = workflow(false);
+    request.replace(request.find("algorithm.echo"), sizeof("algorithm.echo") - 1,
+                    "algorithm.orphan");
+    REQUIRE_FALSE(fixture.runtime->submit(context, request));
+}
+
+TEST_CASE("A16 resumed active Run cannot expand its admitted object scope") {
+    Fixture fixture({}, [](RuntimeConfiguration &config) {
+        auto scoped = capability();
+        scoped.identifier = "algorithm.scoped";
+        scoped.object_scope_fields = {"text"};
+        config.capabilities.capabilities.emplace(scoped.identifier, scoped);
+        auto registration = config.registrations.front();
+        registration.capability = scoped.identifier;
+        config.registrations.push_back(registration);
+        config.policy.capabilities.insert(scoped.identifier);
+        config.policy.object_scopes = {"object.a", "object.b"};
+    });
+    auto narrow = caller();
+    narrow.capabilities.insert("algorithm.scoped");
+    narrow.object_scopes = {"object.a"};
+    auto broader = narrow;
+    broader.object_scopes.insert("object.b");
+    const auto request =
+        R"({"schema_version":"flamoris.submit/1","kind":"workflow","workflow":{"schema_version":"flamoris.workflow/0.1","workflow":{"id":"attenuation"},"inputs":{},"nodes":[{"id":"a","type":"algorithm.echo","with":{"text":{"literal":"object.b"}}},{"id":"b","type":"algorithm.scoped","with":{"text":{"ref":{"source":"node","name":"a","path":[]}}}}],"edges":[],"outputs":{"result":{"ref":{"source":"node","name":"b","path":[]}}},"limits":{}},"input_values":{}})";
+    fixture.envelope();
+    auto admitted = fixture.runtime->submit(narrow, request);
+    REQUIRE(admitted);
+    REQUIRE(fixture.runtime->resume(broader, admitted.value().id, 15));
+    auto outcome = fixture.finish(admitted.value().id, broader);
+    REQUIRE(outcome.error);
+    REQUIRE(outcome.error->code() == ErrorCode::permission_denied);
     REQUIRE(fixture.provider->calls == 1);
 }
