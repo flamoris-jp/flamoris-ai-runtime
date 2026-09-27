@@ -134,13 +134,17 @@ stop intent commits; a later resume request cannot reopen dispatch.
 Inference has an internal progression: `initializing -> tokenizing -> prefill ->
 decode -> completing`, with suspension/error exits only through the Job controller.
 These are stage observations while the Job is running, not another cancel authority.
-Adapters MUST advertise where they can quiesce, preserve state, stop, inject
-bounded inputs, or resume. Opaque inference lacks these promises unless proven.
+The active native `ExecutionProfile` MUST declare where its `NativeModelWorker`
+can quiesce, preserve state, stop, inject bounded inputs, or resume. The
+Inference Machine accepts these controls only at qualified safe points with
+state-preservation evidence. External Workflow capability adapters advertise
+their own control limitations under separate contracts; they do not define
+native inference safe points.
 
-A decode iteration commits token position, sampler state, and backend state as a
+A decode iteration commits token position, sampler state, and native profile state as a
 consistent boundary before exposing a token and honoring a pause. An interrupt
 received mid-iteration stays requested until that boundary. Cancellation prevents
-further useful iterations once observed; the backend's bounded stop/containment
+further useful iterations once observed; the native worker's bounded stop/containment
 contract controls its real latency. No universal sub-token interruption is promised.
 
 The Workflow Machine advances only compiled dependencies/bindings/control groups.
@@ -184,4 +188,4 @@ are transported later or a bounded trace contains explicit gaps.
 | Resource release acknowledgement after terminal quarantine | Reconcile quarantine once using matching identity/epoch; do not reopen Job/Run |
 
 These cases, including fault injection at each commit boundary, become Phase C
-offline tests after Phase B specifies controllable clock/backend/adapter seams.
+offline tests after Phase B specifies controllable clock/native-worker/Workflow-adapter seams.

@@ -6,9 +6,9 @@
 
 The review gates and normative document map are in [Design Phases](DESIGN_PHASES.md). This document describes intent; the detailed contracts specify the initial bounded behavior.
 
-FLAMORIS AI Runtime is intended to be a **model-adjacent AI execution runtime**.
+FLAMORIS AI Runtime is intended to be a **single-user FLAMORIS native model runtime**.
 
-It sits at the layer that wraps and drives a model, conceptually alongside ordinary model runtimes such as `llama.cpp`, rather than being only a workflow orchestrator above an already-complete inference service.
+It owns model execution directly. Third-party runtimes, if ever called, are external Workflow capabilities, not inference backends.
 
 The central idea is:
 
@@ -48,30 +48,15 @@ A persistent Agent may still live outside the Runtime:
 
 This means the Runtime can be used by `flamoris-ai-agent`, ChatGPT, Studio AI, or another authorized caller without becoming their persistent personality store.
 
-## The Runtime wraps the model
+## The Runtime owns the model execution path
 
-The Runtime should be designed around model execution rather than treating model inference as just another remote service call.
+FLAMORIS owns processor/tokenizer, model execution, cache/state, inference
+steps and resource lifetime. CPU reference and OpenCL are its internal compute
+implementations. The initial execution profile may be causal text; Vision,
+audio, embedding and other native profiles must not inherit text-only state.
 
-Conceptually:
-
-```text
-MODEL
-  │
-  ├─ ordinary model runtime
-  │
-  └─ FLAMORIS AI Runtime
-       ├─ model loading / backend
-       ├─ prefill / decode
-       ├─ sampling
-       ├─ inference control
-       ├─ workflow execution
-       ├─ jobs
-       └─ observability
-```
-
-The exact backend may vary. The design should allow a native FLAMORIS model path, an existing low-level runtime, or another future backend where appropriate.
-
-However, a backend abstraction must not hide the control points required by FLAMORIS. If pause, interrupt, streaming observation, or state-preserving continuation requires control of the decode loop, the Runtime should keep that control rather than delegating it behind an opaque request/response boundary.
+External AI/MCP calls run as registered Workflow capabilities under current
+authorization and finite Run limits. Baseline deployment is single-user.
 
 ## Inference as a controllable loop
 
@@ -98,7 +83,7 @@ KV / model state
 └──────── repeat ──────────┘
 ```
 
-The exact mechanics are backend-specific and must be verified during implementation research.
+The exact mechanics are native model/profile-specific and must be verified by implementation tests.
 
 The architectural requirement is that FLAMORIS exposes explicit control points around these stages instead of reducing the entire operation to one opaque `generate()` call.
 
@@ -125,7 +110,7 @@ inject bounded results
 resume inference
 ```
 
-The important property is that the Runtime may preserve the relevant model/inference state across this handoff where the backend supports it.
+The important property is that the Runtime may preserve the relevant model/inference state across this handoff where the native execution profile supports it.
 
 This is intended to reduce avoidable re-tokenization, model re-entry, request serialization, and loss of execution context while making the control flow explicit.
 
@@ -161,7 +146,7 @@ Inference Machine resumes
 
 The same mechanism can connect Workflow Machine and Inference Machine without making them the same implementation.
 
-A continuation may retain a backend/model state reference where safe, but should not normally pin a physical **execution lease** while waiting. If that state remains resident in VRAM/RAM, its **retained state footprint** is still allocated and must remain visible to Resource Manager accounting. Resource affinity may be retained so the scheduler can prefer a warm model/device on resume.
+A continuation may retain a native model/state reference where safe, but should not normally pin a physical **execution lease** while waiting. If that state remains resident in VRAM/RAM, its **retained state footprint** is still allocated and must remain visible to Resource Manager accounting. Resource affinity may be retained so the scheduler can prefer a warm model/device on resume.
 
 ## Jobs are first-class runtime work
 
@@ -180,7 +165,7 @@ Conceptual job classes include:
 
 An `InferenceJob` is special because it may retain model execution state such as:
 
-- model/backend reference;
+- model/processor/execution-profile reference;
 - token position;
 - KV or equivalent cache state;
 - sampling state;
@@ -265,7 +250,7 @@ Conceptually:
 1. **Lifecycle** — timings, state changes, job transitions, resource use, stop reasons.
 2. **Token / sampling** — generated token IDs/text and selected sampling metadata where enabled.
 3. **Model-exposed reasoning stream** — only when the model/runtime intentionally exposes such a channel and the deployment policy permits recording it.
-4. **Deep debug probes** — logits, selected activations, cache inspection, or backend-specific diagnostics; disabled by default and strongly bounded.
+4. **Deep debug probes** — logits, selected activations, cache inspection, or native profile-specific diagnostics; disabled by default and strongly bounded.
 
 The Runtime should not require deep internal tensor logging for normal operation.
 
@@ -283,7 +268,7 @@ Possible actions include:
 - cancel child jobs;
 - inject new bounded input;
 - redirect workflow control;
-- later, rewind model state where a backend safely supports it.
+- later, rewind model state where a native execution profile safely supports it.
 
 An interrupt request and the point where it actually takes effect are separate events. This distinction matters for debugging and UI feedback.
 
@@ -386,7 +371,7 @@ The Runtime may perform reasoning through the loaded model, but it does not beco
 
 The intended Runtime Kernel implementation language is **C++**.
 
-The goal is not "everything in one native binary." The goal is to keep model-adjacent control, state ownership, continuation handling, scheduling, and backend integration in a native kernel while preserving service boundaries for external capabilities.
+The goal is not "everything in one native binary." The goal is to keep model-adjacent control, state ownership, continuation handling, scheduling, and native model and compute integration in a kernel while preserving service boundaries for external capabilities.
 
 ```text
 Agent / ChatGPT / Studio
@@ -440,7 +425,7 @@ The purpose is not compatibility with all of them. It is to identify the smalles
 
 Reusing it should be evaluated at the code/contract level rather than copied wholesale.
 
-Model-specific code may become a backend or model layer, while the new Runtime adds the inference controller, jobs, workflow execution, event stream, interrupts, and resource scheduling around it.
+Model-specific code becomes a native model layer, while the new Runtime adds the inference controller, jobs, workflow execution, event stream, interrupts, and resource scheduling around it.
 
 This is a design direction, not yet an implementation claim.
 

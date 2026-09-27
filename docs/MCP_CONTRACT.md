@@ -1,5 +1,7 @@
 # MCP Contract
 
+**Deployment scope:** the initial Runtime is single-user. Transport authentication and current per-capability authorization still apply. Tenant isolation and billing are not baseline promises; external AI participates as a Workflow capability.
+
 ## Status
 
 **Phase A semantic design. No MCP server is implemented; exact wire schemas and tool names remain Phase B decisions.**
@@ -71,7 +73,7 @@ Do not require the external caller to pre-author every internal job if the Runti
 
 Likewise, do not let model output become ambient permission to run arbitrary work.
 
-Every dispatched capability remains subject to registration, authorization, resource, and side-effect policy. A direct inference request is normalized before admission to a minimal single-root Execution Plan with pinned model/backend contracts, effects, finite resource/cost/trace limits and an explicit bounded child-work envelope. It follows the same fingerprint, stale-plan, admission and dispatch rules as workflow submission; no direct-dispatch bypass exists.
+Every dispatched capability remains subject to registration, authorization, resource, and side-effect policy. A direct inference request is normalized before admission to a minimal single-root Execution Plan with pinned model/processor/tokenizer/execution-profile and compute compatibility contracts, effects, finite resource/cost/trace limits and an explicit bounded child-work envelope. It follows the same fingerprint, stale-plan, admission and dispatch rules as workflow submission; no direct-dispatch bypass exists.
 
 ## capabilities.list
 
@@ -93,7 +95,7 @@ Do not expose credentials, private endpoints, or private topology.
 
 ## models.list
 
-Conceptually exposes model/backend choices relevant to the caller without leaking internal host details.
+Conceptually exposes model/execution-profile and available compute choices relevant to the caller without leaking internal host details.
 
 Possible metadata may include:
 
@@ -158,7 +160,7 @@ The response should distinguish:
 
 Interrupt application is observable as an event. Accepted/requested is not applied; duplicate commands are bounded and cannot repeat injection or dispatch. Job/Run version or equivalent commit-order arbitration prevents stale controls from reopening terminal work.
 
-A graceful inference `stop` succeeds only if the backend/output contract supports bounded partial output. Otherwise reject it; `cancel` remains termination without a success result. Input injection must target an admitted bounded slot and pass current scope/schema checks.
+A graceful inference `stop` succeeds only if the native execution-profile/output contract supports bounded partial output. Otherwise reject it; `cancel` remains termination without a success result. Input injection must target an admitted bounded slot and pass current scope/schema checks.
 
 ## Jobs
 
@@ -184,7 +186,7 @@ Job details should expose bounded metadata such as:
 - timing/progress;
 - terminal result summary/reference.
 
-Do not expose secrets or unrestricted backend objects.
+Do not expose secrets or unrestricted native objects.
 
 ## Join and race visibility
 
@@ -231,7 +233,7 @@ Conceptually:
 1. lifecycle/state/timing;
 2. token/sampling;
 3. model-exposed reasoning stream;
-4. deep backend debug probes.
+4. deep native execution debug probes.
 
 Higher trace levels may be unavailable or restricted.
 
@@ -265,7 +267,7 @@ Cancellation must be explicit:
 
 Pause/resume is capability-specific.
 
-A backend that cannot safely preserve model state must report pause/resume as unsupported.
+A native execution profile that cannot safely preserve model state must report pause/resume as unsupported.
 
 The MCP surface must not pretend every remote provider has state-preserving pause. Run pause is a subtree barrier: report requested until all workload execution quiesces, reject unsupported in-flight operations, and bound the request wait. Targeted Job pause does not pause children. Resume clears only the applicable pause cause and does not reset deadlines or grant old permissions. Accounted cleanup may continue while workload is paused.
 
@@ -283,7 +285,7 @@ Status/event surfaces may expose bounded continuation metadata when useful for i
 - deadline;
 - resource/model affinity summary.
 
-Do not expose raw backend pointers, KV cache contents, credentials, or unrestricted process state.
+Do not expose raw native pointers, KV cache contents, credentials, or unrestricted process state.
 
 A normal caller should be able to submit a run and let the Runtime manage continuations automatically.
 
@@ -316,7 +318,7 @@ Model output or workflow JSON never grants permission by itself.
 
 ## Retry and idempotency
 
-Submission deduplication is scoped by authenticated subject/tenant, request kind, key and canonical input digest. The scoped key claim and one Run identity are atomic before dispatch. Concurrent same-digest submissions share the pending owner's decision and admitted Run; a different digest conflicts while pending. A pre-Run admission rejection is shared with current waiters before releasing the claim for a later attempt. Same key/digest returns the same admitted Run within advertised retention; changed digest is a conflict. Expiry or non-durable restart does not prove non-execution and cannot promise exactly-once submission.
+Submission deduplication is scoped by authenticated local subject, request kind, key and canonical input digest. The scoped key claim and one Run identity are atomic before dispatch. Concurrent same-digest submissions share the pending owner's decision and admitted Run; a different digest conflicts while pending. A pre-Run admission rejection is shared with current waiters before releasing the claim for a later attempt. Same key/digest returns the same admitted Run within advertised retention; changed digest is a conflict. Expiry or non-durable restart does not prove non-execution and cannot promise exactly-once submission.
 
 Provider operation idempotency is a separate adapter contract. A transport request ID alone is insufficient. Unknown handoff outcomes require bounded reconciliation or verified deduplication, never blind re-execution. Retry has fresh current checks, a bounded attempt identity and cumulative original Run budgets/deadline. Re-execution after terminal is a new Run with provenance. See [Authorization Model](AUTHORIZATION_MODEL.md) and [Failure Model](FAILURE_MODEL.md).
 
@@ -336,7 +338,7 @@ The Runtime owns active model execution and runtime state, not durable Agent ide
 
 ## Relationship to Intelligence MCP
 
-`flamoris-intelligence-mcp` may expose or route intelligence capabilities, but AI Runtime may directly own model execution for the models/backends it controls.
+`flamoris-intelligence-mcp` may expose or route intelligence capabilities, but AI Runtime owns registered native model execution; external runtimes/providers participate only as Workflow capabilities.
 
 The integration should preserve Runtime observability and interrupt semantics rather than forcing every model operation through an opaque remote request.
 
@@ -354,7 +356,7 @@ Prefer stable error codes such as:
 
 - `invalid_request`
 - `unsupported_model`
-- `backend_unavailable`
+- `native_compute_unavailable`
 - `invalid_workflow`
 - `capability_unavailable`
 - `permission_denied`

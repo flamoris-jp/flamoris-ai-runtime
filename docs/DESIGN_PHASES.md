@@ -2,9 +2,9 @@
 
 ## Status and scope
 
-**Phase A architecture proposal for review. No runtime code, build system, or tests are implemented.**
+**Phase A was reviewed and merged via PR #4. Phase B is proposed for review in [its design index](PHASE_B_DESIGN.md). No runtime code, build system, or tests are implemented.**
 
-This plan replaces the earlier interleaved Phase 0–3 research/implementation roadmap. The three stages are sequential review gates: architecture, C++ implementation design, then implementation. A merged architecture proposal does not claim backend feasibility or authorize skipping the next gate.
+This plan replaces the earlier interleaved Phase 0–3 research/implementation roadmap. The three stages are sequential review gates: architecture, C++ implementation design, then implementation. A merged architecture proposal does not claim native model/compute feasibility or authorize skipping the next gate.
 
 The purpose is to settle observable semantics before choosing convenient implementation types. It is not a promise that implementation can never uncover a design defect. Record a deviation with affected invariants, alternatives, migration impact, and new acceptance cases; update and review the design before implementing a semantic change.
 
@@ -24,6 +24,7 @@ The purpose is to settle observable semantics before choosing convenient impleme
 | [MCP Contract](MCP_CONTRACT.md) | Transport-facing projection of kernel semantics |
 | [Implementation Strategy](IMPLEMENTATION_STRATEGY.md) | C++ boundary and Phase B deliverables |
 | [Design Acceptance](DESIGN_ACCEPTANCE.md) | Cross-document scenarios and future test obligations |
+| [Phase B Design](PHASE_B_DESIGN.md) | Implementation-design index, evidence and qualification gates; does not override Phase A semantics |
 
 Detailed contracts govern their own domain; overview examples are explanatory. If documents conflict, fix the conflict rather than selecting whichever makes implementation easiest. Wire names and C++ types remain unfrozen until Phase B. Phase A semantic changes require review even when the wire schema is still draft.
 
@@ -41,7 +42,7 @@ In scope:
 - structured events, journal retention, trace replay and process failure limitations;
 - external AI/MCP, Agent, Generation, products and GPU Node Manager boundaries.
 
-The baseline is a single Runtime process controlling its own Runs and resource accounting ledger. Hard tenant paid-budget authority is an external durable ledger as specified in [Authorization Model](AUTHORIZATION_MODEL.md); it does not confer Run recovery. The Runtime may call external services. It is not a distributed scheduler and does not promise restart-safe continuation, exactly-once external effects, universal pause/rewind, or automatic rollback.
+The baseline is a single-user Runtime process controlling its own Runs and resource accounting ledger. Strict cross-crash monetary limits belong to an optional future external authority, not baseline acceptance. The Runtime may call external services. It is not a distributed scheduler and does not promise restart-safe continuation, exactly-once external effects, universal pause/rewind, or automatic rollback.
 
 Exit gate:
 
@@ -59,7 +60,7 @@ Required evidence:
 - inspect current `flamoris-net/flamoris-LLM` through authenticated GitHub access;
 - compare current primary-source contracts of `llama.cpp`, Transformers, vLLM and TensorRT-LLM;
 - record source revisions/date, actual control points, limitations and reuse/licensing decisions;
-- choose the first backend only from this evidence; do not assume a server endpoint supports decode-level control or state preservation.
+- choose the FLAMORIS native model and compute contract using this evidence; do not assume a server endpoint supports decode-level control or state preservation.
 
 Research must cover tokenization, prefill/decode, sampling, KV/state ownership, streaming, cancellation, pause/resume, offload/snapshot/rewind, batching, observability, and embedded versus server APIs. An unavailable source remains an explicit research blocker, not a guessed implementation description. Private code/topology must not be copied into public documentation.
 
@@ -72,8 +73,8 @@ Required design outputs:
 | Errors | Result/exception boundary, typed failure propagation and cancellation representation |
 | Concurrency | State commit/linearization, concurrent submission claim and Run identity, duplicate-waiter decisions, worker callbacks, thread affinity, clocks and cancellation safety |
 | Resources | Handle/allocation ownership, cleanup/quarantine protocol, host-adapter contract |
-| Paid budgets | External durable authority protocol for atomic tenant/attempt reservation, crash inventory/reconciliation, full-liability fallback and fail-closed availability; no Runtime recovery implication |
-| Backend | Evidence-backed capability matrix, first integration contract and deterministic fake seams |
+| Paid budgets | Optional future strict-cost profile, separately reviewed; finite Run limits and paid effect policy remain baseline |
+| Native execution | FLAMORIS model, processor/tokenizer and compute contract, profile-specific capabilities and deterministic fake seams |
 | Serialization | Versioned IR, plan/event/error shapes, bounded post-terminal observation/retention, redaction, bounded parser and compatibility rules |
 | Delivery | Implementation slices, exact acceptance case mapping, CI/toolchain matrix and risk register |
 
@@ -86,10 +87,10 @@ Exit gate: all initial implementation interfaces are backed by evidence, ownersh
 Implement the reviewed Phase A/B contracts in logical, frequently committed slices:
 
 1. build/test foundation and domain/error/event types;
-2. Job/Continuation lifecycle and deterministic fake backend;
+2. Job/Continuation lifecycle and deterministic scripted native worker;
 3. resources, simple Scheduler, authorization and budgets;
 4. validator/compiler and Workflow Machine;
-5. Inference Machine and evidence-selected first backend;
+5. Inference Machine and FLAMORIS native CPU/OpenCL compute;
 6. registered adapters and transport surfaces;
 7. bounded in-memory committed-event inspection and observation-only replay before baseline acceptance (including A32); durable journal persistence, recovery design and later optimizations follow only under separate reviewed contracts.
 
@@ -104,6 +105,6 @@ Exact dependency order is a Phase B deliverable. A slice must not advertise a ca
 | Race | Explicit acceptance, fixed participants and bounded loser cleanup | Provisional/final/superseded result streams |
 | Resources | Conservative accounting, fair readiness and safe model reuse | Measured residency/reload optimization |
 | Events | Bounded ordered observation; inspection-only replay | Durable execution recovery under a separate protocol |
-| Backends | One researched, capability-honest backend | Additional backends, including Vem after a stable contract |
+| Native model execution | FLAMORIS CPU reference and qualified OpenCL compute under a pinned model/processor/profile identity | More FLAMORIS-native model families and compute implementations; external AI through Workflow capabilities |
 
 These later features are bounded by current authority rules; they are not silently enabled by being mentioned in the architecture.

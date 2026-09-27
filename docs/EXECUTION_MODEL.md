@@ -4,14 +4,13 @@
 
 **Phase A architecture contract; no execution behavior is implemented.** `MUST`
 and `MUST NOT` below constrain later implementation. They do not freeze C++
-types, backend APIs, or a transport schema.
+types, native compute APIs, or a transport schema.
 
 The initial execution authority is one Runtime process. Its Runs, Jobs,
 Continuations, leases, and request deduplication records are process-lifetime
 state. A restart does not resume them. Persisted traces are evidence, not a
-recovery log. Hard tenant paid-budget authority is an external durable ledger,
-not reconstructable from those process-lifetime records; see
-[Authorization Model](AUTHORIZATION_MODEL.md). Durable Run recovery and
+recovery log. The single-user baseline has no durable tenant paid-budget ledger or hard
+cross-crash monetary ceiling; see [Authorization Model](AUTHORIZATION_MODEL.md). Durable Run recovery and
 distributed ownership require a later design.
 
 ## Authority and ownership
@@ -21,7 +20,7 @@ distributed ownership require a later design.
 | Run | Immutable admitted plan reference, caller context, cumulative limits, root Job, result/provenance, cancellation scope | Independent scheduler slot or durable Agent identity |
 | Job | One stable Job ID, lifecycle, machine state, parent/children, deadline, attempts, results, optional suspended Continuation | Host-wide service lifecycle |
 | Continuation | Resume description attached to exactly one waiting/paused Job | Independent queue entry, timeout, cancellation authority, execution lease |
-| Inference Machine | Supported tokenization/prefill/decode/sampling progression and backend-state validity | Unchecked capability dispatch or separate Job lifecycle |
+| Inference Machine | Supported processing/prefill/decode/sampling progression and native profile-state validity | Unchecked capability dispatch or separate Job lifecycle |
 | Workflow Machine | Plan bindings, dependency readiness, control groups, bounded child proposals | Interpretation of raw Workflow JSON in the Scheduler |
 | Scheduler | Selection of eligible **Jobs only**, subject to resource/policy admission | Plan mutation or ownership of resume state |
 | Resource Manager | Leases, actual retained allocations, accounting, placement admission | Inferring memory release from a Job state change |
@@ -47,7 +46,7 @@ Every submission, including direct inference, MUST pass through validation and
 compilation to an immutable, versioned Execution Plan before Run admission.
 Direct inference is normalized to a minimal single-root inference plan by the
 same compiler contract; it is not an unplanned dispatch shortcut. The normalized
-plan pins the selected model/backend and capability contracts and carries the
+plan pins the selected model, processor/tokenizer, execution profile/compute identity and Workflow capability contracts and carries the
 inference input/output schema, effects, resource/time/cost/trace bounds, and
 bounded dynamic-child envelope (explicitly empty when no child work is allowed).
 It has the same fingerprint, stale-pin rejection, admission and dispatch checks
@@ -114,15 +113,15 @@ unbounded tool loop is permitted. Child deadlines never exceed ancestor limits.
 
 ## Suspend and resume without changing Job identity
 
-Suspension is legal only at an advertised machine/backend safe point where
-resumable state is valid and execution has quiesced. Backend preservation,
+Suspension is legal only at an advertised native machine/profile safe point where
+resumable state is valid and execution has quiesced. Native profile preservation,
 offload, and rewind are capabilities to verify during Phase B research.
 
 The controller atomically commits the Job transition to `waiting` or `paused`
 and its Continuation. The record contains the owning Job, machine, suspension
 generation, resume point, wait condition, bounded bindings, opaque state
 reference/version, requirements, and affinity. It contains no execution lease.
-Backend acknowledgement of execution quiescence precedes lease release. Any
+Native worker acknowledgement of execution quiescence precedes lease release. Any
 resident allocation remains accounted independently of the Continuation.
 
 When a wait is satisfied, the controller validates owner/generation and commits
@@ -191,8 +190,9 @@ winner permanently. Failure cannot win; if all settle without acceptance, the
 race fails with `race_no_acceptable_result`. Deadline expiry fails with timeout.
 
 Initial races exclude `write` and `destructive` participants. `external`, `read`,
-and `paid` still require normal policy checks; paid races reserve the maximum
-permitted cost across **all** participants/attempts, not only the winner.
+and `paid` still require normal policy checks; races must fit the aggregate finite Run attempt/resource envelope across
+**all** participants/attempts, not only the winner. Strict monetary funding
+is a separate optional profile.
 Dependencies and explicit effect ordering may serialize participants.
 
 Winner selection precedes loser cancellation requests and parent readiness. The
@@ -227,7 +227,7 @@ The detailed state transitions and ordering are normative in
 Interrupt commands have a bounded command identity, requested and applied/rejected
 events, and a defined safe point. `pause` preserves state only when supported;
 `resume` validates it again. `stop` is an inference-specific graceful output
-request only if the backend and declared output contract allow partial completion;
+request only if the native execution profile and declared output contract allow partial completion;
 otherwise it is rejected. `cancel` requests termination without a success result.
 Input injection is allowed only at a declared bounded resume/input slot, never as
 an arbitrary mutation of live context. Graph patching and rewind remain deferred.

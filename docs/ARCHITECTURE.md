@@ -4,7 +4,7 @@
 
 **Phase A architecture proposal. No Runtime is implemented.**
 
-FLAMORIS AI Runtime is a model-adjacent execution kernel: inference and workflow share one controllable runtime loop. It owns enough of supported model execution to observe, interrupt, preserve state, dispatch bounded child work and resume. An opaque provider remains usable only with its actual advertised limitations.
+FLAMORIS AI Runtime is a single-user native model execution kernel: inference and workflow share one controllable loop. It owns model execution/state and coordinates bounded child work. An external provider is a registered Workflow capability, never its interchangeable inference backend.
 
 [Design Phases](DESIGN_PHASES.md) defines review gates and document authority. This overview delegates precise behavior to the detailed contracts rather than duplicating transition tables.
 
@@ -13,12 +13,12 @@ FLAMORIS AI Runtime is a model-adjacent execution kernel: inference and workflow
 | Authority | Owns | Does not own |
 | --- | --- | --- |
 | Runtime Kernel | Run admission, Job lifecycle, execution control, limits and provenance | Caller identity/memory or host-wide service policy |
-| Inference Machine | Tokenize/prefill/decode/sampling coordination and backend state for its Job | Independent terminal status, ambient tool authority |
+| Inference Machine | Native processing/prefill/decode/sampling coordination and profile state for its Job | Independent terminal status, ambient tool authority |
 | Workflow Machine | Immutable compiled plan, dependencies, binding, join/race decisions | Arbitrary code or a second Scheduler |
 | Scheduler | Selection of eligible Jobs under current resource/policy constraints | Continuation scheduling, external service authority |
 | Resource Manager | Reservations, execution leases, physical allocation accounting and cleanup debt | Claiming host exclusivity from a local lock |
 | Capability Registry | Versioned schemas, effects and adapter capability descriptions | Permission to invoke a registered capability |
-| Paid Budget Authority (external, durable) | Atomic tenant/attempt paid liability reservations, settlement and restart reconciliation for hard budgets | Run/Job recovery, provider execution or general resource scheduling |
+| Paid Budget Authority (optional future integration) | Strict monetary guarantees for external paid capabilities when explicitly enabled | Baseline native inference or Run/Job recovery |
 | Agent | Identity, goals, personality, conversation and durable memory | Runtime lifecycle state |
 | Generation | Generation workflows, service Jobs and media assets | Runtime Job identity and lifecycle |
 | GPU Node Manager | Host-wide device/service lifecycle and coordination | Runtime dependency decisions |
@@ -37,12 +37,14 @@ flowchart TD
   Workflow --> Jobs
   Jobs --> Scheduler["Scheduler"]
   Scheduler --> Resources["Resource Manager"]
-  Resources --> Backends["Backends and capability adapters"]
+  Resources --> Native["Native execution / compute"]
+  Resources --> Adapters["Workflow capability adapters"]
   Jobs --> Events["Committed event stream"]
-  Backends --> Jobs
+  Native --> Jobs
+  Adapters --> Jobs
 ```
 
-This is one logical control architecture, not a requirement to execute all computation on one thread. Backend observations return through the Job authority. A callback cannot directly resurrect a terminal Job or bypass policy.
+This is one logical control architecture, not a requirement to execute all computation on one thread. Native worker and capability-adapter observations return through the Job authority. A callback cannot directly resurrect a terminal Job or bypass policy.
 
 C++ is the intended Kernel language. Transports, bindings and external services preserve the same semantics. See [Implementation Strategy](IMPLEMENTATION_STRATEGY.md).
 
@@ -74,15 +76,15 @@ Inference may propose work at a runtime safe point. That proposal is untrusted i
 
 See [Workflow IR](WORKFLOW_IR.md) and [Authorization Model](AUTHORIZATION_MODEL.md).
 
-## Inference control and backend capabilities
+## Native inference control and Workflow capabilities
 
-The intended decoder control boundary is after an internally consistent state update: prefill/decode, sampling, token/state update, committed observation, control request application, then the next segment. Exact safe points and maximum segment bounds must be established for the selected backend in Phase B.
+The initial causal-text decoder boundary follows an internally consistent state update: prefill/decode, sampling, token/state update, committed observation, control request application, then the next segment. Phase B defines safe points and maximum segment bounds for the native `ExecutionProfile`.
 
-A backend advertises independently whether it supports streaming, cooperative cancellation, state-preserving suspension, offload/snapshot, bounded input injection and rewind. An opaque server call must not advertise decode control merely because its transport streams tokens.
+A native `ExecutionProfile` advertises independently whether it supports streaming, cooperative cancellation, state-preserving suspension, offload/snapshot, bounded input injection and rewind. A Workflow capability adapter for an external AI service cannot advertise native decode control merely because its transport streams tokens.
 
-Preservation compatibility includes model/backend/configuration and state generation. Re-tokenization or re-inference after discarding KV/sampler state is a new execution strategy, not equivalent resume. Unsupported requested control is rejected explicitly.
+Preservation compatibility pins model, processor/tokenizer, execution profile, compute/state representation and state generation. Re-tokenization or re-inference after discarding causal-text KV/sampler state is a new execution strategy, not equivalent resume. Unsupported requested control is rejected explicitly.
 
-Backend compute abstractions do not force CUDA, ROCm, Vulkan, OpenCL or one model architecture into the public Runtime contract. This is an architectural requirement, not a compatibility claim about any runtime today.
+Native compute implementations may use CPU, OpenCL or a later accelerator under the FLAMORIS-owned execution loop. No external model runtime is an interchangeable native inference implementation. This is an architectural requirement, not a compatibility claim about any implementation today.
 
 ## Resources and host coordination
 
@@ -100,7 +102,7 @@ Effects are a validated nonempty set: `pure`, `read`, `write`, `external`, `dest
 
 Plan-level aggregation validates each member first, then combines observable effects without retaining `pure` beside them. An effect set is neither an authorization grant nor proof of idempotency. Current input-specific scopes, cost reservations and registered adapter restrictions control dispatch.
 
-[Authorization Model](AUTHORIZATION_MODEL.md) defines revocation, confirmation binding, budget accounting, deduplication and uncertainty. The Runtime's process-local Run ledger does not replace the external durable Paid Budget Authority for hard tenant limits. Affected paid admission fails closed when reservation/reconciliation status is unavailable; that authority cannot restore a crashed Run. Raw credentials, arbitrary endpoints, ambient shell/filesystem/network authority and model-authored permission claims are excluded.
+[Authorization Model](AUTHORIZATION_MODEL.md) defines revocation, confirmation binding, budget accounting, deduplication and uncertainty. The baseline Run ledger enforces finite local limits without promising a hard monetary ceiling across crashes. A future strict paid profile requires separate durable authority and cannot restore a crashed Run. Raw credentials, arbitrary endpoints, ambient shell/filesystem/network authority and model-authored permission claims are excluded.
 
 ## Events, failure and replay
 
@@ -112,8 +114,8 @@ Trace replay reads retained evidence and never invokes models, tools, authorizat
 
 ## Scope and review
 
-The initial scope is one Runtime process, bounded DAG/control semantics and one researched backend. GUI metadata is non-semantic. Durable Agent memory, training, distributed scheduling, arbitrary code, a plugin marketplace, universal pause/rewind and speculative result replacement remain outside the baseline.
+The initial scope is a single-user FLAMORIS native model runtime, bounded DAG/control semantics, CPU reference and OpenCL compute. GUI metadata is non-semantic. Durable Agent memory, training, distributed scheduling, arbitrary code, a plugin marketplace, universal pause/rewind and speculative result replacement remain outside the baseline.
 
-Before freezing interfaces, Phase B must inspect current `flamoris-net/flamoris-LLM` and current primary-source runtime contracts for llama.cpp, Transformers, vLLM and TensorRT-LLM. Public documents must not copy private topology/code. No backend has been selected or validated by this Phase A proposal.
+Before freezing interfaces, Phase B must inspect current `flamoris-net/flamoris-LLM` and current primary-source runtime contracts for llama.cpp, Transformers, vLLM and TensorRT-LLM. Public documents must not copy private topology/code. The product direction is FLAMORIS native execution; Phase A does not claim it is implemented or validated.
 
 [Design Acceptance](DESIGN_ACCEPTANCE.md) defines the cross-component scenarios required before implementation and their later deterministic test obligations.

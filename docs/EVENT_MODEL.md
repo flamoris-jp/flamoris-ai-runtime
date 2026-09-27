@@ -25,9 +25,9 @@ Each retained Run event has bounded structured fields:
 | `payload` | Kind-specific bounded, redacted data/references |
 
 Resource/adapter acknowledgement payloads additionally identify operation and relevant
-backend/host generation so stale acknowledgements cannot release new allocations or
+native-worker/host generation so stale acknowledgements cannot release new allocations or
 complete a later attempt. A Continuation inspection ID is provenance, not an independent
-Job or scheduling authority. Secrets, pointers and raw backend state are not event fields.
+Job or scheduling authority. Secrets, pointers and raw native state are not event fields.
 Wall-clock order is never used to settle a race, deadline or cancellation.
 Pre-admission rejection is a bounded request response; optional security audit records
 use request correlation outside the Run stream and do not fabricate a Run/Job lifecycle.
@@ -116,7 +116,7 @@ unbounded control records or block authoritative ledger cleanup.
 An operation that cannot reserve its required records cannot start. Repeated no-op
 commands are rate-limited/coalesced; they cannot consume unbounded control capacity.
 
-Slow/disconnected stream clients never block backend stop, resource release or lifecycle
+Slow/disconnected stream clients never block native-worker stop, resource release or lifecycle
 commit. Optional token/debug telemetry may be sampled, coalesced or dropped according to
 the advertised policy; every loss is represented by counters/ranges in the next available
 bounded telemetry summary. Control records are never silently treated as dropped telemetry.
@@ -126,8 +126,7 @@ capacity and authoritative current state. Exact sizing and overflow tests belong
 Post-terminal observation
 remains available only within the advertised Run retention/window; before it closes,
 the stream records final known reconciliation or an explicit still-unknown closure.
-After that bound, late authoritative release/settlement still updates its resource or
-durable paid-budget ledger, but cannot reopen an expired Run stream. Queries to an
+After that bound, late authoritative release/settlement still updates its resource ledger (or optional strict-cost external ledger), but cannot reopen an expired Run stream. Queries to an
 expired Run report a gap/expiration rather than inventing a late lifecycle event.
 The retained history is bounded by count/bytes/time. Whole committed groups may age out,
 including control groups, once their active bookkeeping need is satisfied. A reader with
@@ -164,7 +163,7 @@ treated as resolved. A persisted trace alone cannot authorize restoration or res
 ## Privacy and access
 
 Run status, event subscription, retained history, exports and replay each require current
-subject/tenant authorization. Historical execution permission does not grant perpetual
+current local-user authorization. Historical execution permission does not grant perpetual
 trace access. Trace levels are capped by deployment policy and the caller's access scope.
 Tokens/prompts, model-exposed reasoning channels and debug probes are opt-in sensitive
 payloads with finite size/retention, not default lifecycle fields.

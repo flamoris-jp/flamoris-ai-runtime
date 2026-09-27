@@ -2,9 +2,9 @@
 
 **Inference and workflow, controlled in one runtime.**
 
-FLAMORIS AI Runtime is a planned **model-adjacent AI execution runtime**.
+FLAMORIS AI Runtime is a planned **single-user native model runtime**.
 
-It is intended to sit at the layer that wraps and drives a model, conceptually alongside ordinary model runtimes, while adding FLAMORIS-specific control over inference, jobs, workflows, interrupts, and real-time observability.
+It owns model execution, cache/state and inference control alongside jobs, workflows, interrupts and real-time observability. Native CPU reference and OpenCL compute are the planned initial paths. Third-party runtimes, when used, are registered Workflow capabilities. Strict cross-crash monetary limits are an optional future integration.
 
 The core idea is:
 
@@ -90,7 +90,7 @@ workflow/job work?
 continue inference
 ```
 
-This allows the Runtime to observe inference in real time, pause it, dispatch other work, wait for results, inject bounded results, and continue where the backend supports state preservation.
+This allows the Runtime to observe inference in real time, pause it, dispatch other work, wait for results, inject bounded results, and continue where the native execution profile supports state preservation.
 
 ## Workflow inside the Runtime
 
@@ -137,7 +137,7 @@ Conceptual job types include:
 
 An `InferenceJob` may retain model execution state such as token position, cache/state, sampling state, workflow linkage, and interrupt state.
 
-Not every job/backend must support pause, resume, rewind, or cancellation. These are capabilities, not assumptions.
+Not every Job/native execution profile must support pause, resume, rewind, or cancellation. These are capabilities, not assumptions.
 
 ## Continuations
 
@@ -161,13 +161,13 @@ A continuation may include:
 
 - the owning Job and execution machine;
 - resume point;
-- backend/model state reference where supported;
+- native model/state reference where supported;
 - what result or event it is waiting for;
 - input/result bindings required on resume;
 - resource requirements and affinity hints;
 - deadline/cancellation linkage inherited from the owning Job.
 
-A paused Job should not normally hold an **execution lease** indefinitely. However, releasing an execution lease does not imply that retained KV/cache/backend state has left VRAM or RAM. The Resource Manager must continue accounting for any **retained state footprint** until that state is offloaded, snapshotted elsewhere, or evicted.
+A paused Job should not normally hold an **execution lease** indefinitely. However, releasing an execution lease does not imply that retained KV/cache/native state has left VRAM or RAM. The Resource Manager must continue accounting for any **retained state footprint** until that state is offloaded, snapshotted elsewhere, or evicted.
 
 Inference is not the only possible source of resumable state. Both the Inference Machine and Workflow Machine may suspend their scheduler-visible Job through the same Continuation contract.
 
@@ -254,7 +254,7 @@ Conceptually:
 1. lifecycle/state/timing;
 2. token/sampling information;
 3. model-exposed reasoning stream where intentionally available and permitted;
-4. deep backend debug probes.
+4. deep native execution debug probes.
 
 Normal operation must not emit secrets, unrestricted provider payloads, unbounded tensors, or unlimited media/model output.
 
@@ -270,7 +270,7 @@ Possible actions include:
 - cancel selected jobs;
 - inject bounded input;
 - redirect an unexecuted workflow path;
-- later, rewind inference state where a backend explicitly supports it.
+- later, rewind inference state where a native execution profile explicitly supports it.
 
 The Runtime should record both the interrupt request and the point where it actually takes effect.
 
@@ -309,7 +309,7 @@ Examples:
 - Studio/products retain their own document and UI state;
 - external MCP/API/AI services remain external authorities.
 
-`flamoris-intelligence-mcp` may expose or route bounded intelligence capabilities, but AI Runtime may directly own model execution for the models/backends it controls. Final integration should preserve the Runtime's required inference control points.
+`flamoris-intelligence-mcp` may expose or route bounded intelligence capabilities, but AI Runtime owns registered native model execution; external runtimes/providers participate only as Workflow capabilities. Final integration should preserve the Runtime's required inference control points.
 
 ## Workflow IR
 
@@ -394,7 +394,7 @@ Do not add arbitrary shell, unrestricted Python, ambient filesystem/network acce
 
 The intended implementation language for the Runtime Kernel is **C++**.
 
-C++ is chosen for the model-adjacent core because the Runtime is expected to coordinate low-level inference control, backend state, cache lifetime, native model runtimes, scheduling, and GPU/resource-aware execution without forcing those control points through a higher-level service boundary.
+C++ is chosen for FLAMORIS-owned model execution, inference control, cache lifetime, scheduling and resource-aware native CPU/OpenCL compute.
 
 Conceptually:
 
@@ -415,27 +415,27 @@ Inference   Workflow    Scheduler
 
 C++ does **not** mean every capability must run in-process. External AI, MCP, Generation, and other services remain registered external capabilities with their own authority.
 
-The exact minimum C++ standard, build toolchain, ABI/binding strategy, and backend integration details remain Phase B implementation-design decisions and must be based on runtime research and the reusable parts of `flamoris-net/flamoris-LLM`.
+The [Phase B design proposal](docs/PHASE_B_DESIGN.md) selects a C++20 library-first baseline and FLAMORIS native model execution with CPU reference and OpenCL compute. Its toolchain, ownership, concurrency and integration contracts require review before implementation. No stable ABI or language binding is promised.
 
 See [Implementation Strategy](docs/IMPLEMENTATION_STRATEGY.md).
 
 ## Existing FLAMORIS LLM foundation
 
-`flamoris-net/flamoris-LLM` is a candidate implementation foundation.
+The private `flamoris-net/flamoris-LLM` is a conceptual and test-methodology foundation.
 
 It already explores:
 
 - model runtime boundaries;
 - generation loops;
 - cache handling;
-- tokenizer/model contracts;
+- independent processor/tokenizer/model identities and compatibility;
 - CPU reference execution;
 - OpenCL compute;
 - deterministic tests.
 
 The goal is not to copy it wholesale.
 
-The likely direction is to evolve reusable model/inference pieces into FLAMORIS AI Runtime, then add:
+Phase B uses the inspected foundation as a concept and test-methodology reference. Direct private-source migration requires separate publication and licensing clearance; none is copied in this proposal. The planned Runtime responsibilities include:
 
 - Inference Controller;
 - Job Scheduler;
@@ -447,7 +447,7 @@ The likely direction is to evolve reusable model/inference pieces into FLAMORIS 
 
 ## Runtime research before implementation
 
-Before freezing the first backend/inference contract, compare representative runtimes/stacks including:
+The [backend research ADR](docs/adr/0001-backend-control.md) compares pinned primary-source revisions of:
 
 - `llama.cpp`;
 - Hugging Face Transformers;
@@ -467,7 +467,7 @@ Focus on:
 - observability;
 - how much control is lost behind server-style APIs.
 
-The purpose is not compatibility with all of them. It is to identify the smallest control surface FLAMORIS must own.
+The purpose is comparative design evidence for a FLAMORIS-owned model runtime, not adapter compatibility. Its tokenizer and decoder qualification includes Japanese, emoji and other non-ASCII sequences under a pinned processor/tokenizer identity.
 
 ## Design before implementation
 
@@ -475,11 +475,11 @@ Work proceeds through three review gates:
 
 | Stage | Deliverable | Status |
 | --- | --- | --- |
-| Phase A: Architecture Design | Execution/state/resource/authorization/event/failure contracts and acceptance scenarios | Proposed for review |
-| Phase B: C++ Implementation Design | Runtime research, concept-to-type mapping, ownership, concurrency, backend interfaces and build/test ADRs | Not started |
+| Phase A: Architecture Design | Execution/state/resource/authorization/event/failure contracts and acceptance scenarios | Reviewed and merged via PR #4 |
+| Phase B: C++ Implementation Design | Runtime research, concept-to-type mapping, ownership, concurrency, native execution contracts and build/test ADRs | Proposed for review; see [design index](docs/PHASE_B_DESIGN.md) |
 | Phase C: Implementation | Reviewed contracts implemented in small, tested commits | Not started |
 
-[Design Phases](docs/DESIGN_PHASES.md) defines the gates and document authority. This replaces the earlier Phase 0–3 roadmap. Runtime research and private foundation inspection remain required before backend interfaces are frozen in Phase B.
+[Design Phases](docs/DESIGN_PHASES.md) defines the gates and document authority. This replaces the earlier Phase 0–3 roadmap. Phase B records current-source research and private foundation inspection; adapter feasibility and platform builds are explicit Phase C qualification gates.
 
 The Phase A baseline is a single Runtime process with bounded execution. Job completion includes a `finalizing` phase for child/resource cleanup; a terminal result may report explicitly transferred cleanup debt or unknown external outcomes. Trace replay only inspects events and cannot recover live execution after a process crash.
 
@@ -500,6 +500,7 @@ See:
 - [Implementation Strategy](docs/IMPLEMENTATION_STRATEGY.md)
 - [Design Phases and document map](docs/DESIGN_PHASES.md)
 - [Design Acceptance](docs/DESIGN_ACCEPTANCE.md)
+- [Phase B design and research index](docs/PHASE_B_DESIGN.md)
 
 ## FLAMORIS
 
@@ -537,7 +538,7 @@ FLAMORIS AI Runtime
 
 という位置です。
 
-開発は **Phase A：アーキテクチャ設計 → Phase B：C++実装設計 → Phase C：実装** の3段階で進め、各段階でレビューします。現在はPhase Aの設計提案で、本番コードはまだありません。
+開発は **Phase A：アーキテクチャ設計 → Phase B：C++実装設計 → Phase C：実装** の3段階で進め、各段階でレビューします。Phase AはPR #4でマージ済み、現在は[Phase Bの設計提案](docs/PHASE_B_DESIGN.md)です。本番コード・ビルド環境・実行テストはまだありません。
 
 推論中に別の処理が必要になれば、Inferenceをyield/pauseし、Vision、algorithm、MCP、外部AIなどをJobとして実行し、その結果を受け取って推論を続けられる構造を目指します。
 
@@ -563,9 +564,9 @@ pause / stop / child job / input injection
 
 という形を想定します。
 
-実装前には `llama.cpp`、Hugging Face Transformers、vLLM、TensorRT-LLMなどの一般的なRuntimeを調査し、prefill/decode、KV cache、streaming、cancel、scheduler、pause/resume、state rewind、observabilityの設計を比較します。
+Phase Bでは `llama.cpp`、Hugging Face Transformers、vLLM、TensorRT-LLMの一次資料を比較し、prefill/decode、KV cache、streaming、cancel、scheduler、pause/resume、state rewind、observabilityの制御点と制約を記録しました。最初はdeterministic fakeで契約を検証し、その後FLAMORIS native CPU referenceとOpenCL computeを実装・比較する設計です。外部Runtimeは必要ならWorkflow capabilityとして利用します。実装済みを意味しません。
 
-また、既存の `flamoris-net/flamoris-LLM` はModel Runtime、generation loop、cache、compute、CPU/OpenCL実装を持っているため、AI Runtimeの下地として再利用可能性を調査します。
+既存の `flamoris-net/flamoris-LLM` も現行コードを調査しました。概念・テスト方針を参考にし、privateコードは移植していません。コードの再利用には公開権限とライセンスの確認が別途必要です。
 
 外側の `flamoris-ai-agent` はIdentity、Memory、Conversation、Personalityなどの永続的なAgent状態を担当し、AI Runtimeは実際にモデルと処理を動かす実行層を担当する想定です。
 
@@ -578,4 +579,3 @@ pause / stop / child job / input injection
 Code and documentation in this repository are licensed under the [Apache License 2.0](LICENSE), unless otherwise noted.
 
 AI models, model weights, datasets, media, and other non-code assets may use separate licenses. State their applicable licenses alongside those assets.
-

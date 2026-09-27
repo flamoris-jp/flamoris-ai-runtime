@@ -1,5 +1,7 @@
 # Workflow IR
 
+**Product boundary:** native inference uses FLAMORIS-owned execution state. External AI runtimes/providers are registered Workflow capabilities with effect and authorization checks; they cannot substitute for the native Inference Machine. Baseline is single-user.
+
 ## Status
 
 **Phase A semantic design. No schema is implemented; wire representation is deferred to Phase B.**
@@ -33,7 +35,7 @@ Capabilities / Inference
 
 Inference may itself be represented by a stateful `InferenceJob`.
 
-A running inference may yield, dispatch child jobs, wait for them, receive bounded results, and resume where the backend supports state preservation.
+A running inference may yield, dispatch child jobs, wait for them, receive bounded results, and resume where the native execution profile supports state preservation.
 
 The Workflow IR therefore must be able to express useful coordination without becoming a general programming language.
 
@@ -91,7 +93,7 @@ Exact names remain draft.
 
 Workflow IR is never scheduler state and should not be executed directly.
 
-The Runtime first validates the IR, resolves registered capabilities and bindings, applies caller/runtime limits, derives resource/effect information, and compiles an **Execution Plan**. Direct inference submission is normalized into a minimal single-root inference plan under the same compiler and admission contract, including pinned model/backend, effects, bounds and an explicit dynamic-child envelope; see [Execution Model](EXECUTION_MODEL.md). It does not bypass plan compilation merely because the caller did not supply Workflow IR.
+The Runtime first validates the IR, resolves registered capabilities and bindings, applies caller/runtime limits, derives resource/effect information, and compiles an **Execution Plan**. Direct inference submission is normalized into a minimal single-root inference plan under the same compiler and admission contract, including pinned model/processor/tokenizer/execution-profile and compute identity, effects, bounds and an explicit dynamic-child envelope; see [Execution Model](EXECUTION_MODEL.md). It does not bypass plan compilation merely because the caller did not supply Workflow IR.
 
 Conceptually:
 
@@ -246,7 +248,7 @@ The precise semantics are defined in [Execution Model](EXECUTION_MODEL.md):
 
 Participants must be a nonempty, unique, closed child set. Unknown policies, unbounded acceptance and ownership violations are invalid. Acceptance cannot invoke capabilities or I/O. Group deadlines cannot extend the Run.
 
-Initial race loser policy is `cancel_unfinished`; loser cleanup stays owned even when the parent resumes with a winner. `write`/`destructive` races are excluded; paid races require aggregate worst-case cost reservation across all participants and attempts. Losing or cancelling is not rollback. Provisional result replacement and continuing losers for caching are deferred.
+Initial race loser policy is `cancel_unfinished`; loser cleanup stays owned even when the parent resumes with a winner. `write`/`destructive` races are excluded; races require aggregate finite Run allowance across all participants and attempts; strict monetary reservation is optional future work. Losing or cancelling is not rollback. Provisional result replacement and continuing losers for caching are deferred.
 
 Failure recovery is a declared typed binding, never an implicit success value or a new branch invented by model output. Exact JSON encoding is designed and reviewed in Phase B **before** executor implementation.
 
@@ -294,13 +296,13 @@ inject selected bounded result
 InferenceJob resume
 ```
 
-The IR should not contain raw KV cache or backend pointers.
+The IR should not contain raw KV cache or native pointers.
 
 Those belong to runtime execution state.
 
 ## Continuations
 
-Workflow IR may describe control that can yield or wait, but it must not serialize raw Continuation objects, backend pointers, KV cache, GPU leases, or other live Runtime state.
+Workflow IR may describe control that can yield or wait, but it must not serialize raw Continuation objects, native pointers, KV cache, GPU leases, or other live Runtime state.
 
 The compiler may identify **potential suspension sites** and continuation policy from validated workflow/capability semantics, such as `await` or `join`. It does not pre-create concrete Continuations.
 
@@ -313,7 +315,7 @@ A Continuation may hold:
 - resume point;
 - waiting condition;
 - bounded result bindings;
-- backend/state reference where supported;
+- native state reference where supported;
 - resource requirements and affinity hints;
 - deadline/cancellation linkage.
 
@@ -424,4 +426,4 @@ Unsupported future schemas should be rejected deterministically rather than inte
 
 Phase A specifies the bounded semantics; Phase B defines exact schemas, compiler stages, C++ contracts and deterministic test seams; Phase C implements reviewed slices. The baseline covers DAG validation, explicit references, compiled plans, Job creation, basic join/race, effect/authority checks, Continuations and bounded structured observation.
 
-Event persistence and replay, advanced residency optimization, adaptive graph mutation and speculative replacement remain later slices. There are no dynamic loops, arbitrary code or durable distributed scheduling in the baseline. See [Design Phases](DESIGN_PHASES.md) and [Design Acceptance](DESIGN_ACCEPTANCE.md).
+In-memory inspection-only replay belongs to baseline acceptance (A32). Durable event persistence/recovery, advanced residency optimization, adaptive graph mutation and speculative replacement remain later extensions. There are no dynamic loops, arbitrary code or durable distributed scheduling in the baseline. See [Design Phases](DESIGN_PHASES.md) and [Design Acceptance](DESIGN_ACCEPTANCE.md).

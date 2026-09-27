@@ -2,7 +2,7 @@
 
 This repository is part of the FLAMORIS ecosystem.
 
-FLAMORIS AI Runtime is currently a **design-stage model-adjacent AI execution runtime**. It is intended to control model inference, workflow execution, jobs, interrupts, and observability in one runtime kernel.
+FLAMORIS AI Runtime is currently a **design-stage single-user FLAMORIS native model runtime**. External runtimes and providers participate only as registered Workflow capabilities; CPU and OpenCL are internal FLAMORIS compute implementations. It is intended to control model inference, workflow execution, jobs, interrupts, and observability in one runtime kernel.
 
 Do not implement behavior from chat context alone. Read current repository documentation first and keep planned behavior clearly separated from implemented behavior.
 
@@ -12,13 +12,13 @@ Do not implement behavior from chat context alone. Read current repository docum
 
 Planned ownership:
 
-- model-adjacent inference lifecycle for supported/controlled backends;
-- model/backend execution contracts;
+- FLAMORIS-owned native model execution and inference lifecycle;
+- native model and internal CPU/OpenCL compute contracts;
 - active inference state such as token position, cache/state, sampling state, and stop conditions;
 - runtime workflow IR and validation;
 - job lifecycle, dependencies, scheduling, cancellation, and results;
 - logical parallelism and resource-aware execution;
-- interrupt, pause, resume, and later backend-specific rewind capabilities;
+- interrupt, pause, resume, and later native profile-specific rewind capabilities;
 - structured execution events and bounded real-time traces;
 - capability discovery and execution adapters;
 - per-run limits and provenance.
@@ -45,9 +45,9 @@ Do not reduce the model to an opaque remote `generate()` call when the feature b
 - state-preserving pause/resume;
 - child-job dispatch;
 - bounded result injection;
-- backend state inspection.
+- native state inspection.
 
-A limited opaque provider may still exist as a capability, but it must advertise its limitations honestly.
+An external provider may exist only as a registered Workflow capability, but it must advertise its limitations honestly.
 
 ## Runtime concepts
 
@@ -84,7 +84,7 @@ The scheduler may serialize jobs when constrained by:
 - remote rate limits;
 - side-effect policy.
 
-Distinguish an active **execution lease** from a suspended Job's **retained state footprint**. Releasing a GPU/device lease does not mean KV cache or backend state has left VRAM/RAM. Resource accounting must include retained resident state until it is offloaded, snapshotted, or evicted.
+Distinguish an active **execution lease** from a suspended Job's **retained state footprint**. Releasing a GPU/device lease does not mean KV cache or native state has left VRAM/RAM. Resource accounting must include retained resident state until it is offloaded, snapshotted, or evicted.
 
 Conceptual control operations include:
 
@@ -110,9 +110,9 @@ tokenize -> prefill -> decode iteration -> sampling -> token/state update
                                       -> continue
 ```
 
-Exact backend behavior must be verified before freezing interfaces.
+Native compute behavior must be verified before freezing execution guarantees.
 
-Do not promise universal rewind, pause, or cache mutation. These are backend capabilities.
+Do not promise universal rewind, pause, or cache mutation. These are native model/profile capabilities.
 
 ## Observability
 
@@ -125,7 +125,7 @@ Support bounded trace levels conceptually:
 1. lifecycle/state/timing;
 2. token and sampling information;
 3. model-exposed reasoning channel where intentionally supported;
-4. deep backend debug probes.
+4. deep native execution debug probes.
 
 Never log secrets, credentials, unbounded tensors, unrestricted provider responses, or unlimited model/media output.
 
@@ -173,7 +173,7 @@ External AI/API and MCP execution must use configured, registered adapters. Do n
 
 The intended Runtime Kernel implementation language is **C++**.
 
-Keep the model-adjacent execution core in C++ so inference lifecycle control, native backend integration, cache/state ownership, scheduling, and resource-aware execution can remain explicit and low overhead.
+Keep the model-adjacent execution core in C++ so inference lifecycle control, native CPU/OpenCL compute integration, cache/state ownership, scheduling, and resource-aware execution can remain explicit and low overhead.
 
 Do not interpret this as a requirement to pull every capability into the C++ process. MCP, Generation, external AI/API, and other domain services remain external capabilities when that preserves authority boundaries.
 
@@ -190,17 +190,17 @@ Evaluate reuse of its:
 - model runtime boundary;
 - generation loop;
 - cache handling;
-- tokenizer/model contracts;
+- registered processor/tokenizer/model identities, Unicode semantics and compatibility;
 - compute abstraction;
 - CPU reference path;
-- OpenCL backend work;
+- native OpenCL compute work;
 - tests.
 
 Reuse should be deliberate. Do not copy model-specific internals into unrelated workflow/scheduler layers.
 
 ## Required runtime research before implementation
 
-Before freezing the first inference/backend contracts, compare representative runtimes/stacks including:
+Before freezing the first native inference contracts, compare representative runtimes/stacks including:
 
 - `llama.cpp`;
 - Hugging Face Transformers;
@@ -226,6 +226,11 @@ Record the conclusions in repository documentation or a design decision before i
 
 Follow [Design Phases](docs/DESIGN_PHASES.md) and its document authority map.
 
+The [Phase B design index](docs/PHASE_B_DESIGN.md) links the proposed toolchain,
+ownership, concurrency, native execution, serialization, resource/paid/activation contracts
+and acceptance map (A41–A42 optional strict-cost cases). Read the reviewed versions before Phase C work. They refine
+implementation choices and never override Phase A semantics or claim working code.
+
 1. Phase A: architecture contracts and failure/acceptance scenarios; no production code or build scaffold.
 2. Phase B: current `flamoris-LLM` and primary-source runtime research, then C++ types/interfaces, ownership, errors, concurrency, serialization and build/test ADRs; still no production runtime implementation.
 3. Phase C: implement reviewed contracts in logical, frequently committed slices with deterministic acceptance tests.
@@ -244,7 +249,13 @@ In particular:
 - Event replay is observation only; the baseline is not durable execution recovery.
 - Concurrent submission deduplication atomically claims the scoped key and one Run identity before work dispatch; failed pre-Run admission releases the claim only after waiters share its rejection.
 - Terminal lifecycle state is immutable, while bounded post-terminal reconciliation may append to the Run observation stream within retention; ledger cleanup survives its expiry.
-- Hard tenant paid budgets require an external durable authority for pre-handoff attempt reservation, reconciliation and fail-closed restart/availability behavior; an in-process ledger alone cannot enforce them.
+- The baseline is single-user and enforces finite Run/resource limits. Strict cross-crash monetary guarantees are an optional future external-capability integration.
+
+Phase B additionally fixes these implementation boundaries:
+
+- An absent submission idempotency key means independent fresh admission; only explicit valid keys enter SubmissionIndex.
+- Optional strict-cost paid integration alone uses a durable handoff protocol; baseline does not claim a hard monetary ceiling.
+- Runtime construction and teardown follow FLAMORIS native ownership; no llama.cpp-derived process-global lifetime or permanent one-construction rule is imposed.
 
 Do not jump directly to distributed scheduling, a plugin marketplace, or a generic graph programming language.
 
@@ -328,4 +339,3 @@ Never:
 Unless stated otherwise, code and documentation are Apache License 2.0.
 
 Models, weights, datasets, media, providers, and third-party components may use separate terms. Document them explicitly.
-
