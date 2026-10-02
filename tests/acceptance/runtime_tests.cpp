@@ -1,6 +1,7 @@
 #include "catch_amalgamated.hpp"
 #include "flamoris/runtime/media_lowering.hpp"
 #include "flamoris/runtime/native_registration.hpp"
+#include "flamoris/runtime/principal_target.hpp"
 #include "flamoris/runtime/runtime.hpp"
 #include <atomic>
 #include <mutex>
@@ -107,10 +108,10 @@ struct Fixture {
     std::shared_ptr<Echo> echo = std::make_shared<Echo>();
     std::unique_ptr<RuntimeInstance> runtime;
     CapabilitySnapshot registry;
-    explicit Fixture(bool native = false,
-                     std::function<void(PendingSubmissionId, bool)> hook = {}) {
+    explicit Fixture(bool native = false, std::function<void(PendingSubmissionId, bool)> hook = {},
+                     RuntimeInstanceId instance = {99, 1}) {
         RuntimeConfiguration config;
-        config.instance = {99, 1};
+        config.instance = instance;
         config.submission_preparation_hook = std::move(hook);
         config.host = host;
         config.clock = clock;
@@ -370,4 +371,78 @@ TEST_CASE("B02 pinned admission rechecks contracts changed after submission prep
     REQUIRE_FALSE(receipt);
     REQUIRE(receipt.error().code() == ErrorCode::plan_stale);
     REQUIRE(f.echo->calls == 0);
+}
+
+TEST_CASE("B13 isolated principal targets deny other subjects across every command surface") {
+    Fixture f;
+    auto created = PrincipalRuntimeTarget::create("owner", std::move(f.runtime));
+    REQUIRE(created);
+    auto &target = *created.value();
+    auto other = caller();
+    other.subject = "other";
+    auto denied = [](const auto &result) {
+        REQUIRE_FALSE(result);
+        REQUIRE(result.error().code() == ErrorCode::permission_denied);
+    };
+    denied(target.submit(other, workflow()));
+    auto admitted = target.submit(caller(), workflow());
+    REQUIRE(admitted);
+    const auto id = admitted.value().id;
+    denied(target.status(other, id));
+    denied(target.result(other, id));
+    denied(target.cancel(other, id));
+    denied(target.pause(other, id, 1));
+    denied(target.resume(other, id, 2));
+    denied(target.events(other, id, 0, 16));
+    denied(target.replay(other, id));
+    REQUIRE(target.status(caller(), id));
+    auto snapshot = target.trusted_runtime().compilation_snapshot();
+    REQUIRE(snapshot);
+    auto compiled = Compiler(snapshot.value().compiler)
+                        .compile_submission(workflow(), snapshot.value().capabilities);
+    REQUIRE(compiled);
+    PinnedSubmissionIdentity pin{snapshot.value().instance, compiled.value().request_digest,
+                                 compiled.value().plan->fingerprint};
+    denied(target.submit_pinned(other, workflow(), pin));
+    auto revoked = caller();
+    revoked.revoked = true;
+    REQUIRE_FALSE(target.submit(revoked, workflow()));
+    REQUIRE_FALSE(target.status(revoked, id));
+    auto expired = caller();
+    expired.expires_at_ms = 0;
+    REQUIRE_FALSE(target.submit(expired, workflow()));
+    REQUIRE_FALSE(target.result(expired, id));
+    REQUIRE(f.echo->calls == 0);
+}
+TEST_CASE(
+    "B13 target ownership requires separate Runtime instances and preserves scoped deduplication") {
+    Fixture a;
+    Fixture b(false, {}, {99, 2});
+    auto first = PrincipalRuntimeTarget::create("owner", std::move(a.runtime));
+    auto second = PrincipalRuntimeTarget::create("other", std::move(b.runtime));
+    REQUIRE(first);
+    REQUIRE(second);
+    auto other = caller();
+    other.subject = "other";
+    auto left = first.value()->submit(caller(), workflow());
+    auto right = second.value()->submit(other, workflow());
+    REQUIRE(left);
+    REQUIRE(right);
+    REQUIRE(left.value().id.instance() != right.value().id.instance());
+    REQUIRE_FALSE(left.value().duplicate);
+    REQUIRE_FALSE(right.value().duplicate);
+    REQUIRE_FALSE(first.value()->status(other, right.value().id));
+    REQUIRE_FALSE(second.value()->status(caller(), left.value().id));
+    REQUIRE(first.value()->status(caller(), left.value().id));
+    REQUIRE(second.value()->status(other, right.value().id));
+    auto duplicate = second.value()->submit(other, workflow());
+    REQUIRE(duplicate);
+    REQUIRE(duplicate.value().duplicate);
+    REQUIRE_FALSE(PrincipalRuntimeTarget::create("owner", nullptr));
+    Fixture invalid;
+    REQUIRE_FALSE(
+        PrincipalRuntimeTarget::create(std::string(129, 'x'), std::move(invalid.runtime)));
+    Fixture portable;
+    REQUIRE(PrincipalRuntimeTarget::create("authenticated identity with spaces",
+                                           std::move(portable.runtime)));
 }

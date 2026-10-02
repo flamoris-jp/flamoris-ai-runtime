@@ -43,11 +43,15 @@ invalid bindings/domains/cycles/hidden work and registered handle provenance.
 These are offline compile tests for portions of B01/B02/B03/B04/B06/B07, not complete
 bridge acceptance or deployed host/media evidence.
 
-Still required: Generation manifest/domain adapter, authenticated isolated targets,
+Still required: Generation manifest/domain adapter, authenticated gateway mapping,
 process-owned root delegations, atomic once-only internal provider handoff,
 current evidence guards, shared enforceable host grants and settlement/publication
 receipts. Cancellation/finalization/observation and two-user deployment acceptance
 remain under #19. No provider, GPU, database or deployed service changes occur here.
+
+[Isolated principal targets](PRINCIPAL_TARGET.md) now provide the source-level
+boundary for trusted embeddings. Deployment authentication and shared physical
+host enforcement remain separate gates.
 
 ## Pinned Runtime admission
 

@@ -102,3 +102,11 @@ lowering through the existing compiler. The typed boundary retains media and Run
 identities, complete effects/limits and occurrence mapping. Offline rejection tests
 cover compiler portions of B01/B02/B03/B04/B06/B07. This does not qualify an executable
 cross-service bridge, real provider/host or shared Studio delegation; #19 stays open.
+
+## Generation composition bridge: isolated target slice
+
+[Principal Runtime targets](PRINCIPAL_TARGET.md) bind one authenticated subject to
+one owned instance and reject cross-subject commands before kernel admission or
+observation. Offline B13 acceptance covers every command surface and independent
+deduplication for two subjects. Gateway authentication, shared host enforcement,
+root delegation and deployed two-user acceptance remain open under #19.
