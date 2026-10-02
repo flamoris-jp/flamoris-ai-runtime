@@ -36,13 +36,13 @@
     },
     "windows": {
       "version": "3.6.4",
-      "source": "actions/runner-images win22/20260920.314",
+      "source": "actions/runner-images win22/20260927.320",
       "qualification": "pending Windows CI; image version pinned"
     }
   },
   "ci_images": {
-    "ubuntu-24.04": "20260920.314.1",
-    "windows-2022": "20260920.314.1"
+    "ubuntu-24.04": "20260927.320.1",
+    "windows-2022": "20260927.320.1"
   },
   "compilers": {
     "gcc": "13.3.0",

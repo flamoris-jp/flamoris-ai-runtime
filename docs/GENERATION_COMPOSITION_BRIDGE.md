@@ -206,3 +206,19 @@ No native-kernel redesign, generic Generation scheduler, durable Run recovery or
 production Maidionis/Arbitrium qualification is included. Those components can later
 participate as bounded registered inference capabilities; they never execute the
 media workflow themselves.
+
+## CI image review prerequisite
+
+The first bridge-document CI attempt stopped before compilation because hosted
+Linux/Windows images now report `20260927.320.1`, while the repository required
+`20260920.314.1`. The published exact image inventories were checked:
+
+- [Ubuntu image inventory](https://github.com/actions/runner-images/blob/ubuntu24/20260927.320/images/ubuntu/Ubuntu2404-Readme.md)
+  retains OpenSSL `3.0.13-0ubuntu3.15` and Clang/format/tidy `18.1.3`.
+- [Windows image inventory](https://github.com/actions/runner-images/blob/win22/20260927.320/images/windows/Windows2022-Readme.md)
+  retains OpenSSL `3.6.4` and Visual Studio `17.14.37710.0`.
+
+The workflow and dependency image identities move together to that reviewed
+revision. Existing exact compiler/package/hash checks, sanitizer lanes and full
+build/tests remain enabled. Updated-image CI qualification is required before
+merge; this does not weaken dependency pins or certify a physical provider/host.
