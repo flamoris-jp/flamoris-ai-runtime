@@ -1506,14 +1506,37 @@ RuntimeInstance::~RuntimeInstance() {
         std::terminate();
 }
 RuntimeInstanceId RuntimeInstance::instance_id() const noexcept { return impl_->config.instance; }
+Result<RuntimeCompilationSnapshot> RuntimeInstance::compilation_snapshot() {
+    auto state = impl_;
+    return state->call<RuntimeCompilationSnapshot>([state]() {
+        return Result<RuntimeCompilationSnapshot>::success(
+            {state->config.instance, state->config.capabilities, state->config.compiler});
+    });
+}
 Result<SubmissionReceipt> RuntimeInstance::submit(const AuthorizationContext &context,
                                                   std::string_view json) {
+    return submit_impl(context, json, std::nullopt);
+}
+Result<SubmissionReceipt> RuntimeInstance::submit_pinned(const AuthorizationContext &context,
+                                                         std::string_view json,
+                                                         PinnedSubmissionIdentity expected) {
+    return submit_impl(context, json, std::move(expected));
+}
+Result<SubmissionReceipt>
+RuntimeInstance::submit_impl(const AuthorizationContext &context, std::string_view json,
+                             std::optional<PinnedSubmissionIdentity> expected) {
     auto state = impl_;
     if (json.size() > 1048576)
         return failure<SubmissionReceipt>(ErrorCode::invalid_request);
     auto identity = validate_submission_identity(json);
     if (!identity)
         return Result<SubmissionReceipt>::failure(identity.error());
+    if (expected &&
+        (expected->instance != instance_id() ||
+         expected->request_digest != identity.value().request_digest ||
+         expected->plan_fingerprint.size() != 64 ||
+         expected->plan_fingerprint.find_first_not_of("0123456789abcdef") != std::string::npos))
+        return failure<SubmissionReceipt>(ErrorCode::plan_stale);
     struct Preparation {
         SubmissionTicket ticket;
         std::shared_future<Result<SubmissionReceipt>> decision;
@@ -1607,7 +1630,7 @@ Result<SubmissionReceipt> RuntimeInstance::submit(const AuthorizationContext &co
     if (preparation.value().ticket.owner) {
         auto compiled = state->compiler.compile_submission(json, preparation.value().registry);
         auto admission = state->call<void>(
-            [state, context, ticket = preparation.value().ticket,
+            [state, context, expected, ticket = preparation.value().ticket,
              compiled = std::move(compiled)]() mutable -> Result<void> {
                 auto pending = state->pending.find(ticket.pending);
                 if (pending == state->pending.end())
@@ -1622,6 +1645,9 @@ Result<SubmissionReceipt> RuntimeInstance::submit(const AuthorizationContext &co
                 };
                 if (!compiled)
                     return reject(compiled.error());
+                if (expected && (compiled.value().request_digest != expected->request_digest ||
+                                 compiled.value().plan->fingerprint != expected->plan_fingerprint))
+                    return reject(ErrorEnvelope::make(ErrorCode::plan_stale));
                 if (context.revoked || context.expires_at_ms <= state->now_ms() ||
                     !state->config.policy.enabled)
                     return reject(ErrorEnvelope::make(ErrorCode::permission_denied));
@@ -1720,6 +1746,18 @@ Result<SubmissionReceipt> RuntimeInstance::submit(const AuthorizationContext &co
             return Result<void>::success();
         },
         true);
+    if (result && expected) {
+        auto checked = state->call<void>([state, context, expected = *expected,
+                                          run = result.value().id] {
+            auto found = state->runs.find(run);
+            if (found == state->runs.end() || found->second->context.subject != context.subject ||
+                found->second->plan->fingerprint != expected.plan_fingerprint)
+                return failure<void>(ErrorCode::plan_stale);
+            return Result<void>::success();
+        });
+        if (!checked)
+            return Result<SubmissionReceipt>::failure(checked.error());
+    }
     if (result && !preparation.value().ticket.owner)
         result.value().duplicate = true;
     return result;

@@ -48,3 +48,21 @@ process-owned root delegations, atomic once-only internal provider handoff,
 current evidence guards, shared enforceable host grants and settlement/publication
 receipts. Cancellation/finalization/observation and two-user deployment acceptance
 remain under #19. No provider, GPU, database or deployed service changes occur here.
+
+## Pinned Runtime admission
+
+Trusted embeddings obtain `RuntimeInstance::compilation_snapshot()` to use the
+actual resource-bound capability fingerprints and configured compiler profile.
+After lowering, `submit_pinned` checks the target process incarnation, concrete
+request digest and expected Runtime plan fingerprint. Recompilation uses the
+existing Runtime admission path, then compares the expected fingerprint before
+creating useful work. Current pin/authorization/input/resource checks remain in
+place; a contract changed after preparation rejects too. Duplicate submission
+receipts must identify the same existing compiled Run.
+
+The new methods are in-process seams only, absent from `CallerFacade` and portable
+control JSON. They grant neither a principal nor host capacity and do not implement
+Generation's root delegation journal. An offline acceptance test now lowers two
+media occurrences and executes them through the real Runtime actor and registered
+adapter using explicit fixture host receipts. This qualifies the embedding path,
+not a Generation network adapter, physical host or multi-user service.
