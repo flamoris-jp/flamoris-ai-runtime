@@ -73,6 +73,29 @@ Assume an admitted plan allows one required child, the native execution profile 
 
 Independent cleanup acknowledgements may arrive in different orders. Quiescence acknowledgement before suspension is a required gate and cannot be reordered. The Kernel cannot fabricate an acknowledgement to make the table advance. If in-process execution cannot be safely contained, A28 applies and terminal publication waits for real containment/supervisor action.
 
+## Generation bridge integration obligations
+
+These are additional design cases for #19 and
+[Generation Composition Bridge](GENERATION_COMPOSITION_BRIDGE.md). They do not
+claim current executable bridge or live-host evidence.
+
+| ID | Stimulus | Required observable outcome |
+| --- | --- | --- |
+| B01 | Compile an identical pinned media closure twice; vary a declared prompt/seed | Same structural media identity; changed concrete invocation identity; independent Runtime compiler digest |
+| B02 | Replace a child/profile/adapter/schema/effect/resource/evidence pin after build | Reject at admission or next handoff before useful work; never substitute latest/healthy provider |
+| B03 | Expired/unowned input or malformed/out-of-domain intermediate | Deny the dependent dispatch; no hidden read, conversion or default substitution |
+| B04 | Delegated Runtime stage requests public Generation root submission | Reject before a second reservation or provider handoff; retain original root ownership |
+| B05 | Duplicate internal operation delivery; same key with different input | One atomic claim/handoff for same digest; changed input conflicts; unknown previous acceptance never replays |
+| B06 | Two unordered writes overlap; aggregate paid/destructive effects are omitted | Compiler/policy rejects before dispatch; physical serialization does not establish effect order |
+| B07 | Media limits exceed Runtime defaults or exact uint64 is rounded | Reject/tighten before admission using reviewed schemas; count groups/attempts/event storage as well as leaves |
+| B08 | Independent principal instances each attempt to reserve the whole device | Shared enforceable host authority grants only fitting ownership; no double accounting or local-ledger exclusivity claim |
+| B09 | Provider cancellation is unconfirmed or retained allocations remain | Useful dispatch closed; root/input/resource debt remains owned; no false cancellation/release or replacement worker |
+| B10 | Required media output missing/oversized after an external effect | Incomplete/failed publication; no success binding or replay to obtain output; preserve effect provenance |
+| B11 | Success/cancel/deadline and late reconciliation compete | Existing serialized terminal-intent rules apply; cleanup observations cannot mutate terminal state/result |
+| B12 | Crash/lost admission response or replayed observation stream | Old delegation fenced and reconciled by incarnation; no Run recovery, new submission or execution from replay |
+| B13 | Principal A requests B's Run/handle/event or supplies caller-authored user_id | Trusted target mapping/current owner scopes deny each surface; no shared-kernel multi-tenancy inferred |
+| B14 | Mutually exclusive GPU stages have only historical qualification | Unavailable until separately reviewed host transition and current-epoch requalification pass; no hidden activation |
+
 ## Phase A review checklist
 
 - [ ] Independent review confirms no conflicting lifecycle/resource/authorization authority.
