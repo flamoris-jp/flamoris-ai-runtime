@@ -1,4 +1,5 @@
 #include "catch_amalgamated.hpp"
+#include "flamoris/runtime/media_lowering.hpp"
 #include "flamoris/runtime/native_registration.hpp"
 #include "flamoris/runtime/runtime.hpp"
 #include <atomic>
@@ -106,9 +107,11 @@ struct Fixture {
     std::shared_ptr<Echo> echo = std::make_shared<Echo>();
     std::unique_ptr<RuntimeInstance> runtime;
     CapabilitySnapshot registry;
-    explicit Fixture(bool native = false) {
+    explicit Fixture(bool native = false,
+                     std::function<void(PendingSubmissionId, bool)> hook = {}) {
         RuntimeConfiguration config;
         config.instance = {99, 1};
+        config.submission_preparation_hook = std::move(hook);
         config.host = host;
         config.clock = clock;
         auto cap = capability(native ? "model.native" : "algorithm.echo", native);
@@ -247,4 +250,124 @@ TEST_CASE("C12 missing host release preserves finalizing and charged lease") {
     REQUIRE(resource);
     REQUIRE(resource.value().executing[ResourceKind::execution] == 1);
     REQUIRE_FALSE(f.finish(admitted.value().id).pending);
+}
+
+TEST_CASE("B01 Runtime embeds media compiler pins through actual host-settled execution") {
+    Fixture f;
+    auto snapshot = f.runtime->compilation_snapshot();
+    REQUIRE(snapshot);
+    auto pin =
+        fingerprint_capability(snapshot.value().capabilities.capabilities.at("algorithm.echo"));
+    REQUIRE(pin);
+    REQUIRE_FALSE(snapshot.value()
+                      .capabilities.capabilities.at("algorithm.echo")
+                      .resource_contract_digest.empty());
+    MediaLoweringRequest request;
+    auto digest = [](char c) { return "sha256:" + std::string(64, c); };
+    request.identity = {digest('a'), digest('b'), digest('c'), digest('d'),
+                        digest('e'), "media/2",   "lowering/1"};
+    Binding first{{JsonValue("hello")}, {}};
+    Binding previous{{}, Reference{Reference::Source::node, "root/first", {}}};
+    Binding last{{}, Reference{Reference::Source::node, "root/second", {}}};
+    request.operations = {{"root/first", pin.value(), {{"text", first}}, {}, 1000},
+                          {"root/second", pin.value(), {{"text", previous}}, {}, 1000}};
+    request.outputs["result"] = last;
+    auto lowered =
+        lower_media_submission(request, snapshot.value().capabilities,
+                               {{"algorithm.echo", {pin.value()}}}, snapshot.value().compiler);
+    REQUIRE(lowered);
+    PinnedSubmissionIdentity expected{snapshot.value().instance,
+                                      lowered.value().submission.request_digest,
+                                      lowered.value().submission.plan->fingerprint};
+    auto admitted =
+        f.runtime->submit_pinned(caller(), lowered.value().canonical_submission, expected);
+    REQUIRE(admitted);
+    for (unsigned i = 0; i < 10; ++i)
+        REQUIRE(f.runtime->poll());
+    REQUIRE(f.echo->calls == 0);
+    f.envelope();
+    auto result = f.finish(admitted.value().id);
+    REQUIRE_FALSE(result.error);
+    REQUIRE(result.value == JsonValue{JsonValue::Object{{"result", "hello"}}});
+    REQUIRE(f.echo->calls == 2);
+}
+TEST_CASE("B02 pinned Runtime admission rejects recompilation target and concrete input changes") {
+    Fixture f;
+    auto snapshot = f.runtime->compilation_snapshot();
+    REQUIRE(snapshot);
+    auto compiled = Compiler(snapshot.value().compiler)
+                        .compile_submission(workflow(), snapshot.value().capabilities);
+    REQUIRE(compiled);
+    PinnedSubmissionIdentity expected{snapshot.value().instance, compiled.value().request_digest,
+                                      compiled.value().plan->fingerprint};
+    auto other = expected;
+    other.instance = {99, 2};
+    auto rejected = f.runtime->submit_pinned(caller(), workflow(), other);
+    REQUIRE_FALSE(rejected);
+    REQUIRE(rejected.error().code() == ErrorCode::plan_stale);
+    auto wire = workflow();
+    wire.replace(wire.find("hello"), 5, "changed");
+    REQUIRE_FALSE(f.runtime->submit_pinned(caller(), wire, expected));
+    auto changed = snapshot.value().capabilities;
+    changed.capabilities.at("algorithm.echo").adapter_revision = "registered/2";
+    REQUIRE(f.runtime->replace_capabilities(changed));
+    rejected = f.runtime->submit_pinned(caller(), workflow(), expected);
+    REQUIRE_FALSE(rejected);
+    REQUIRE(rejected.error().code() == ErrorCode::plan_stale);
+    REQUIRE(f.echo->calls == 0);
+    auto fresh = f.runtime->compilation_snapshot();
+    REQUIRE(fresh);
+    auto recompiled =
+        Compiler(fresh.value().compiler).compile_submission(workflow(), fresh.value().capabilities);
+    REQUIRE(recompiled);
+    expected.plan_fingerprint = recompiled.value().plan->fingerprint;
+    REQUIRE(f.runtime->submit_pinned(caller(), workflow(), expected));
+    REQUIRE(f.echo->calls == 0);
+}
+TEST_CASE(
+    "pinned duplicate receipt checks the existing Run rather than substituting its identity") {
+    Fixture f;
+    auto snapshot = f.runtime->compilation_snapshot();
+    REQUIRE(snapshot);
+    auto compiled = Compiler(snapshot.value().compiler)
+                        .compile_submission(workflow(), snapshot.value().capabilities);
+    REQUIRE(compiled);
+    PinnedSubmissionIdentity expected{snapshot.value().instance, compiled.value().request_digest,
+                                      compiled.value().plan->fingerprint};
+    auto first = f.runtime->submit_pinned(caller(), workflow(), expected);
+    REQUIRE(first);
+    auto duplicate = f.runtime->submit_pinned(caller(), workflow(), expected);
+    REQUIRE(duplicate);
+    REQUIRE(duplicate.value().duplicate);
+    REQUIRE(duplicate.value().id == first.value().id);
+    expected.plan_fingerprint = std::string(64, '0');
+    REQUIRE_FALSE(f.runtime->submit_pinned(caller(), workflow(), expected));
+    REQUIRE(f.echo->calls == 0);
+}
+
+TEST_CASE("B02 pinned admission rechecks contracts changed after submission preparation") {
+    RuntimeInstance *runtime = nullptr;
+    CapabilitySnapshot replacement;
+    bool changed = false;
+    Fixture f(false, [&](PendingSubmissionId, bool owner) {
+        if (owner && !changed) {
+            changed = true;
+            REQUIRE(runtime->replace_capabilities(replacement));
+        }
+    });
+    runtime = f.runtime.get();
+    auto snapshot = runtime->compilation_snapshot();
+    REQUIRE(snapshot);
+    replacement = snapshot.value().capabilities;
+    replacement.capabilities.at("algorithm.echo").adapter_revision = "raced/2";
+    auto compiled = Compiler(snapshot.value().compiler)
+                        .compile_submission(workflow(), snapshot.value().capabilities);
+    REQUIRE(compiled);
+    PinnedSubmissionIdentity expected{snapshot.value().instance, compiled.value().request_digest,
+                                      compiled.value().plan->fingerprint};
+    auto receipt = runtime->submit_pinned(caller(), workflow(), expected);
+    REQUIRE(changed);
+    REQUIRE_FALSE(receipt);
+    REQUIRE(receipt.error().code() == ErrorCode::plan_stale);
+    REQUIRE(f.echo->calls == 0);
 }

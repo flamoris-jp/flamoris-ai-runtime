@@ -42,6 +42,16 @@ struct RuntimeConfiguration {
     std::size_t max_runs{32}, normal_commands{128}, mandatory_commands{128}, max_workers{16},
         max_native_workers{128};
 };
+// Trusted in-process compiler embedding only; no authentication or host grant.
+struct RuntimeCompilationSnapshot {
+    RuntimeInstanceId instance;
+    CapabilitySnapshot capabilities;
+    CompilerProfile compiler;
+};
+struct PinnedSubmissionIdentity {
+    RuntimeInstanceId instance;
+    std::string request_digest, plan_fingerprint;
+};
 // One actor owns lifecycle, scheduling, policy, submission and resource decisions.
 // Provider/native work occurs outside that actor; transport methods exchange owned values.
 class RuntimeInstance final : public RuntimeCommandPort {
@@ -52,6 +62,11 @@ class RuntimeInstance final : public RuntimeCommandPort {
     RuntimeInstance &operator=(const RuntimeInstance &) = delete;
     RuntimeInstanceId instance_id() const noexcept;
     Result<SubmissionReceipt> submit(const AuthorizationContext &, std::string_view) override;
+    // Bind separately compiled input to this exact incarnation/plan at admission.
+    // These seams are absent from CallerFacade and portable control JSON.
+    Result<RuntimeCompilationSnapshot> compilation_snapshot();
+    Result<SubmissionReceipt> submit_pinned(const AuthorizationContext &, std::string_view,
+                                            PinnedSubmissionIdentity);
     Result<RunSnapshot> status(const AuthorizationContext &, RunId) override;
     Result<RunResult> result(const AuthorizationContext &, RunId) override;
     Result<CommandReceipt> cancel(const AuthorizationContext &, RunId) override;
@@ -84,6 +99,8 @@ class RuntimeInstance final : public RuntimeCommandPort {
   private:
     struct Impl;
     explicit RuntimeInstance(std::shared_ptr<Impl>, RuntimeRetentionSlot);
+    Result<SubmissionReceipt> submit_impl(const AuthorizationContext &, std::string_view,
+                                          std::optional<PinnedSubmissionIdentity>);
     std::shared_ptr<Impl> impl_;
     RuntimeRetentionSlot retention_slot_;
 };

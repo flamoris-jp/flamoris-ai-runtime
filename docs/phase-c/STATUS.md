@@ -93,3 +93,12 @@ PR, physical LIME GPU qualification and deployed host
 enforcement. The latter two are separate integration gates and are not inferred
 from the PoCL or deterministic-host-port tests. Windows is not claimed as passing
 here.
+
+
+## Generation composition bridge: compiler slice
+
+[Media-to-Runtime lowering](MEDIA_LOWERING.md) implements pure exact-pin operation
+lowering through the existing compiler. The typed boundary retains media and Runtime
+identities, complete effects/limits and occurrence mapping. Offline rejection tests
+cover compiler portions of B01/B02/B03/B04/B06/B07. This does not qualify an executable
+cross-service bridge, real provider/host or shared Studio delegation; #19 stays open.
