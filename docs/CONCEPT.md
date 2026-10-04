@@ -1,3 +1,5 @@
+> **Terminology update:** this document predates the 2026-10-04 naming decision. Read every Runtime `Workflow` concept here as **ExecutionPlan**. Current source identifiers are legacy implementation names and are not renamed by this documentation-only change.
+
 # Runtime Concept
 
 ## Status
@@ -8,11 +10,11 @@ The review gates and normative document map are in [Design Phases](DESIGN_PHASES
 
 FLAMORIS AI Runtime is intended to be a **single-user FLAMORIS native model runtime**.
 
-It owns model execution directly. Third-party runtimes, if ever called, are external Workflow capabilities, not inference backends.
+It owns model execution directly. Third-party runtimes, if ever called, are external ExecutionPlan capabilities, not inference backends.
 
 The central idea is:
 
-> **Inference and workflow execution share one controllable runtime loop.**
+> **Inference and ExecutionPlan execution share one controllable runtime loop.**
 
 The Runtime should own enough of the inference lifecycle to observe it, interrupt it, pause it, resume it, dispatch other work, receive those results, and continue inference without unnecessarily rebuilding model state.
 
@@ -25,7 +27,7 @@ The Runtime should own enough of the inference lifecycle to observe it, interrup
         FLAMORIS AI Runtime
         ┌───────────────────────┐
         │ Inference Controller  │
-        │ Workflow Engine       │
+        │ ExecutionPlan Engine       │
         │ Job Scheduler         │
         │ Event / Trace Stream  │
         │ Capability Registry   │
@@ -44,7 +46,7 @@ The Runtime should own enough of the inference lifecycle to observe it, interrup
 A persistent Agent may still live outside the Runtime:
 
 - the Agent owns identity, conversation, durable memory, goals, and personality;
-- the Runtime owns model execution state, inference control, workflow execution, jobs, cancellation, results, and execution events.
+- the Runtime owns model execution state, inference control, ExecutionPlan execution, jobs, cancellation, results, and execution events.
 
 This means the Runtime can be used by `flamoris-ai-agent`, ChatGPT, Studio AI, or another authorized caller without becoming their persistent personality store.
 
@@ -55,7 +57,7 @@ steps and resource lifetime. CPU reference and OpenCL are its internal compute
 implementations. The initial execution profile may be causal text; Vision,
 audio, embedding and other native profiles must not inherit text-only state.
 
-External AI/MCP calls run as registered Workflow capabilities under current
+External AI/MCP calls run as registered ExecutionPlan capabilities under current
 authorization and finite Run limits. Baseline deployment is single-user.
 
 ## Inference as a controllable loop
@@ -144,7 +146,7 @@ owning Job becomes ready to resume
 Inference Machine resumes
 ```
 
-The same mechanism can connect Workflow Machine and Inference Machine without making them the same implementation.
+The same mechanism can connect ExecutionPlan Machine and Inference Machine without making them the same implementation.
 
 A continuation may retain a native model/state reference where safe, but should not normally pin a physical **execution lease** while waiting. If that state remains resident in VRAM/RAM, its **retained state footprint** is still allocated and must remain visible to Resource Manager accounting. Resource affinity may be retained so the scheduler can prefer a warm model/device on resume.
 
@@ -170,7 +172,7 @@ An `InferenceJob` is special because it may retain model execution state such as
 - KV or equivalent cache state;
 - sampling state;
 - inference context;
-- current workflow/run linkage;
+- current ExecutionPlan/run linkage;
 - interrupt state;
 - child job relationships.
 
@@ -178,7 +180,7 @@ Other jobs may be stateless, remote, CPU-bound, GPU-bound, I/O-bound, or side-ef
 
 ## Parallel, join, and race
 
-Workflow dependencies should allow independent ready jobs to run concurrently.
+ExecutionPlan dependencies should allow independent ready jobs to run concurrently.
 
 The Runtime should distinguish **logical parallelism** from **physical simultaneous execution**.
 
@@ -200,7 +202,7 @@ Useful control primitives include:
 - **cancel** — request cancellation;
 - **pause / resume** — where the job type supports it.
 
-`race` is intentionally a runtime concept, not merely a UI feature. A future workflow may race a local model, a remote specialist, and a cached/retrieval path, then continue with the first result satisfying the configured success condition.
+`race` is intentionally a runtime concept, not merely a UI feature. A future ExecutionPlan may race a local model, a remote specialist, and a cached/retrieval path, then continue with the first result satisfying the configured success condition.
 
 Race loser behavior is explicit. The baseline uses cancel_unfinished and excludes write/destructive participants; continuing losers for cache/provenance and speculative replacement are later extensions. No policy silently replays or rolls back side effects. See [Execution Model](EXECUTION_MODEL.md).
 
@@ -256,7 +258,7 @@ The Runtime should not require deep internal tensor logging for normal operation
 
 ## Interrupts are a core feature
 
-A caller or operator may want to intervene while inference or workflow execution is still running.
+A caller or operator may want to intervene while inference or ExecutionPlan execution is still running.
 
 The design should therefore support explicit interrupt requests.
 
@@ -267,19 +269,19 @@ Possible actions include:
 - resume;
 - cancel child jobs;
 - inject new bounded input;
-- redirect workflow control;
+- redirect ExecutionPlan control;
 - later, rewind model state where a native execution profile safely supports it.
 
 An interrupt request and the point where it actually takes effect are separate events. This distinction matters for debugging and UI feedback.
 
-## Workflow IR is compiled before execution
+## legacy `Workflow IR` / target `ExecutionPlan` definition is compiled before execution
 
-Workflow IR is declarative input.
+legacy `Workflow IR` / target `ExecutionPlan` definition is declarative input.
 
-The Runtime should not hand raw Workflow JSON directly to the scheduler.
+The Runtime should not hand raw ExecutionPlan JSON directly to the scheduler.
 
 ```text
-Workflow IR
+legacy `Workflow IR` / target `ExecutionPlan` definition
    ↓
 Validator
    ↓
@@ -287,7 +289,7 @@ Execution Plan Compiler
    ↓
 Execution Plan
    ↓
-Workflow Machine
+ExecutionPlan Machine
    ↓
 Jobs / Continuations
    ↓
@@ -300,24 +302,24 @@ Concrete Continuation instances remain live Runtime state and are created only w
 
 Compilation describes authorization and policy requirements but grants no permission. The Runtime revalidates current capability pins/availability, caller authorization, concrete input scope, budget and policy at admission and every dispatch, retry and resume. Effect-specific checks apply before adapter handoff.
 
-This is particularly important when an AI generates Workflow IR: the AI may propose composition, while only the Runtime may turn validated composition into executable work, and only current Runtime policy may authorize execution.
+This is particularly important when an AI generates legacy `Workflow IR` / target `ExecutionPlan` definition: the AI may propose composition, while only the Runtime may turn validated composition into executable work, and only current Runtime policy may authorize execution.
 
-## Workflow is inside the execution runtime
+## ExecutionPlan is inside the execution runtime
 
-Workflow is not intended to sit above the Runtime as a completely separate orchestration service.
+ExecutionPlan is not intended to sit above the Runtime as a completely separate orchestration service.
 
 Instead:
 
 ```text
 Runtime Kernel
    ├─ inference control
-   ├─ workflow execution
+   ├─ ExecutionPlan execution
    ├─ job scheduling
    ├─ event stream
    └─ resource management
 ```
 
-Workflow describes dependencies and control.
+ExecutionPlan describes dependencies and control.
 
 Jobs are the scheduler-visible work units.
 
@@ -331,7 +333,7 @@ The broad composition goal remains:
 
 > **Open-ended composition. Bounded execution.**
 
-A workflow may combine registered capabilities across domains, but execution remains constrained by:
+A ExecutionPlan may combine registered capabilities across domains, but execution remains constrained by:
 
 - capability registration;
 - caller authorization;
@@ -359,7 +361,7 @@ FLAMORIS AI Agent
 FLAMORIS AI Runtime
   ├─ model inference
   ├─ inference state
-  ├─ workflow
+  ├─ ExecutionPlan
   ├─ jobs
   ├─ capabilities
   └─ execution events
@@ -381,7 +383,7 @@ Agent / ChatGPT / Studio
           ▼
     C++ Runtime Kernel
        ├─ Inference Machine
-       ├─ Workflow Machine
+       ├─ ExecutionPlan Machine
        ├─ Continuations
        ├─ Jobs / Scheduler
        ├─ Event Journal
@@ -425,7 +427,7 @@ The purpose is not compatibility with all of them. It is to identify the smalles
 
 Reusing it should be evaluated at the code/contract level rather than copied wholesale.
 
-Model-specific code becomes a native model layer, while the new Runtime adds the inference controller, jobs, workflow execution, event stream, interrupts, and resource scheduling around it.
+Model-specific code becomes a native model layer, while the new Runtime adds the inference controller, jobs, ExecutionPlan execution, event stream, interrupts, and resource scheduling around it.
 
 This is a design direction, not yet an implementation claim.
 
