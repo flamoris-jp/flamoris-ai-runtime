@@ -1,17 +1,17 @@
 # FLAMORIS AI Runtime
 
-> **Terminology decision (2026-10-04):** the Runtime concept formerly described as a Workflow is now **ExecutionPlan**. Current code/API identifiers such as `WorkflowIR`, `workflow.node.*`, or filenames containing `WORKFLOW` are legacy implementation identifiers until a separately reviewed code migration. Do not introduce new bare `Workflow` terminology.
+> **Terminology decision (2026-10-04):** the Runtime concept formerly described as a Workflow is now **ExecuteFlow**. Current code/API identifiers such as `WorkflowIR`, `workflow.node.*`, or filenames containing `WORKFLOW` are legacy implementation identifiers until a separately reviewed code migration. Do not introduce new bare `Workflow` terminology.
 
 
-**Inference and ExecutionPlan, controlled in one runtime.**
+**Inference and ExecuteFlow, controlled in one runtime.**
 
 FLAMORIS AI Runtime is a **single-user native model runtime** implemented in C++20.
 
-It owns model execution, cache/state and inference control alongside jobs, ExecutionPlans, interrupts and real-time observability. Native CPU reference and OpenCL compute are internal implementations. Third-party runtimes, when used, are registered ExecutionPlan capabilities. Strict cross-crash monetary limits are an optional future integration.
+It owns model execution, cache/state and inference control alongside jobs, ExecuteFlows, interrupts and real-time observability. Native CPU reference and OpenCL compute are internal implementations. Third-party runtimes, when used, are registered ExecuteFlow capabilities. Strict cross-crash monetary limits are an optional future integration.
 
 The core idea is:
 
-> **Inference and ExecutionPlan execution share one controllable runtime loop.**
+> **Inference and ExecuteFlow execution share one controllable runtime loop.**
 
 > **Status: Phase C implementation and integration review.** See the
 > [implementation evidence](docs/phase-c/STATUS.md), [build instructions](docs/BUILD.md),
@@ -71,14 +71,14 @@ checksum contract.
 
 ## What it is
 
-FLAMORIS AI Runtime is not only an ExecutionPlan layer above an already-finished LLM endpoint.
+FLAMORIS AI Runtime is not only an ExecuteFlow layer above an already-finished LLM endpoint.
 
 It is intended to own enough of model execution to coordinate:
 
 - tokenize / prefill / decode / sampling lifecycle;
 - active inference state and cache/state where supported;
 - pause, resume, interrupt, and cancellation;
-- legacy `Workflow IR` / target `ExecutionPlan` definition validation and execution;
+- legacy `Workflow IR` / target `ExecuteFlow` definition validation and execution;
 - schedulable Jobs;
 - logical parallelism with resource-aware scheduling;
 - `await`, `join`, and `race`;
@@ -95,7 +95,7 @@ Conceptually:
         FLAMORIS AI Runtime
         ┌───────────────────────┐
         │ Inference Controller  │
-        │ ExecutionPlan Engine      │
+        │ ExecuteFlow Engine      │
         │ Job Scheduler         │
         │ Event / Trace Bus     │
         │ Resource Manager      │
@@ -140,16 +140,16 @@ emit event
   ↓
 interrupt?
   ↓
-ExecutionPlan/job work?
+ExecuteFlow/job work?
   ↓
 continue inference
 ```
 
 This allows the Runtime to observe inference in real time, pause it, dispatch other work, wait for results, inject bounded results, and continue where the native execution profile supports state preservation.
 
-## ExecutionPlan inside the Runtime
+## ExecuteFlow inside the Runtime
 
-ExecutionPlan is part of the Runtime execution machinery.
+ExecuteFlow is part of the Runtime execution machinery.
 
 It is not intended to be a completely separate orchestrator that repeatedly calls the model from outside.
 
@@ -190,7 +190,7 @@ Conceptual job types include:
 - `McpJob`;
 - future Vem-backed jobs.
 
-An `InferenceJob` may retain model execution state such as token position, cache/state, sampling state, ExecutionPlan linkage, and interrupt state.
+An `InferenceJob` may retain model execution state such as token position, cache/state, sampling state, ExecuteFlow linkage, and interrupt state.
 
 Not every Job/native execution profile must support pause, resume, rewind, or cancellation. These are capabilities, not assumptions.
 
@@ -224,7 +224,7 @@ A continuation may include:
 
 A paused Job should not normally hold an **execution lease** indefinitely. However, releasing an execution lease does not imply that retained KV/cache/native state has left VRAM or RAM. The Resource Manager must continue accounting for any **retained state footprint** until that state is offloaded, snapshotted elsewhere, or evicted.
 
-Inference is not the only possible source of resumable state. The current implementation's `WorkflowMachine` is a legacy code identifier for ExecutionPlan control and may suspend its scheduler-visible Job through the same Continuation contract.
+Inference is not the only possible source of resumable state. The current implementation's `WorkflowMachine` is a legacy code identifier for ExecuteFlow control and may suspend its scheduler-visible Job through the same Continuation contract.
 
 ## Parallel, join, and race
 
@@ -262,7 +262,7 @@ Cancelling a loser is not rollback.
 
 ## Real-time observability
 
-Inference and ExecutionPlan execution should be observable through structured events.
+Inference and ExecuteFlow execution should be observable through structured events.
 
 Conceptual events include:
 
@@ -324,7 +324,7 @@ Possible actions include:
 - resume;
 - cancel selected jobs;
 - inject bounded input;
-- redirect an unexecuted ExecutionPlan path;
+- redirect an unexecuted ExecuteFlow path;
 - later, rewind inference state where a native execution profile explicitly supports it.
 
 The Runtime should record both the interrupt request and the point where it actually takes effect.
@@ -345,7 +345,7 @@ FLAMORIS AI Agent
 FLAMORIS AI Runtime
   ├─ model inference
   ├─ active inference state
-  ├─ ExecutionPlan
+  ├─ ExecuteFlow
   ├─ jobs
   ├─ capabilities
   └─ execution events
@@ -364,11 +364,11 @@ Examples:
 - Studio/products retain their own document and UI state;
 - external MCP/API/AI services remain external authorities.
 
-`flamoris-intelligence-mcp` may expose or route bounded intelligence capabilities, but AI Runtime owns registered native model execution; external runtimes/providers participate only as registered capabilities used by ExecutionPlans. Final integration should preserve the Runtime's required inference control points.
+`flamoris-intelligence-mcp` may expose or route bounded intelligence capabilities, but AI Runtime owns registered native model execution; external runtimes/providers participate only as registered capabilities used by ExecuteFlows. Final integration should preserve the Runtime's required inference control points.
 
-## ExecutionPlan representation
+## ExecuteFlow representation
 
-The architecture term is **ExecutionPlan**.
+The architecture term is **ExecuteFlow**.
 
 The current Phase C implementation still has two concrete legacy names:
 
@@ -386,9 +386,9 @@ Jobs / Continuations
 Scheduler
 ```
 
-Those are current code/schema identifiers, not the desired long-term vocabulary. Do not mechanically rename `WorkflowIR` to `ExecutionPlan`, because `Execution Plan` already names the compiled representation. The implementation cleanup must first decide a non-colliding mapping and version any externally visible identifiers that change.
+Those are current code/schema identifiers, not the desired long-term vocabulary. Do not mechanically rename `WorkflowIR` to `ExecuteFlow`, because `Execution Plan` already names the compiled representation. The implementation cleanup must first decide a non-colliding mapping and version any externally visible identifiers that change.
 
-Conceptually, ExecutionPlan describes what depends on what and the bounded execution/control structure. Jobs are the scheduler-visible units that actually run or wait. An `InferenceJob` may retain model execution state.
+Conceptually, ExecuteFlow describes what depends on what and the bounded execution/control structure. Jobs are the scheduler-visible units that actually run or wait. An `InferenceJob` may retain model execution state.
 
 Compilation is not an authorization grant. The Runtime revalidates current capability pins/availability, caller authorization, concrete input scope, budgets and policy at admission and every dispatch, retry and resume. Effect-specific checks apply immediately before adapter handoff. A cached/reused compiled plan never carries stale permission as executable authority.
 
@@ -431,7 +431,7 @@ MCP / API / CLI / language bindings
         C++ Runtime Kernel
    ┌──────────┼───────────┐
    ▼          ▼           ▼
-Inference   ExecutionPlan    Scheduler
+Inference   ExecuteFlow    Scheduler
  Machine     control
       \       /
       Continuation
@@ -465,7 +465,7 @@ Phase B uses the inspected foundation as a concept and test-methodology referenc
 
 - Inference Controller;
 - Job Scheduler;
-- ExecutionPlan control;
+- ExecuteFlow control;
 - Event Bus;
 - Interrupt Control;
 - Capability System;
@@ -518,7 +518,7 @@ documentation only. Current executable evidence is tracked in
 Implemented and qualified scope includes:
 
 - C++20 Runtime kernel and transport-independent control surfaces;
-- ExecutionPlan compilation, Job lifecycle, scheduling and bounded resource accounting;
+- ExecuteFlow compilation, Job lifecycle, scheduling and bounded resource accounting;
 - authorization/effect checks across dispatch, retry and resume boundaries;
 - structured event/observation paths;
 - native CPU inference with deterministic tiny causal fixture;
@@ -538,7 +538,7 @@ See:
 - [Native qualification](fixtures/native/QUALIFICATION.md)
 - [Runtime Concept](docs/CONCEPT.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [legacy `Workflow IR` / target `ExecutionPlan` definition](docs/WORKFLOW_IR.md)
+- [legacy `Workflow IR` / target `ExecuteFlow` definition](docs/WORKFLOW_IR.md)
 - [MCP Contract](docs/MCP_CONTRACT.md)
 - [Design Phases and document map](docs/DESIGN_PHASES.md)
 
@@ -560,16 +560,16 @@ If FLAMORIS helps you or you find it interesting, your support helps fund develo
 
 ## 日本語
 
-FLAMORIS AI Runtimeは、**モデルを包み、推論とExecutionPlanを同じ実行ループで制御するAI Runtime**を目指します。
+FLAMORIS AI Runtimeは、**モデルを包み、推論とExecuteFlowを同じ実行ループで制御するAI Runtime**を目指します。
 
-単なる「LLMの外側に置くExecutionPlan Orchestrator」ではありません。
+単なる「LLMの外側に置くExecuteFlow Orchestrator」ではありません。
 
 ```text
 モデル
   ↓
 FLAMORIS AI Runtime
   ├─ 推論
-  ├─ ExecutionPlan
+  ├─ ExecuteFlow
   ├─ Job Scheduler
   ├─ 割り込み
   ├─ Event / Trace
@@ -578,11 +578,11 @@ FLAMORIS AI Runtime
 
 という位置です。
 
-開発は **Phase A：アーキテクチャ設計 → Phase B：C++実装設計 → Phase C：実装** の3段階で進めています。現在は **Phase Cのnative Runtime baselineが実装済みで、integration review中** です。C++20のRuntime kernel、ExecutionPlan/Job実行、structured event、native CPU推論、限定されたOpenCL parity、pause/resume・bounded injectionなどの実行経路と決定的テストがあります。現在の実装根拠は[Phase C implementation evidence](docs/phase-c/STATUS.md)を参照してください。
+開発は **Phase A：アーキテクチャ設計 → Phase B：C++実装設計 → Phase C：実装** の3段階で進めています。現在は **Phase Cのnative Runtime baselineが実装済みで、integration review中** です。C++20のRuntime kernel、ExecuteFlow/Job実行、structured event、native CPU推論、限定されたOpenCL parity、pause/resume・bounded injectionなどの実行経路と決定的テストがあります。現在の実装根拠は[Phase C implementation evidence](docs/phase-c/STATUS.md)を参照してください。
 
 推論中に別の処理が必要になれば、Inferenceをyield/pauseし、Vision、algorithm、MCP、外部AIなどをJobとして実行し、その結果を受け取って推論を続けられる構造を目指します。
 
-Jobは並行に実行可能で、ExecutionPlanでは `await`、`join`、`race` などを扱えるようにします。
+Jobは並行に実行可能で、ExecuteFlowでは `await`、`join`、`race` などを扱えるようにします。
 
 ただし「並行に実行可能」と「GPU上で同時実行する」は同じ意味ではありません。VRAM、model residency、GPU/CPU、外部rate limitなどをSchedulerが見て、実際の実行順序を決めます。
 
@@ -604,7 +604,7 @@ pause / stop / child job / input injection
 
 という形を想定します。
 
-Phase Bでは `llama.cpp`、Hugging Face Transformers、vLLM、TensorRT-LLMの一次資料を比較し、prefill/decode、KV cache、streaming、cancel、scheduler、pause/resume、state rewind、observabilityの制御点と制約を記録しました。その設計をもとにPhase CでFLAMORIS native CPU referenceとOpenCL compute、Runtime制御経路を実装しています。外部Runtimeは必要ならExecutionPlan capabilityとして利用します。
+Phase Bでは `llama.cpp`、Hugging Face Transformers、vLLM、TensorRT-LLMの一次資料を比較し、prefill/decode、KV cache、streaming、cancel、scheduler、pause/resume、state rewind、observabilityの制御点と制約を記録しました。その設計をもとにPhase CでFLAMORIS native CPU referenceとOpenCL compute、Runtime制御経路を実装しています。外部Runtimeは必要ならExecuteFlow capabilityとして利用します。
 
 既存の `flamoris-net/flamoris-LLM` も現行コードを調査しました。概念・テスト方針を参考にし、privateコードは移植していません。コードの再利用には公開権限とライセンスの確認が別途必要です。
 
@@ -626,7 +626,7 @@ native fixtureを有効にしてビルドすると、自己生成のtiny model�
 これは本番model serverやhost authorityではなく、Runtime内部のnative inferenceを
 外から確認するための明示的な開発用経路です。
 
-**推論とExecutionPlanを分離して外から往復させるのではなく、ひとつのRuntimeで握る。**
+**推論とExecuteFlowを分離して外から往復させるのではなく、ひとつのRuntimeで握る。**
 
 ここがFLAMORIS AI Runtimeの中心構想です。🐈⚙️
 
@@ -639,4 +639,4 @@ AI models, model weights, datasets, media, and other non-code assets may use sep
 
 ## Naming migration boundary
 
-`ExecutionPlan` is the architecture term going forward. The current compiled `Execution Plan` concept and current `WorkflowIR`/`WorkflowMachine` code symbols need a deliberate code-level reconciliation because they are not one-for-one names. This documentation PR does not rename ABI/API/event identifiers. Work must inspect the implementation and choose a non-colliding mapping before changing symbols.
+`ExecuteFlow` is the architecture term going forward. The current compiled `Execution Plan` concept and current `WorkflowIR`/`WorkflowMachine` code symbols need a deliberate code-level reconciliation because they are not one-for-one names. This documentation PR does not rename ABI/API/event identifiers. Work must inspect the implementation and choose a non-colliding mapping before changing symbols.
