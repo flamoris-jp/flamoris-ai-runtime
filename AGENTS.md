@@ -31,7 +31,7 @@ Runtime ownership (implementation and qualification boundaries are recorded sepa
 Do not absorb durable authority from neighboring systems:
 
 - Agent identity, conversations, long-term memory, personality, and Agent policy belong to `flamoris-ai-agent`;
-- generative-media domain ExecutionPlan/job/asset authority belongs to `flamoris-generation-mcp`;
+- generative-media definition / ComfyWorkFlow / job / asset authority belongs to the generation domain; external MCP exposure belongs to `flamoris-generation-mcp`;
 - host-wide GPU/runtime lifecycle transitions belong to `flamoris-gpu-node-manager`;
 - Studio and desktop products retain authority for their own state and documents.
 
@@ -50,27 +50,26 @@ Do not reduce the model to an opaque remote `generate()` call when the feature b
 - bounded result injection;
 - native state inspection.
 
-An external provider may exist only as a registered ExecutionPlan capability, but it must advertise its limitations honestly.
+An external provider may exist only as a registered capability used by an ExecutionPlan, but it must advertise its limitations honestly.
 
 ## Runtime concepts
 
-Keep these concepts distinct:
+Use these architecture concepts:
 
 - **Inference session/state** - active model execution state.
-- **ExecutionPlan** - the runtime's dependency/data/control execution description.
+- **ExecutionPlan** - the Runtime execution-plan concept: dependency/data/control description plus its validated/compiled execution form.
 - **Job** - scheduler-visible unit of active work.
 - **InferenceJob** - a stateful job that may preserve model execution state.
 - **Continuation** - resumable execution state owned by exactly one waiting/paused Job; it has no independent scheduler identity.
-- **Execution Plan** - validated, compiled Runtime contract derived from legacy `Workflow IR` / target `ExecutionPlan` definition before scheduling; it records static execution structure and potential suspension policy, not live Continuation instances or authorization grants.
 - **Capability** - registered callable functionality.
-- **Effect set** - machine-readable effects such as `pure`, `read`, `write`, `external`, `destructive`, and `paid`; effects are composable, not a single enum.
-
-Effect metadata must obey these initial invariants: `pure` is exclusive with every observable/ambient effect, `read` means ambient or mutable-state read beyond declared immutable inputs, `destructive` requires `write`, and `external`/`paid` are orthogonal attributes. Reject unknown, empty, or contradictory effect sets rather than assuming purity.
+- **Effect set** - machine-readable effects such as `pure`, `read`, `write`, `external`, `destructive`, and `paid`.
 - **Event** - structured observable state transition or progress record.
 
-Do not collapse ExecutionPlan and Job into one abstraction.
+Current code still distinguishes `WorkflowIR` from compiled `Execution Plan`. These are legacy implementation identifiers. Do not mechanically rename `WorkflowIR` to `ExecutionPlan`: the target naming migration must resolve that collision deliberately and preserve/version serialized contracts and event names as required.
 
-The Scheduler schedules **Jobs only**. Continuations are owned resume state for suspended Jobs. Yield/resume must preserve the owning Job identity so cancellation, timeout, provenance, metrics, and terminal status have one authority.
+Effect metadata must obey these initial invariants: `pure` is exclusive with every observable/ambient effect, `read` means ambient or mutable-state read beyond declared immutable inputs, `destructive` requires `write`, and `external`/`paid` are orthogonal attributes. Reject unknown, empty, or contradictory effect sets rather than assuming purity.
+
+Do not collapse ExecutionPlan and Job into one abstraction. The Scheduler schedules **Jobs only**. Continuations are owned resume state for suspended Jobs.
 
 ## Jobs and scheduling
 
