@@ -1,8 +1,11 @@
 # AGENTS.md
 
+> **Terminology:** use `ExecutionPlan` for the Runtime execution-plan concept. Do not introduce new bare `Workflow` prose/types. Existing code symbols such as `WorkflowIR` and `workflow.node.*` are legacy identifiers until a reviewed implementation rename.
+
+
 This repository is part of the FLAMORIS ecosystem.
 
-FLAMORIS AI Runtime is a **single-user FLAMORIS native model runtime under Phase C implementation and integration review**. External runtimes and providers participate only as registered Workflow capabilities; CPU and OpenCL are internal FLAMORIS compute implementations. It controls model inference, workflow execution, jobs, interrupts, and observability through one runtime authority. See [Phase C evidence](docs/phase-c/STATUS.md) for implemented and qualified scope; historical design documents are not execution evidence.
+FLAMORIS AI Runtime is a **single-user FLAMORIS native model runtime under Phase C implementation and integration review**. External runtimes and providers participate only as registered ExecutionPlan capabilities; CPU and OpenCL are internal FLAMORIS compute implementations. It controls model inference, ExecutionPlan execution, jobs, interrupts, and observability through one runtime authority. See [Phase C evidence](docs/phase-c/STATUS.md) for implemented and qualified scope; historical design documents are not execution evidence.
 
 Do not implement behavior from chat context alone. Read current repository documentation first and keep planned behavior clearly separated from implemented behavior.
 
@@ -15,7 +18,7 @@ Runtime ownership (implementation and qualification boundaries are recorded sepa
 - FLAMORIS-owned native model execution and inference lifecycle;
 - native model and internal CPU/OpenCL compute contracts;
 - active inference state such as token position, cache/state, sampling state, and stop conditions;
-- runtime workflow IR and validation;
+- runtime legacy `Workflow IR` / target `ExecutionPlan` definition and validation;
 - job lifecycle, dependencies, scheduling, cancellation, and results;
 - logical parallelism and resource-aware execution;
 - interrupt, pause, resume, and later native profile-specific rewind capabilities;
@@ -28,7 +31,7 @@ Runtime ownership (implementation and qualification boundaries are recorded sepa
 Do not absorb durable authority from neighboring systems:
 
 - Agent identity, conversations, long-term memory, personality, and Agent policy belong to `flamoris-ai-agent`;
-- generative-media domain workflow/job/asset authority belongs to `flamoris-generation-mcp`;
+- generative-media domain ExecutionPlan/job/asset authority belongs to `flamoris-generation-mcp`;
 - host-wide GPU/runtime lifecycle transitions belong to `flamoris-gpu-node-manager`;
 - Studio and desktop products retain authority for their own state and documents.
 
@@ -36,7 +39,7 @@ Do not absorb durable authority from neighboring systems:
 
 ## Core architecture rule
 
-**Inference and workflow execution share one controllable runtime loop.**
+**Inference and ExecutionPlan execution share one controllable runtime loop.**
 
 Do not reduce the model to an opaque remote `generate()` call when the feature being implemented requires:
 
@@ -47,25 +50,25 @@ Do not reduce the model to an opaque remote `generate()` call when the feature b
 - bounded result injection;
 - native state inspection.
 
-An external provider may exist only as a registered Workflow capability, but it must advertise its limitations honestly.
+An external provider may exist only as a registered ExecutionPlan capability, but it must advertise its limitations honestly.
 
 ## Runtime concepts
 
 Keep these concepts distinct:
 
 - **Inference session/state** - active model execution state.
-- **Workflow** - dependency/data/control description.
+- **ExecutionPlan** - the runtime's dependency/data/control execution description.
 - **Job** - scheduler-visible unit of active work.
 - **InferenceJob** - a stateful job that may preserve model execution state.
 - **Continuation** - resumable execution state owned by exactly one waiting/paused Job; it has no independent scheduler identity.
-- **Execution Plan** - validated, compiled Runtime contract derived from Workflow IR before scheduling; it records static execution structure and potential suspension policy, not live Continuation instances or authorization grants.
+- **Execution Plan** - validated, compiled Runtime contract derived from legacy `Workflow IR` / target `ExecutionPlan` definition before scheduling; it records static execution structure and potential suspension policy, not live Continuation instances or authorization grants.
 - **Capability** - registered callable functionality.
 - **Effect set** - machine-readable effects such as `pure`, `read`, `write`, `external`, `destructive`, and `paid`; effects are composable, not a single enum.
 
 Effect metadata must obey these initial invariants: `pure` is exclusive with every observable/ambient effect, `read` means ambient or mutable-state read beyond declared immutable inputs, `destructive` requires `write`, and `external`/`paid` are orthogonal attributes. Reject unknown, empty, or contradictory effect sets rather than assuming purity.
 - **Event** - structured observable state transition or progress record.
 
-Do not collapse Workflow and Job into one abstraction.
+Do not collapse ExecutionPlan and Job into one abstraction.
 
 The Scheduler schedules **Jobs only**. Continuations are owned resume state for suspended Jobs. Yield/resume must preserve the owning Job identity so cancellation, timeout, provenance, metrics, and terminal status have one authority.
 
@@ -129,9 +132,9 @@ Support bounded trace levels conceptually:
 
 Never log secrets, credentials, unbounded tensors, unrestricted provider responses, or unlimited model/media output.
 
-## Workflow security
+## ExecutionPlan security
 
-Workflow/model/tool output is untrusted execution input.
+ExecutionPlan/model/tool output is untrusted execution input.
 
 Validate at least:
 
@@ -151,7 +154,7 @@ Do not add arbitrary shell, unrestricted Python, ambient filesystem/network acce
 
 ## Provider and capability boundaries
 
-Prefer stable capability contracts over provider-specific workflow syntax.
+Prefer stable capability contracts over provider-specific ExecutionPlan syntax.
 
 Conceptual families may include:
 
@@ -167,7 +170,7 @@ Conceptual families may include:
 - `mcp.*`
 - explicitly registered FLAMORIS product/service capabilities
 
-External AI/API and MCP execution must use configured, registered adapters. Do not embed raw credentials, arbitrary endpoints, or arbitrary MCP server URLs in portable workflow JSON.
+External AI/API and MCP execution must use configured, registered adapters. Do not embed raw credentials, arbitrary endpoints, or arbitrary MCP server URLs in portable ExecutionPlan JSON.
 
 ## Implementation language
 
@@ -196,7 +199,7 @@ Evaluate reuse of its:
 - native OpenCL compute work;
 - tests.
 
-Reuse should be deliberate. Do not copy model-specific internals into unrelated workflow/scheduler layers.
+Reuse should be deliberate. Do not copy model-specific internals into unrelated ExecutionPlan/scheduler layers.
 
 ## Required runtime research before implementation
 
@@ -277,7 +280,7 @@ runtime kernel
 MCP/API/CLI adapters
 ```
 
-rather than embedding inference/workflow semantics inside MCP handlers.
+rather than embedding inference/ExecutionPlan semantics inside MCP handlers.
 
 ## Documentation discipline
 
@@ -293,7 +296,7 @@ When implementation begins:
 - add deterministic tests for lifecycle/state transitions;
 - test cancellation and race semantics;
 - keep examples aligned with the implemented schema;
-- version breaking workflow/runtime contract changes explicitly.
+- version breaking ExecutionPlan/runtime contract changes explicitly.
 
 ## Testing expectations
 
@@ -312,7 +315,7 @@ When code exists, prefer deterministic offline tests for:
 - scheduler dependency ordering;
 - join/race semantics;
 - resource-limit rejection;
-- valid/invalid workflow graphs;
+- valid/invalid ExecutionPlan graphs;
 - unsupported schema versions;
 - unknown capabilities;
 - missing references;
@@ -324,14 +327,14 @@ When code exists, prefer deterministic offline tests for:
 
 ## Security
 
-Treat model output, workflow input, tool output, service responses, and retrieved content as untrusted.
+Treat model output, ExecutionPlan input, tool output, service responses, and retrieved content as untrusted.
 
 Security-sensitive behavior must fail closed.
 
 Never:
 
 - commit or log secrets, credentials, tokens, or private topology;
-- embed credentials in workflow JSON;
+- embed credentials in ExecutionPlan JSON;
 - expose sensitive raw upstream errors;
 - silently retry non-idempotent side effects;
 - infer permission from the fact that a model or AI requested an operation.
@@ -341,3 +344,8 @@ Never:
 Unless stated otherwise, code and documentation are Apache License 2.0.
 
 Models, weights, datasets, media, providers, and third-party components may use separate terms. Document them explicitly.
+
+
+## Terminology migration guard
+
+Do not mechanically rename current `WorkflowIR` to `ExecutionPlan` in code without reviewing the existing compiled `Execution Plan` type. The architecture term changes now; code-symbol migration is a separate implementation task that must avoid semantic collision and preserve serialization/event compatibility or version it explicitly.
