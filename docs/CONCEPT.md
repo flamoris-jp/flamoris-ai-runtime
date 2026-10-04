@@ -1,433 +1,90 @@
-> **Terminology update:** this document predates the 2026-10-04 naming decision. Read every Runtime `Workflow` concept here as **ExecuteFlow**. Current source identifiers are legacy implementation names and are not renamed by this documentation-only change.
+# Runtime concept
 
-# Runtime Concept
+This document explains the architecture using the 2026-10-04 names. It is not a claim that every conceptual capability is implemented. **The repository does have a Phase C C++20 native Runtime baseline**; consult [current executable evidence](phase-c/STATUS.md), [native qualification](../fixtures/native/QUALIFICATION.md) and [design authority](DESIGN_PHASES.md) for exact scope. The earlier design-only version is preserved in [the pre-correction snapshot](https://github.com/flamoris-jp/flamoris-ai-runtime/blob/f4ca8b785d16947909a24ef909899470d044eaab/docs/CONCEPT.md).
 
-## Status
+## Main idea
 
-**Design concept only. No runtime is implemented yet.**
-
-The review gates and normative document map are in [Design Phases](DESIGN_PHASES.md). This document describes intent; the detailed contracts specify the initial bounded behavior.
-
-FLAMORIS AI Runtime is intended to be a **single-user FLAMORIS native model runtime**.
-
-It owns model execution directly. Third-party runtimes, if ever called, are external ExecuteFlow capabilities, not inference backends.
-
-The central idea is:
-
-> **Inference and ExecuteFlow execution share one controllable runtime loop.**
-
-The Runtime should own enough of the inference lifecycle to observe it, interrupt it, pause it, resume it, dispatch other work, receive those results, and continue inference without unnecessarily rebuilding model state.
-
-## The basic shape
+**Inference and ExecuteFlow control share one controllable Runtime loop.** Runtime owns processor/tokenizer/model execution, cache/state, native CPU/OpenCL compute, inference steps and resources. It is not merely an orchestration layer above a finished LLM endpoint. Third-party runtimes can be registered capabilities without becoming FLAMORIS's native execution implementation.
 
 ```text
-          App / Agent / ChatGPT
-                  │
-                  ▼
-        FLAMORIS AI Runtime
-        ┌───────────────────────┐
-        │ Inference Controller  │
-        │ ExecuteFlow Engine       │
-        │ Job Scheduler         │
-        │ Event / Trace Stream  │
-        │ Capability Registry   │
-        └───────────┬───────────┘
-                    │
-          ┌─────────┼──────────┐
-          ▼         ▼          ▼
-        Model    Local work   External work
-                  │            │
-                  ├─ algorithm ├─ MCP
-                  ├─ Vision    ├─ API / external AI
-                  ├─ audio     └─ FLAMORIS services
-                  └─ future Vem
+Internal application / optional Agent
+  -> non-MCP control or embedding interface
+  -> C++ Runtime Kernel
+       -> inference control and native state
+       -> ExecuteFlow control
+       -> compiled ExecutionPlan and Jobs
+       -> Job-owned Continuations / Scheduler
+       -> Resource Manager / bounded events
 ```
 
-A persistent Agent may still live outside the Runtime:
+ChatGPT's external MCP entrance is separate. External facade/transport and internal Runtime authority must not be collapsed. Historical external-MCP capability concepts do not justify using FLAMORIS MCP services as internal dependencies. No new integration is started by this document.
 
-- the Agent owns identity, conversation, durable memory, goals, and personality;
-- the Runtime owns model execution state, inference control, ExecuteFlow execution, jobs, cancellation, results, and execution events.
+## ExecuteFlow, ExecutionPlan and ComfyWorkFlow
 
-This means the Runtime can be used by `flamoris-ai-agent`, ChatGPT, Studio AI, or another authorized caller without becoming their persistent personality store.
-
-## The Runtime owns the model execution path
-
-FLAMORIS owns processor/tokenizer, model execution, cache/state, inference
-steps and resource lifetime. CPU reference and OpenCL are its internal compute
-implementations. The initial execution profile may be causal text; Vision,
-audio, embedding and other native profiles must not inherit text-only state.
-
-External AI/MCP calls run as registered ExecuteFlow capabilities under current
-authorization and finite Run limits. Baseline deployment is single-user.
-
-## Inference as a controllable loop
-
-A decoder-style model commonly admits a lifecycle resembling:
+ExecuteFlow describes inference-related dependencies, data bindings and control. It is validated/compiled into the **existing `ExecutionPlan` representation**, and Jobs become active scheduler-visible work.
 
 ```text
-input
-  ↓
-tokenize
-  ↓
-prefill
-  ↓
-KV / model state
-  ↓
-┌──── decode iteration ────┐
-│ model forward            │
-│ logits                   │
-│ sampling / constraints   │
-│ next token               │
-│ update inference state   │
-│ emit events              │
-│ check interrupt          │
-│ optionally dispatch work │
-└──────── repeat ──────────┘
+ExecuteFlow definition
+  -> bounded parse and validation
+  -> capability/schema/effect/resource resolution
+  -> ExecutionPlan
+  -> execution machine creates/controls Jobs
+  -> Jobs may suspend through owned Continuations
+  -> Scheduler dispatches runnable Jobs
 ```
 
-The exact mechanics are native model/profile-specific and must be verified by implementation tests.
+The real current compiled type is [ExecutionPlan](../include/flamoris/runtime/compiler.hpp). The current serialized contract remains in [WORKFLOW_IR.md](WORKFLOW_IR.md); the current machine is [WorkflowMachine](../include/flamoris/runtime/workflow.hpp). These literal identifiers/filenames remain unchanged in this documentation-only correction. ExecuteFlow is the source/control-flow concept, not a new name for the compiled plan or the Job lifecycle.
 
-The architectural requirement is that FLAMORIS exposes explicit control points around these stages instead of reducing the entire operation to one opaque `generate()` call.
+ComfyWorkFlow instead means ComfyUI graph/API-format JSON. ComfyUI executes that graph; Runtime does not acquire its JSON builder. Other media providers may use generation requests without a ComfyWorkFlow. Optional future generation capabilities are not prerequisites for ordinary inference or ComfyUI JSON construction.
 
-## Inference can call work and continue
+## Controllable inference
 
-The Runtime should support flows such as:
+A supported native profile can expose control points around tokenize, prefill, decode, sampling, token/state update, events and interrupts. When additional work is required, inference may yield, await bounded child jobs, receive an authorized bounded result and resume with preserved state where supported.
 
 ```text
-Inference
-   ↓
-needs more information
-   ↓
-pause / yield
-   ↓
-spawn jobs
-   ├─ Vision
-   ├─ algorithm
-   └─ MCP / external AI
-   ↓
-await / join / race
-   ↓
-inject bounded results
-   ↓
-resume inference
+InferenceJob
+  -> native step / state update
+  -> yield at a supported safe point
+  -> child algorithm / vision / explicit external capability
+  -> await / join / race under finite limits
+  -> bounded result injection
+  -> resume the same owning inference job
 ```
 
-The important property is that the Runtime may preserve the relevant model/inference state across this handoff where the native execution profile supports it.
+The goal is to avoid unnecessary model re-entry/state loss, not to promise every backend can pause, resume, rewind or offload. Native profiles define supported state/control operations. Non-text models must not inherit text-specific cache assumptions.
 
-This is intended to reduce avoidable re-tokenization, model re-entry, request serialization, and loss of execution context while making the control flow explicit.
+## Jobs and Continuations
 
-## Continuations are first-class resumable state
+A Job is the only scheduler-visible lifecycle authority. A Continuation holds the resume point, wait/result bindings, supported retained native state, deadlines and resource affinity for exactly one suspended Job. It has no independent scheduler identity.
 
-A **Continuation** represents resume state owned by exactly one scheduler-visible Job that is currently waiting or paused.
+When a wait completes, the Runtime atomically consumes the Continuation into the Job's pending resume payload and queues that same Job. Timeout/cancel, parent-child provenance, metrics and terminal status remain attached to the Job/run. The inference machine and flow-control machine may both use this mechanism without becoming one implementation.
 
-```text
-Job
-  = scheduler-visible lifecycle authority
+Separate execution leases from retained state footprint. A paused Job need not occupy a device execution lease, but resident KV/cache/native state still consumes VRAM/RAM until actually released/offloaded. Shared allocations are accounted once. Retained state is still counted while the resumed Job waits for capacity.
 
-Continuation
-  = resume state + resume point + waiting contract owned by that Job
-```
+## Parallelism and effects
 
-The Scheduler schedules Jobs only. Yield/resume preserves the Job identity; cancellation, timeout, provenance, metrics, and terminal state never migrate into a second Continuation lifecycle.
+Ready jobs may be logically parallel yet physically serialized by memory, residency, device, rate-limit or effect policy. `await` waits for work, `join` combines the specified jobs, and `race` selects a qualifying result under an explicit loser policy. The baseline cancels unfinished losers and excludes write/destructive race participants; cancellation does not roll back effects. See [Execution Model](EXECUTION_MODEL.md).
 
-This prevents every yield from becoming an inference-specific special case without creating two scheduling authorities.
+Compilation resolves registered capabilities, schemas, bindings, effects, limits, resource requirements, side-effect boundaries and potential suspension policy. Concrete Continuations are created only during live suspension. A compiled ExecutionPlan is not an authorization grant: current permission, availability, input scope and budgets are rechecked at admission and every dispatch/retry/resume. Model-authored composition remains untrusted input.
 
-For example:
+Effect sets preserve `pure` exclusivity, ambient-read semantics, `destructive` implying `write`, and independent `external`/`paid` attributes. Unknown/empty/conflicting sets fail closed. Registered external work keeps its owner's authority and explicit timeout/cancellation/unknown-result limits.
 
-```text
-Inference Machine
-   ↓ yield
-Continuation: waiting for Vision result
-   ↓
-Vision Job
-   ↓ result
-owning Job becomes ready to resume
-   ↓
-Inference Machine resumes
-```
+## Finalization, failure and observability
 
-The same mechanism can connect ExecuteFlow Machine and Inference Machine without making them the same implementation.
+`finalizing` resolves child/resource obligations before terminal publication. Cleanup debt may be transferred only explicitly and remains accounted. Terminal lifecycle cannot change, though bounded late reconciliation can append observations according to retention policy. Unknown provider outcomes do not imply safe replay or completed cancellation.
 
-A continuation may retain a native model/state reference where safe, but should not normally pin a physical **execution lease** while waiting. If that state remains resident in VRAM/RAM, its **retained state footprint** is still allocated and must remain visible to Resource Manager accounting. Resource affinity may be retained so the scheduler can prefer a warm model/device on resume.
+Structured events support lifecycle/progress/resource observation and optionally bounded token/sampling or deeper diagnostics. Existing literal event vocabulary and serialized fields are not renamed by this pass. Logging is derived from events and excludes secrets, unbounded tensors and unrestricted provider output. Replaying events observes history; it does not replay execution.
 
-## Jobs are first-class runtime work
+Interrupt request and actual application are distinct. Stop, cancel, pause/resume and bounded injection are supported only under the relevant profile contract; arbitrary redirect/rewind is not assumed. UI layout and graph canvas coordinates are non-semantic.
 
-A **Job** is the schedulable unit of execution.
+## Neighboring owners
 
-Conceptual job classes include:
+Agent owns optional durable identity/personality, conversations and memory. Runtime owns model execution and active state, not Agent memory. GPU Node Manager owns host-wide runtime/service transitions. Generation owns its requests/jobs/input/assets, ComfyUI its graph execution, and products their documents/editing state. No second authority is created by an adapter.
 
-- `InferenceJob`
-- `AlgorithmJob`
-- `VisionJob`
-- `SpeechJob`
-- `GenerationJob`
-- `ExternalAIJob`
-- `McpJob`
-- future Vem-backed jobs
+The kernel remains C++20/library-first as established by [Phase B](PHASE_B_DESIGN.md). External service adapters and language bindings stay outside core semantics; not every capability must execute inside one binary. [Backend research](adr/0001-backend-control.md) and private FLAMORIS LLM concept/test-method references are prior design evidence, not a new mandate to redo research or copy private code. Publication/licensing clearance is required for private-source reuse.
 
-An `InferenceJob` is special because it may retain model execution state such as:
+## Current correction boundary
 
-- model/processor/execution-profile reference;
-- token position;
-- KV or equivalent cache state;
-- sampling state;
-- inference context;
-- current ExecuteFlow/run linkage;
-- interrupt state;
-- child job relationships.
+This pass changes documentation only. Use ExecuteFlow for the inference flow, keep ExecutionPlan distinct, and use ComfyWorkFlow specifically for ComfyUI. Do not introduce new bare Workflow terminology or pretend current source/wire names were migrated.
 
-Other jobs may be stateless, remote, CPU-bound, GPU-bound, I/O-bound, or side-effecting.
-
-## Parallel, join, and race
-
-ExecuteFlow dependencies should allow independent ready jobs to run concurrently.
-
-The Runtime should distinguish **logical parallelism** from **physical simultaneous execution**.
-
-For example:
-
-```text
-            ┌─ Vision Job ─────┐
-input ──────┤                  ├─ join ─► inference
-            └─ Metadata Job ───┘
-```
-
-The scheduler may execute both at once when resources allow, or serialize them when GPU memory, model residency, device exclusivity, or another resource policy requires it.
-
-Useful control primitives include:
-
-- **await** — wait for one job;
-- **join** — wait for a defined set of jobs;
-- **race** — accept the first qualifying result and apply an explicit policy to remaining jobs;
-- **cancel** — request cancellation;
-- **pause / resume** — where the job type supports it.
-
-`race` is intentionally a runtime concept, not merely a UI feature. A future ExecuteFlow may race a local model, a remote specialist, and a cached/retrieval path, then continue with the first result satisfying the configured success condition.
-
-Race loser behavior is explicit. The baseline uses cancel_unfinished and excludes write/destructive participants; continuing losers for cache/provenance and speculative replacement are later extensions. No policy silently replays or rolls back side effects. See [Execution Model](EXECUTION_MODEL.md).
-
-## Observable inference
-
-The Runtime should make execution observable in real time.
-
-Logs should be derived from structured runtime events rather than treating human-readable log strings as the only source of truth.
-
-Conceptual events include:
-
-- `inference.started`
-- `prefill.started`
-- `prefill.completed`
-- `decode.iteration`
-- `token.generated`
-- `sampling.completed`
-- `job.submitted`
-- `job.started`
-- `job.progress`
-- `job.completed`
-- `job.failed`
-- `workflow.node.started`
-- `workflow.node.completed`
-- `interrupt.requested`
-- `inference.paused`
-- `inference.resumed`
-- `inference.completed`
-
-Consumers may include:
-
-- console logging;
-- JSONL logs;
-- Studio live inspection;
-- an event stream;
-- MCP/API observation surfaces;
-- test probes.
-
-The event system must be bounded. Large tensors, unrestricted provider responses, secrets, and unbounded model output must not become ordinary logs.
-
-## Inference trace levels
-
-Observability should support explicit levels rather than one all-or-nothing debug stream.
-
-Conceptually:
-
-1. **Lifecycle** — timings, state changes, job transitions, resource use, stop reasons.
-2. **Token / sampling** — generated token IDs/text and selected sampling metadata where enabled.
-3. **Model-exposed reasoning stream** — only when the model/runtime intentionally exposes such a channel and the deployment policy permits recording it.
-4. **Deep debug probes** — logits, selected activations, cache inspection, or native profile-specific diagnostics; disabled by default and strongly bounded.
-
-The Runtime should not require deep internal tensor logging for normal operation.
-
-## Interrupts are a core feature
-
-A caller or operator may want to intervene while inference or ExecuteFlow execution is still running.
-
-The design should therefore support explicit interrupt requests.
-
-Possible actions include:
-
-- stop;
-- pause;
-- resume;
-- cancel child jobs;
-- inject new bounded input;
-- redirect ExecuteFlow control;
-- later, rewind model state where a native execution profile safely supports it.
-
-An interrupt request and the point where it actually takes effect are separate events. This distinction matters for debugging and UI feedback.
-
-## legacy `Workflow IR` / target `ExecuteFlow` definition is compiled before execution
-
-legacy `Workflow IR` / target `ExecuteFlow` definition is declarative input.
-
-The Runtime should not hand raw ExecuteFlow JSON directly to the scheduler.
-
-```text
-legacy `Workflow IR` / target `ExecuteFlow` definition
-   ↓
-Validator
-   ↓
-Execution Plan Compiler
-   ↓
-Execution Plan
-   ↓
-ExecuteFlow Machine
-   ↓
-Jobs / Continuations
-   ↓
-Scheduler
-```
-
-The compiler resolves registered capabilities, schemas, bindings, effects, limits, resource requirements, side-effect boundaries, and statically known suspension policy before execution.
-
-Concrete Continuation instances remain live Runtime state and are created only when a Job actually yields. Inference may yield at runtime-defined control points that are not concrete Continuation instances in the compiled plan.
-
-Compilation describes authorization and policy requirements but grants no permission. The Runtime revalidates current capability pins/availability, caller authorization, concrete input scope, budget and policy at admission and every dispatch, retry and resume. Effect-specific checks apply before adapter handoff.
-
-This is particularly important when an AI generates legacy `Workflow IR` / target `ExecuteFlow` definition: the AI may propose composition, while only the Runtime may turn validated composition into executable work, and only current Runtime policy may authorize execution.
-
-## ExecuteFlow is inside the execution runtime
-
-ExecuteFlow is not intended to sit above the Runtime as a completely separate orchestration service.
-
-Instead:
-
-```text
-Runtime Kernel
-   ├─ inference control
-   ├─ ExecuteFlow execution
-   ├─ job scheduling
-   ├─ event stream
-   └─ resource management
-```
-
-ExecuteFlow describes dependencies and control.
-
-Jobs are the scheduler-visible work units.
-
-Inference is one important job type with deeper lifecycle integration.
-
-This lets the same Runtime coordinate ordinary algorithms, model inference, Vision, audio, external AI, MCP, Generation, and future Vem capabilities without forcing every transition through a new top-level request.
-
-## Open-ended composition, bounded execution
-
-The broad composition goal remains:
-
-> **Open-ended composition. Bounded execution.**
-
-A ExecuteFlow may combine registered capabilities across domains, but execution remains constrained by:
-
-- capability registration;
-- caller authorization;
-- machine-readable effect sets;
-- resource budgets;
-- GPU/CPU/device policy;
-- network/filesystem/credential boundaries;
-- timeout and cancellation rules;
-- event/logging limits;
-- job concurrency policy.
-
-## Relationship to the Agent
-
-A useful split is:
-
-```text
-FLAMORIS AI Agent
-  ├─ identity
-  ├─ durable memory
-  ├─ conversation
-  ├─ goals
-  └─ personality
-        │
-        ▼
-FLAMORIS AI Runtime
-  ├─ model inference
-  ├─ inference state
-  ├─ ExecuteFlow
-  ├─ jobs
-  ├─ capabilities
-  └─ execution events
-```
-
-The Runtime may perform reasoning through the loaded model, but it does not become the durable identity/memory authority of the Agent.
-
-## Runtime Kernel implementation language
-
-The intended Runtime Kernel implementation language is **C++**.
-
-The goal is not "everything in one native binary." The goal is to keep model-adjacent control, state ownership, continuation handling, scheduling, and native model and compute integration in a kernel while preserving service boundaries for external capabilities.
-
-```text
-Agent / ChatGPT / Studio
-          │
-   MCP / API / CLI
-          │
-          ▼
-    C++ Runtime Kernel
-       ├─ Inference Machine
-       ├─ ExecuteFlow Machine
-       ├─ Continuations
-       ├─ Jobs / Scheduler
-       ├─ Event Journal
-       └─ Resource Manager
-          │
-     registered capabilities
-```
-
-Python, C#, or other language integration may later exist as adapters/bindings if useful. Such bindings must not become the authority for Runtime execution semantics.
-
-The exact C++ standard and toolchain are deliberately not frozen until Phase B research and inspection of `flamoris-net/flamoris-LLM`.
-
-## Implementation research before freezing contracts
-
-Before the first implementation freezes the inference API, study several modern runtimes and generation stacks, including at least:
-
-- `llama.cpp`
-- Hugging Face Transformers generation/cache APIs
-- vLLM
-- TensorRT-LLM
-
-The research should compare:
-
-- tokenize / prefill / decode boundaries;
-- KV/cache ownership and lifetime;
-- token streaming;
-- sampling hooks;
-- stop/cancel semantics;
-- pause/resume feasibility;
-- state snapshot/rewind feasibility;
-- continuous batching/scheduling;
-- request/job lifecycle;
-- observability and iteration statistics;
-- how much control is lost behind server-style APIs.
-
-The purpose is not compatibility with all of them. It is to identify the smallest runtime control surface FLAMORIS needs.
-
-## Existing FLAMORIS LLM work
-
-`flamoris-net/flamoris-LLM` is a candidate implementation foundation because it already explores explicit model runtime, generation, cache, compute boundaries, and CPU/OpenCL execution.
-
-Reusing it should be evaluated at the code/contract level rather than copied wholesale.
-
-Model-specific code becomes a native model layer, while the new Runtime adds the inference controller, jobs, ExecuteFlow execution, event stream, interrupts, and resource scheduling around it.
-
-This is a design direction, not yet an implementation claim.
-
+Intelligence cleanup is the next project priority. Generation Controller, Generation ComfyWorkFlow retirement, new capabilities, model/kernel changes and deployments remain separately scoped and are not started by a documentation merge. See [AI #18](https://github.com/flamoris-jp/flamoris-ai/issues/18).
