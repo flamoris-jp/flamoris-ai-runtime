@@ -71,7 +71,7 @@ checksum contract.
 
 ## What it is
 
-FLAMORIS AI Runtime is not only a ExecutionPlan service above an already-finished LLM endpoint.
+FLAMORIS AI Runtime is not only an ExecutionPlan layer above an already-finished LLM endpoint.
 
 It is intended to own enough of model execution to coordinate:
 
@@ -95,7 +95,7 @@ Conceptually:
         FLAMORIS AI Runtime
         ┌───────────────────────┐
         │ Inference Controller  │
-        │ ExecutionPlan Engine       │
+        │ ExecutionPlan Engine      │
         │ Job Scheduler         │
         │ Event / Trace Bus     │
         │ Resource Manager      │
@@ -224,7 +224,7 @@ A continuation may include:
 
 A paused Job should not normally hold an **execution lease** indefinitely. However, releasing an execution lease does not imply that retained KV/cache/native state has left VRAM or RAM. The Resource Manager must continue accounting for any **retained state footprint** until that state is offloaded, snapshotted elsewhere, or evicted.
 
-Inference is not the only possible source of resumable state. Both the Inference Machine and ExecutionPlan Machine may suspend their scheduler-visible Job through the same Continuation contract.
+Inference is not the only possible source of resumable state. The current implementation's `WorkflowMachine` is a legacy code identifier for ExecutionPlan control and may suspend its scheduler-visible Job through the same Continuation contract.
 
 ## Parallel, join, and race
 
@@ -359,42 +359,21 @@ The Runtime may call other services through registered capabilities while preser
 
 Examples:
 
-- Generation MCP retains generation ExecutionPlan/job/asset authority;
+- Generation-domain services retain generation-definition / ComfyWorkFlow / job / asset authority;
 - GPU Node Manager retains host-wide runtime/GPU lifecycle policy;
 - Studio/products retain their own document and UI state;
 - external MCP/API/AI services remain external authorities.
 
-`flamoris-intelligence-mcp` may expose or route bounded intelligence capabilities, but AI Runtime owns registered native model execution; external runtimes/providers participate only as ExecutionPlan capabilities. Final integration should preserve the Runtime's required inference control points.
+`flamoris-intelligence-mcp` may expose or route bounded intelligence capabilities, but AI Runtime owns registered native model execution; external runtimes/providers participate only as registered capabilities used by ExecutionPlans. Final integration should preserve the Runtime's required inference control points.
 
-## legacy `Workflow IR` / target `ExecutionPlan` definition
+## ExecutionPlan representation
 
-legacy `Workflow IR` / target `ExecutionPlan` definition describes dependencies, data flow, and bounded control.
+The architecture term is **ExecutionPlan**.
 
-Jobs are the scheduler-visible execution units created from that plan.
-
-This distinction is intentional:
+The current Phase C implementation still has two concrete legacy names:
 
 ```text
-ExecutionPlan
-  = what depends on what
-
-Job
-  = what is actively running/waiting
-
-InferenceJob
-  = a stateful model execution job
-```
-
-See the current implementation document [Workflow IR](docs/WORKFLOW_IR.md), which is a legacy identifier to be reconciled with the `ExecutionPlan` terminology during implementation cleanup.
-
-## ExecutionPlan compilation
-
-legacy `Workflow IR` / target `ExecutionPlan` definition is not executed directly by the scheduler.
-
-The intended path is:
-
-```text
-legacy `Workflow IR` / target `ExecutionPlan` definition
+Workflow IR
     ↓
 Validator
     ↓
@@ -407,21 +386,13 @@ Jobs / Continuations
 Scheduler
 ```
 
-The compiler resolves registered capabilities, validates bindings and limits, derives resource requirements and effects, identifies side-effect boundaries, and records statically known suspension sites/continuation policy.
+Those are current code/schema identifiers, not the desired long-term vocabulary. Do not mechanically rename `WorkflowIR` to `ExecutionPlan`, because `Execution Plan` already names the compiled representation. The implementation cleanup must first decide a non-colliding mapping and version any externally visible identifiers that change.
 
-Actual Continuation instances are created only at runtime. Inference may also yield at runtime-defined control points that were not enumerated as concrete Continuations during compilation.
+Conceptually, ExecutionPlan describes what depends on what and the bounded execution/control structure. Jobs are the scheduler-visible units that actually run or wait. An `InferenceJob` may retain model execution state.
 
-Compilation is not an authorization grant. The Runtime revalidates current capability pins/availability, caller authorization, concrete input scope, budgets and policy at admission and every dispatch, retry and resume. Effect-specific checks apply immediately before adapter handoff. A cached/reused Execution Plan never carries stale permission as executable authority.
+Compilation is not an authorization grant. The Runtime revalidates current capability pins/availability, caller authorization, concrete input scope, budgets and policy at admission and every dispatch, retry and resume. Effect-specific checks apply immediately before adapter handoff. A cached/reused compiled plan never carries stale permission as executable authority.
 
-This keeps AI-authored or externally supplied legacy `Workflow IR` / target `ExecutionPlan` definition separate from the Runtime's executable scheduling contract.
-
-Effect sets are validated rather than treated as arbitrary labels:
-
-- `pure` is exclusive with `read`, `write`, `external`, `destructive`, and `paid`;
-- `read` means reading ambient or mutable state beyond declared immutable inputs;
-- `destructive` requires `write`;
-- `external` and `paid` are orthogonal attributes that may combine with reads/writes;
-- unknown, empty, or contradictory effect metadata fails closed rather than defaulting to `pure`.
+See the current implementation document [Workflow IR](docs/WORKFLOW_IR.md). Its filename and symbols are legacy identifiers pending the reviewed naming migration.
 
 ## Security model
 
@@ -461,7 +432,7 @@ MCP / API / CLI / language bindings
    ┌──────────┼───────────┐
    ▼          ▼           ▼
 Inference   ExecutionPlan    Scheduler
- Machine     Machine
+ Machine     control
       \       /
       Continuation
               │
@@ -494,7 +465,7 @@ Phase B uses the inspected foundation as a concept and test-methodology referenc
 
 - Inference Controller;
 - Job Scheduler;
-- ExecutionPlan Engine;
+- ExecutionPlan control;
 - Event Bus;
 - Interrupt Control;
 - Capability System;
