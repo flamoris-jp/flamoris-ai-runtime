@@ -1,7 +1,7 @@
 # Isolated principal Runtime target
 
-`PrincipalRuntimeTarget` is a trusted embedding boundary for the B13 portion of
-[the Generation composition bridge](../GENERATION_COMPOSITION_BRIDGE.md).
+`PrincipalRuntimeTarget` is a trusted non-MCP embedding boundary for an internal
+application or an optional Agent.
 Its factory takes an authenticated subject and exclusive ownership of one
 `RuntimeInstance`. Subject and instance ownership remain fixed for the target's
 lifetime. The embedding must assign distinct process-incarnation identities to
@@ -28,9 +28,22 @@ two different subjects can use the same request/idempotency key without sharing 
 Run. Each target retains its own duplicate receipt. No provider invocation occurs
 without host receipts in these tests.
 
-This is source-level target isolation, not deployed two-user qualification. The
-Generation domain/network adapter, authenticated gateway mapping, process-owned
-root delegation journal, atomic internal claims and result publication remain
-under #19. Independent targets must share a real enforceable host authority where
+This is source-level target isolation, not deployed two-user qualification. Authenticated application-to-target mapping remains an embedding obligation.
+The retired Generation composition bridge does not authorize a new adapter or
+root-delegation mechanism. Independent targets must share a real enforceable host authority where
 physical resources overlap; separate fixture hosts do not qualify that capacity
 boundary. The Runtime kernel remains a single-principal component.
+
+## Generic pinned admission
+
+A trusted embedding can obtain `RuntimeInstance::compilation_snapshot()` and
+compile the actual ExecuteFlow submission against that resource-bound capability
+snapshot. `submit_pinned` binds admission to the process incarnation, concrete
+request digest and compiled `ExecutionPlan` fingerprint. Runtime recompiles through
+its normal admission path and rechecks current policy, pins, input scope and
+resources before useful work. Changed targets, requests or contracts reject;
+duplicate receipts identify the same admitted Run.
+
+These methods remain in-process seams, absent from `CallerFacade` and portable
+control JSON. They do not authenticate a caller, grant host capacity, construct
+ComfyWorkFlow JSON or translate generation compositions into Runtime work.

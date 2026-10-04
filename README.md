@@ -18,11 +18,11 @@ Part of the [FLAMORIS AI ecosystem](https://github.com/flamoris-jp/flamoris-ai/b
 | `ExecutionPlan` | Existing compiled Runtime representation; retain this type and its distinct meaning |
 | `ComfyWorkFlow` | ComfyUI execution graph / API-format JSON; not owned by AI Runtime |
 
-The actual compiled C++ type is `ExecutionPlan` in [compiler.hpp](include/flamoris/runtime/compiler.hpp). The current execution machine is `WorkflowMachine` in [workflow.hpp](include/flamoris/runtime/workflow.hpp). The document [WORKFLOW_IR.md](docs/WORKFLOW_IR.md) describes the current serialized input contract. These literal code/path names are not renamed by this documentation PR. Do not invent a C++ `WorkflowIR` type from a prose heading or rename the compiled plan to ExecuteFlow.
+The actual compiled C++ type is `ExecutionPlan` in [compiler.hpp](include/flamoris/runtime/compiler.hpp). The current execution machine is `WorkflowMachine` in [workflow.hpp](include/flamoris/runtime/workflow.hpp). The document [WORKFLOW_IR.md](docs/WORKFLOW_IR.md) describes the current serialized input contract. These literal code/path names are preserved by this cleanup. Do not invent a C++ `WorkflowIR` type from a prose heading or rename the compiled plan to ExecuteFlow.
 
 New architecture prose uses the specific names rather than bare Workflow. Exact current wire fields, schema revisions, filenames, external names and historical quotations retain their spelling until a separately reviewed compatibility change.
 
-This pass covers documentation review/fixes and authorized documentation merges only. Intelligence cleanup comes first in the wider project. No kernel/API/schema/event change, provider invocation or deployment occurs here; Generation Controller remains unimplemented and Generation/ComfyWorkFlow/reference-image work stays paused.
+The architecture cleanup removes the mistaken Generation composition/lowering subsystem while preserving native inference and ExecuteFlow. Generic non-MCP embedding, pinned admission and principal isolation remain; see [cleanup evidence](docs/phase-c/STATUS.md#architecture-cleanup-on-2026-10-04). Generation Controller remains unimplemented. This source change does not deploy services or invoke providers.
 
 ## Build and existing CLI
 
@@ -121,7 +121,7 @@ The backend ADR records pinned research into llama.cpp, Transformers, vLLM and T
 
 Runtimeはモデルに隣接して推論とExecuteFlowを制御するC++20の実行基盤です。ExecuteFlowは依存・データ・制御のフロー、ExecutionPlanは既存のコンパイル済み表現、Jobは実行中の仕事です。名前の変更でこの三者を統合しません。
 
-ComfyWorkFlowはComfyUI用グラフ・JSONで、Runtimeへ移しません。Agentは人格が必要な場合のみ。内部MCP通信を前提にせず、今回は文書の整理とマージまでです。Phase Cの実装はありますが、tiny fixtureの検証と実モデル・実GPU・実機導入の受け入れは別です。
+ComfyWorkFlowはComfyUI用グラフ・JSONで、Runtimeへ移しません。Agentは人格が必要な場合のみ。内部MCP通信を前提にせず、誤って追加したGeneration専用の変換・橋渡しを削除しました。推論のExecuteFlowと既存ExecutionPlanは維持します。Phase Cの実装はありますが、tiny fixtureの検証と実モデル・実GPU・実機導入の受け入れは別です。
 
 ## FLAMORIS and license
 
