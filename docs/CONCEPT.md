@@ -91,6 +91,7 @@ Jobs/Continuations/resources and the generic non-MCP embedding/isolation boundar
 Current source/wire names are preserved; no compatible naming migration is implied.
 
 Intelligence cleanup provides the internal non-MCP path in the wider project.
-Generation Controller remains unimplemented. No provider activation, model/kernel
+Generation Controller now owns the shared generation domain in accepted source;
+this introduces no native Runtime bridge. Live cutover remains pending. No provider activation, model/kernel
 redesign or deployment is started by this cleanup. See [AI #18](https://github.com/flamoris-jp/flamoris-ai/issues/18)
 and [current cleanup evidence](phase-c/STATUS.md#architecture-cleanup-on-2026-10-04).

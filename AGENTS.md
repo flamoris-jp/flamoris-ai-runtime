@@ -4,7 +4,7 @@ This repository implements a single-user C++20 FLAMORIS native model runtime und
 
 ## Current authorization
 
-The user has authorized architecture cleanup and internal non-MCP connections. Remove only the mistaken Generation composition/lowering subsystem here; preserve native ExecuteFlow, compiled ExecutionPlan and generic embedding/isolation contracts. Do not redesign the kernel or rename compatible source/wire symbols as part of deletion. Generation Controller remains unimplemented. Deployment, runtime activation, provider calls and credential changes are not part of this cleanup.
+The user has authorized architecture cleanup and internal non-MCP connections. Remove only the mistaken Generation composition/lowering subsystem here; preserve native ExecuteFlow, compiled ExecutionPlan and generic embedding/isolation contracts. Do not redesign the kernel or rename compatible source/wire symbols as part of deletion. Generation Controller is implemented in its owning repository; accepted source and pending live rollout are recorded in [AI progress](https://github.com/flamoris-jp/flamoris-ai/blob/main/PROGRESS.md). Deployment, runtime activation, provider calls and credential changes are not part of this cleanup.
 
 ## Names: do not merge different abstractions
 

@@ -100,7 +100,10 @@ here.
 The Generation-specific media-to-Runtime lowering API, implementation, tests and
 bridge design were removed under [Runtime #23](https://github.com/flamoris-jp/flamoris-ai-runtime/issues/23).
 ComfyWorkFlow JSON construction does not lower into Runtime ExecuteFlow or require
-Runtime admission. No replacement bridge or Generation Controller is implemented.
+Runtime admission. No replacement bridge or Generation Controller was implemented
+by that cleanup. The subsequent Controller extraction and bounded registration
+profile are accepted in their own repository, without a Runtime bridge; see
+[AI progress](https://github.com/flamoris-jp/flamoris-ai/blob/main/PROGRESS.md).
 
 Runtime still owns native inference, ExecuteFlow compilation/execution, the existing
 `ExecutionPlan`, Jobs, Continuations and resource accounting. Current source/wire

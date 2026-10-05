@@ -355,9 +355,12 @@ The integration should preserve Runtime observability and interrupt semantics ra
 
 ## Relationship to Generation and external capabilities
 
-Generation services retain their domain state; a future Controller remains
-unimplemented. Internal generation capability integration is optional and separately
-scoped, through the owner’s non-MCP contract.
+The implemented Generation Controller owns generation-domain state, with an
+external MCP facade and authenticated internal HTTP. This adds no Runtime
+bridge. Internal generation capability integration remains optional and
+separately scoped through the owner's non-MCP contract. See
+[AI progress](https://github.com/flamoris-jp/flamoris-ai/blob/main/PROGRESS.md)
+for accepted source and pending live rollout.
 
 External AI/API providers would use explicitly registered bounded capabilities.
 Third-party external MCP concepts do not authorize an internal FLAMORIS MCP bus.
@@ -385,4 +388,3 @@ Prefer stable error codes such as:
 - `internal_error`
 
 [Failure Model](FAILURE_MODEL.md) owns the full taxonomy/envelope, including `plan_stale`, `state_unavailable`, timeout, invalid/oversized result and `outcome_unknown`. Callers must not parse prose to identify error class. Raw provider bodies, credentials, private endpoints and host topology are never public errors. Current authorization applies separately to status, result, trace export and replay.
-
