@@ -22,7 +22,7 @@ The actual compiled C++ type is `ExecutionPlan` in [compiler.hpp](include/flamor
 
 New architecture prose uses the specific names rather than bare Workflow. Exact current wire fields, schema revisions, filenames, external names and historical quotations retain their spelling until a separately reviewed compatibility change.
 
-The architecture cleanup removes the mistaken Generation composition/lowering subsystem while preserving native inference and ExecuteFlow. Generic non-MCP embedding, pinned admission and principal isolation remain; see [cleanup evidence](docs/phase-c/STATUS.md#architecture-cleanup-on-2026-10-04). Generation Controller remains unimplemented. This source change does not deploy services or invoke providers.
+The architecture cleanup removes the mistaken Generation composition/lowering subsystem while preserving native inference and ExecuteFlow. Generic non-MCP embedding, pinned admission and principal isolation remain; see [cleanup evidence](docs/phase-c/STATUS.md#architecture-cleanup-on-2026-10-04). Generation Controller is implemented in its owning repository; accepted source and pending live rollout are recorded in [AI progress](https://github.com/flamoris-jp/flamoris-ai/blob/main/PROGRESS.md). This source change does not deploy services or invoke providers.
 
 ## Build and existing CLI
 
