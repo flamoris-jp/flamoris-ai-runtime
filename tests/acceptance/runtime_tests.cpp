@@ -1,5 +1,4 @@
 #include "catch_amalgamated.hpp"
-#include "flamoris/runtime/media_lowering.hpp"
 #include "flamoris/runtime/native_registration.hpp"
 #include "flamoris/runtime/principal_target.hpp"
 #include "flamoris/runtime/runtime.hpp"
@@ -253,46 +252,7 @@ TEST_CASE("C12 missing host release preserves finalizing and charged lease") {
     REQUIRE_FALSE(f.finish(admitted.value().id).pending);
 }
 
-TEST_CASE("B01 Runtime embeds media compiler pins through actual host-settled execution") {
-    Fixture f;
-    auto snapshot = f.runtime->compilation_snapshot();
-    REQUIRE(snapshot);
-    auto pin =
-        fingerprint_capability(snapshot.value().capabilities.capabilities.at("algorithm.echo"));
-    REQUIRE(pin);
-    REQUIRE_FALSE(snapshot.value()
-                      .capabilities.capabilities.at("algorithm.echo")
-                      .resource_contract_digest.empty());
-    MediaLoweringRequest request;
-    auto digest = [](char c) { return "sha256:" + std::string(64, c); };
-    request.identity = {digest('a'), digest('b'), digest('c'), digest('d'),
-                        digest('e'), "media/2",   "lowering/1"};
-    Binding first{{JsonValue("hello")}, {}};
-    Binding previous{{}, Reference{Reference::Source::node, "root/first", {}}};
-    Binding last{{}, Reference{Reference::Source::node, "root/second", {}}};
-    request.operations = {{"root/first", pin.value(), {{"text", first}}, {}, 1000},
-                          {"root/second", pin.value(), {{"text", previous}}, {}, 1000}};
-    request.outputs["result"] = last;
-    auto lowered =
-        lower_media_submission(request, snapshot.value().capabilities,
-                               {{"algorithm.echo", {pin.value()}}}, snapshot.value().compiler);
-    REQUIRE(lowered);
-    PinnedSubmissionIdentity expected{snapshot.value().instance,
-                                      lowered.value().submission.request_digest,
-                                      lowered.value().submission.plan->fingerprint};
-    auto admitted =
-        f.runtime->submit_pinned(caller(), lowered.value().canonical_submission, expected);
-    REQUIRE(admitted);
-    for (unsigned i = 0; i < 10; ++i)
-        REQUIRE(f.runtime->poll());
-    REQUIRE(f.echo->calls == 0);
-    f.envelope();
-    auto result = f.finish(admitted.value().id);
-    REQUIRE_FALSE(result.error);
-    REQUIRE(result.value == JsonValue{JsonValue::Object{{"result", "hello"}}});
-    REQUIRE(f.echo->calls == 2);
-}
-TEST_CASE("B02 pinned Runtime admission rejects recompilation target and concrete input changes") {
+TEST_CASE("C12 pinned Runtime admission rejects recompilation target and concrete input changes") {
     Fixture f;
     auto snapshot = f.runtime->compilation_snapshot();
     REQUIRE(snapshot);
@@ -346,7 +306,7 @@ TEST_CASE(
     REQUIRE(f.echo->calls == 0);
 }
 
-TEST_CASE("B02 pinned admission rechecks contracts changed after submission preparation") {
+TEST_CASE("C12 pinned admission rechecks contracts changed after submission preparation") {
     RuntimeInstance *runtime = nullptr;
     CapabilitySnapshot replacement;
     bool changed = false;
@@ -373,7 +333,7 @@ TEST_CASE("B02 pinned admission rechecks contracts changed after submission prep
     REQUIRE(f.echo->calls == 0);
 }
 
-TEST_CASE("B13 isolated principal targets deny other subjects across every command surface") {
+TEST_CASE("C12 isolated principal targets deny other subjects across every command surface") {
     Fixture f;
     auto created = PrincipalRuntimeTarget::create("owner", std::move(f.runtime));
     REQUIRE(created);
@@ -415,7 +375,7 @@ TEST_CASE("B13 isolated principal targets deny other subjects across every comma
     REQUIRE(f.echo->calls == 0);
 }
 TEST_CASE(
-    "B13 target ownership requires separate Runtime instances and preserves scoped deduplication") {
+    "C12 target ownership requires separate Runtime instances and preserves scoped deduplication") {
     Fixture a;
     Fixture b(false, {}, {99, 2});
     auto first = PrincipalRuntimeTarget::create("owner", std::move(a.runtime));

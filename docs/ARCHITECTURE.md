@@ -2,9 +2,9 @@
 
 ## Status and purpose
 
-**Phase A architecture proposal. No Runtime is implemented.**
+**Native Runtime architecture with a Phase C implementation baseline.** See [current executable evidence](phase-c/STATUS.md) for implemented and qualified scope.
 
-FLAMORIS AI Runtime is a single-user native model execution kernel: inference and workflow share one controllable loop. It owns model execution/state and coordinates bounded child work. An external provider is a registered Workflow capability, never its interchangeable inference backend.
+FLAMORIS AI Runtime is a single-user native model execution kernel: inference and ExecuteFlow share one controllable loop. It owns model execution/state and coordinates bounded child work. An external provider is a registered ExecuteFlow capability, never its interchangeable inference backend.
 
 [Design Phases](DESIGN_PHASES.md) defines review gates and document authority. This overview delegates precise behavior to the detailed contracts rather than duplicating transition tables.
 
@@ -14,23 +14,23 @@ FLAMORIS AI Runtime is a single-user native model execution kernel: inference an
 | --- | --- | --- |
 | Runtime Kernel | Run admission, Job lifecycle, execution control, limits and provenance | Caller identity/memory or host-wide service policy |
 | Inference Machine | Native processing/prefill/decode/sampling coordination and profile state for its Job | Independent terminal status, ambient tool authority |
-| Workflow Machine | Immutable compiled plan, dependencies, binding, join/race decisions | Arbitrary code or a second Scheduler |
+| ExecuteFlow Machine (`WorkflowMachine`) | Immutable compiled plan, dependencies, binding, join/race decisions | Arbitrary code or a second Scheduler |
 | Scheduler | Selection of eligible Jobs under current resource/policy constraints | Continuation scheduling, external service authority |
 | Resource Manager | Reservations, execution leases, physical allocation accounting and cleanup debt | Claiming host exclusivity from a local lock |
 | Capability Registry | Versioned schemas, effects and adapter capability descriptions | Permission to invoke a registered capability |
 | Paid Budget Authority (optional future integration) | Strict monetary guarantees for external paid capabilities when explicitly enabled | Baseline native inference or Run/Job recovery |
 | Agent | Identity, goals, personality, conversation and durable memory | Runtime lifecycle state |
-| Generation | Generation workflows, service Jobs and media assets | Runtime Job identity and lifecycle |
+| Generation | Generation requests, service Jobs and media assets | Runtime Job identity and lifecycle |
 | GPU Node Manager | Host-wide device/service lifecycle and coordination | Runtime dependency decisions |
 | Studio / desktop products | Accounts, UI, documents and edit history | Kernel execution semantics |
 
-Intelligence MCP may expose or route bounded intelligence capabilities without forcing model execution internals out of AI Runtime. Exact integration protocols require evidence in Phase B; this architecture does not assert what neighboring services currently implement.
+Internal applications use non-MCP execution contracts. Intelligence MCP is an external facade and may expose reviewed intelligence capabilities without moving model execution internals out of Runtime. Runtime does not call Generation MCP, Intelligence MCP or Hub as an internal service bus. Agent is optional personality/conversation policy. ComfyWorkFlow construction remains outside Runtime, and the mistaken Generation composition/lowering bridge has been removed.
 
 ## Kernel structure
 
 ```mermaid
 flowchart TD
-  Caller["MCP / API / CLI / bindings"] --> Kernel["Runtime admission and control"]
+  Caller["Internal API / CLI / bindings"] --> Kernel["Runtime admission and control"]
   Kernel --> Inference["Inference Machine"]
   Kernel --> Workflow["Workflow Machine"]
   Inference --> Jobs["Job lifecycle authority"]
@@ -52,7 +52,7 @@ C++ is the intended Kernel language. Transports, bindings and external services 
 
 A Run is an admitted bounded execution with a principal, immutable plan reference, cancellation scope, budgets and a root Job. Jobs are the only scheduler-visible units; machines advance their Jobs and report control decisions to the Kernel.
 
-A workflow node and a Job are distinct. Nodes describe logical operations; materialized Jobs have runtime identities and attempts. A remote Generation/MCP request may create a service-owned operation ID linked in provenance, never reused as the Runtime Job ID.
+A workflow node and a Job are distinct. Nodes describe logical operations; materialized Jobs have runtime identities and attempts. An external capability request may create a service-owned operation ID linked in provenance, never reused as the Runtime Job ID.
 
 The [Execution Model](EXECUTION_MODEL.md) owns plan instantiation, bounded dynamic child envelopes, binding, dependency readiness, join/race and external operation relationships. The [State Machines](STATE_MACHINES.md) own Run/Job transitions, control precedence, deadlines and terminalization.
 

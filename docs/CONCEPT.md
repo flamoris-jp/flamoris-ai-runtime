@@ -33,7 +33,7 @@ ExecuteFlow definition
   -> Scheduler dispatches runnable Jobs
 ```
 
-The real current compiled type is [ExecutionPlan](../include/flamoris/runtime/compiler.hpp). The current serialized contract remains in [WORKFLOW_IR.md](WORKFLOW_IR.md); the current machine is [WorkflowMachine](../include/flamoris/runtime/workflow.hpp). These literal identifiers/filenames remain unchanged in this documentation-only correction. ExecuteFlow is the source/control-flow concept, not a new name for the compiled plan or the Job lifecycle.
+The real current compiled type is [ExecutionPlan](../include/flamoris/runtime/compiler.hpp). The current serialized contract remains in [WORKFLOW_IR.md](WORKFLOW_IR.md); the current machine is [WorkflowMachine](../include/flamoris/runtime/workflow.hpp). These literal identifiers/filenames remain unchanged in this architecture cleanup. ExecuteFlow is the source/control-flow concept, not a new name for the compiled plan or the Job lifecycle.
 
 ComfyWorkFlow instead means ComfyUI graph/API-format JSON. ComfyUI executes that graph; Runtime does not acquire its JSON builder. Other media providers may use generation requests without a ComfyWorkFlow. Optional future generation capabilities are not prerequisites for ordinary inference or ComfyUI JSON construction.
 
@@ -85,6 +85,12 @@ The kernel remains C++20/library-first as established by [Phase B](PHASE_B_DESIG
 
 ## Current correction boundary
 
-This pass changes documentation only. Use ExecuteFlow for the inference flow, keep ExecutionPlan distinct, and use ComfyWorkFlow specifically for ComfyUI. Do not introduce new bare Workflow terminology or pretend current source/wire names were migrated.
+The user-authorized cleanup removes the Generation-specific media lowering and
+composition bridge. It preserves inference ExecuteFlow, the distinct ExecutionPlan,
+Jobs/Continuations/resources and the generic non-MCP embedding/isolation boundary.
+Current source/wire names are preserved; no compatible naming migration is implied.
 
-Intelligence cleanup is the next project priority. Generation Controller, Generation ComfyWorkFlow retirement, new capabilities, model/kernel changes and deployments remain separately scoped and are not started by a documentation merge. See [AI #18](https://github.com/flamoris-jp/flamoris-ai/issues/18).
+Intelligence cleanup provides the internal non-MCP path in the wider project.
+Generation Controller remains unimplemented. No provider activation, model/kernel
+redesign or deployment is started by this cleanup. See [AI #18](https://github.com/flamoris-jp/flamoris-ai/issues/18)
+and [current cleanup evidence](phase-c/STATUS.md#architecture-cleanup-on-2026-10-04).
