@@ -1,10 +1,18 @@
 # MCP Contract
 
-**Deployment scope:** the initial Runtime is single-user. Transport authentication and current per-capability authorization still apply. Tenant isolation and billing are not baseline promises; external AI participates as a Workflow capability.
+**Deployment scope:** the initial Runtime is single-user. Transport authentication and current per-capability authorization still apply. Tenant isolation and billing are not baseline promises; external provider execution would participate through an explicitly registered capability.
 
 ## Status
 
-**Phase A semantic design. No MCP server is implemented; exact wire schemas and tool names remain Phase B decisions.**
+**Phase A semantic design for a possible external facade. No MCP server is
+implemented; exact external tool/wire schemas remain a separate future scope.
+Phase C already implements the non-MCP Runtime library and embedding contracts.**
+
+AI #18 supersedes any internal-MCP implication in this historical design. An
+external facade may adapt Runtime contracts; Runtime must not call Generation
+MCP, Intelligence MCP or MCP Hub as an internal execution bus. Custom generation
+composition/lowering was retired. This document neither recreates it nor requires
+an MCP listener for native inference or ExecuteFlow.
 
 This surface projects [Execution Model](EXECUTION_MODEL.md), [State Machines](STATE_MACHINES.md), [Authorization Model](AUTHORIZATION_MODEL.md), [Event Model](EVENT_MODEL.md) and [Failure Model](FAILURE_MODEL.md); it must not invent transport-specific lifecycle semantics.
 
@@ -338,15 +346,21 @@ The Runtime owns active model execution and runtime state, not durable Agent ide
 
 ## Relationship to Intelligence MCP
 
-`flamoris-intelligence-mcp` may expose or route intelligence capabilities, but AI Runtime owns registered native model execution; external runtimes/providers participate only as Workflow capabilities.
+`flamoris-intelligence-mcp` provides an external facade and distributes the shared
+non-MCP provider library. AI Runtime owns its registered native model execution.
+Any separately reviewed internal provider integration uses a non-MCP execution
+contract; the external Intelligence listener is not a mandatory Runtime hop.
 
 The integration should preserve Runtime observability and interrupt semantics rather than forcing every model operation through an opaque remote request.
 
 ## Relationship to Generation and external capabilities
 
-Generation MCP and other services retain their domain state.
+Generation services retain their domain state; a future Controller remains
+unimplemented. Internal generation capability integration is optional and separately
+scoped, through the owner’s non-MCP contract.
 
-External AI/API and MCP tools are exposed through configured registered capabilities.
+External AI/API providers would use explicitly registered bounded capabilities.
+Third-party external MCP concepts do not authorize an internal FLAMORIS MCP bus.
 
 Portable workflow/runtime requests must not carry arbitrary endpoints or raw credentials.
 

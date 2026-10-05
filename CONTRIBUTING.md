@@ -2,7 +2,7 @@
 
 Thanks for your interest in FLAMORIS AI Runtime. 🌱
 
-This repository is currently in the design stage.
+The Phase C C++20 baseline is implemented. Read [current evidence](docs/phase-c/STATUS.md) and [build instructions](docs/BUILD.md); native tiny-fixture tests do not establish pretrained model, physical GPU or live-host readiness.
 
 ## Before contributing
 
@@ -12,7 +12,7 @@ Please read:
 - [Design phases and review gates](docs/DESIGN_PHASES.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Design acceptance scenarios](docs/DESIGN_ACCEPTANCE.md)
-- [Workflow IR](docs/WORKFLOW_IR.md)
+- [ExecuteFlow input contract](docs/WORKFLOW_IR.md)
 - [MCP Contract](docs/MCP_CONTRACT.md)
 - [AGENTS.md](AGENTS.md)
 
@@ -37,7 +37,7 @@ Pull requests are accepted according to the shared FLAMORIS repository policy.
 
 Keep PRs focused and do not mix unrelated architecture changes.
 
-When implementation begins, include tests for externally visible behavior and validation semantics.
+For behavior changes, include tests for externally visible behavior and validation semantics.
 
 ## Design priorities
 
@@ -54,7 +54,7 @@ Avoid:
 
 - arbitrary code execution as a convenience feature;
 - hidden permissions;
-- provider-specific assumptions in the portable workflow IR;
+- provider-specific assumptions in the portable ExecuteFlow input contract;
 - speculative compatibility layers;
 - duplicate state ownership across FLAMORIS services.
 
