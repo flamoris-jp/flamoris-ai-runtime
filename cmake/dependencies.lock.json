@@ -32,17 +32,37 @@
         "libssl3t64_3.0.13-0ubuntu3.15_amd64.deb": "3d0955bc049bbcca0f4c3e78a3a8b994593d96db7d84f4320217224433844534",
         "libssl-dev_3.0.13-0ubuntu3.15_amd64.deb": "cefc6371d90d953a4cbb35d72d871f057e4b961a3107186f67fe96a88040cdb8"
       },
-      "libcrypto_sha256": "6a66c3ba6b3749aacc9497973fff00f6ba61c703ba7015d0d7ab3fd9510974b6"
+      "libcrypto_sha256": "6a66c3ba6b3749aacc9497973fff00f6ba61c703ba7015d0d7ab3fd9510974b6",
+      "reviewed_security_updates": [
+        {
+          "ubuntu_package": "3.0.13-0ubuntu3.16",
+          "source": "actions/runner-images ubuntu24/20261004.327",
+          "libcrypto_sha256": "6866ed711dab8927e1bf82bf1cd30e828bdfc34f3cc1e83b1c9eb01ce6c37d9a",
+          "evidence": "PR #29 run 37774525772 job 113301938455: installed libssl-dev/libssl3t64 version and libcrypto SHA256"
+        }
+      ]
     },
     "windows": {
-      "version": "3.6.4",
-      "source": "actions/runner-images win22/20260927.320",
-      "qualification": "pending Windows CI; image version pinned"
+      "versions": [
+        "3.6.4",
+        "3.6.5"
+      ],
+      "sources": [
+        "actions/runner-images win22/20260927.320",
+        "actions/runner-images win22/20261004.326"
+      ],
+      "qualification": "Exact patch allowlist; Windows Debug and Release CI required before merge"
     }
   },
   "ci_images": {
-    "ubuntu-24.04": "20260927.320.1",
-    "windows-2022": "20260927.320.1"
+    "ubuntu-24.04": [
+      "20260927.320.1",
+      "20261004.327.1"
+    ],
+    "windows-2022": [
+      "20260927.320.1",
+      "20261004.326.1"
+    ]
   },
   "compilers": {
     "gcc": "13.3.0",
