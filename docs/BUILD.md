@@ -11,7 +11,9 @@ be provisioned; configuration never downloads a dependency or model.
 
 Provision GCC 13.3.0 or Clang 18.1.3, CMake, Ninja and the locked OpenSSL package
 before configuring. The optional `FLAMORIS_LOCKED_TOOLCHAIN` gate rejects a
-different compiler patch and, on Linux, a different libcrypto binary. If the
+different compiler patch and, on Linux, a libcrypto binary outside the exact
+reviewed hash allowlist. Ubuntu package revisions `.15` and `.16` are recorded
+separately; CI pairs each runner image with its reviewed package revision. If the
 dependencies live outside the standard search path, pass `OPENSSL_ROOT_DIR` and
 put the selected CMake/Ninja/compiler executables on `PATH`.
 
