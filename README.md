@@ -1,6 +1,6 @@
 # FLAMORIS AI Runtime
 
-![I JUST WANT TO CONNECT MY AI — FLAMORIS AI Runtime](docs/images/flamoris-ai-runtime.jpg)
+![I JUST WANT TO CONNECT MY AI — FLAMORIS AI Runtime](docs/images/flamoris-ai-runtime.png)
 
 *Creative vision: connecting specialized AIs through ExecuteFlow. The illustration depicts a future production experience, not a claim that all shown integrations are implemented or qualified.*
 
