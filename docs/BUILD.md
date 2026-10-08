@@ -11,7 +11,9 @@ be provisioned; configuration never downloads a dependency or model.
 
 Provision GCC 13.3.0 or Clang 18.1.3, CMake, Ninja and the locked OpenSSL package
 before configuring. The optional `FLAMORIS_LOCKED_TOOLCHAIN` gate rejects a
-different compiler patch and, on Linux, a different libcrypto binary. If the
+different compiler patch and, on Linux, a libcrypto binary outside the exact
+reviewed hash allowlist. Ubuntu package revisions `.15` and `.16` are recorded
+separately; CI pairs each runner image with its reviewed package revision. If the
 dependencies live outside the standard search path, pass `OPENSSL_ROOT_DIR` and
 put the selected CMake/Ninja/compiler executables on `PATH`.
 
@@ -72,7 +74,8 @@ qualification does not establish physical GPU or deployed host conformance.
 ## Windows
 
 Use a Visual Studio 2022 x64 developer shell with Ninja, CMake and the locked
-OpenSSL installation available. `msvc-debug` and `msvc-release` are the CI
+OpenSSL 3.6.4 or 3.6.5 installation available. Other Windows OpenSSL patches
+are rejected until reviewed. `msvc-debug` and `msvc-release` are the CI
 presets. Their existence is not evidence of a successful Windows run; consult
 the [implementation evidence](phase-c/STATUS.md) and the actual CI result.
 
