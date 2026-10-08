@@ -1,5 +1,9 @@
 # FLAMORIS AI Runtime
 
+![I JUST WANT TO CONNECT MY AI — FLAMORIS AI Runtime](docs/images/flamoris-ai-runtime.jpg)
+
+*Creative vision: connecting specialized AIs through ExecuteFlow. The illustration depicts a future production experience, not a claim that all shown integrations are implemented or qualified.*
+
 **Inference and ExecuteFlow, controlled in one runtime.**
 
 FLAMORIS AI Runtime is a single-user native model runtime implemented in C++20. It owns model execution, cache/state and inference control together with execution-flow control, jobs, interrupts, resource accounting and observability. CPU reference and OpenCL compute are internal implementations; third-party runtimes participate as registered capabilities, not as the native model backend.
