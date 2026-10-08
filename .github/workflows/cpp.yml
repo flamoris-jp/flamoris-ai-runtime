@@ -1,8 +1,24 @@
 name: C++ contract and qualification
 on:
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - '**/*.png'
+      - '**/*.jpg'
+      - '**/*.jpeg'
+      - '**/*.gif'
+      - '**/*.webp'
+      - '**/.gitkeep'
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - '**/*.png'
+      - '**/*.jpg'
+      - '**/*.jpeg'
+      - '**/*.gif'
+      - '**/*.webp'
+      - '**/.gitkeep'
   workflow_dispatch:
 permissions:
   contents: read
