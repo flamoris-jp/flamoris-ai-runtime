@@ -22,6 +22,8 @@ jobs:
             20260927.320.1|20261004.327.1) ;;
             *) echo "Unreviewed ubuntu-24.04 image: $ImageVersion" >&2; exit 1 ;;
           esac
+          dpkg-query -W libssl-dev libssl3t64
+          sha256sum /usr/lib/x86_64-linux-gnu/libcrypto.so.3
           test "$(dpkg-query -W -f='${Version}' libssl-dev)" = "3.0.13-0ubuntu3.15"
           test "$(g++-13 -dumpfullversion)" = "13.3.0"
           clang++-18 --version

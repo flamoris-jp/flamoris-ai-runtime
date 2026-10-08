@@ -72,7 +72,8 @@ qualification does not establish physical GPU or deployed host conformance.
 ## Windows
 
 Use a Visual Studio 2022 x64 developer shell with Ninja, CMake and the locked
-OpenSSL installation available. `msvc-debug` and `msvc-release` are the CI
+OpenSSL 3.6.4 or 3.6.5 installation available. Other Windows OpenSSL patches
+are rejected until reviewed. `msvc-debug` and `msvc-release` are the CI
 presets. Their existence is not evidence of a successful Windows run; consult
 the [implementation evidence](phase-c/STATUS.md) and the actual CI result.
 
