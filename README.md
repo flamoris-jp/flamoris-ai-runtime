@@ -1,5 +1,9 @@
 # FLAMORIS AI Runtime
 
+![I JUST WANT TO CONNECT MY AI — FLAMORIS AI Runtime](docs/images/flamoris-ai-runtime.png)
+
+*Creative vision: connecting specialized AIs through ExecuteFlow. The illustration depicts a future production experience, not a claim that all shown integrations are implemented or qualified.*
+
 **Inference and ExecuteFlow, controlled in one runtime.**
 
 FLAMORIS AI Runtime is a single-user native model runtime implemented in C++20. It owns model execution, cache/state and inference control together with execution-flow control, jobs, interrupts, resource accounting and observability. CPU reference and OpenCL compute are internal implementations; third-party runtimes participate as registered capabilities, not as the native model backend.
@@ -128,3 +132,7 @@ ComfyWorkFlowはComfyUI用グラフ・JSONで、Runtimeへ移しません。Agen
 FLAMORIS is open-source software for creative work and AI-native production. Commercial use of licensed code is welcome without individual permission. It is provided as-is without guaranteed individual support; documentation, Issues, tests and source are primary self-support references.
 
 Code and documentation are [Apache-2.0](LICENSE), unless otherwise noted. Models, weights, datasets, media and other non-code assets may have separate terms.
+
+The FLAMORIS characters and illustration in `docs/images/flamoris-ai-runtime.png`
+are creative artwork, separate from the Apache-2.0 code/documentation license.
+Their inclusion here does not grant reuse rights under Apache-2.0.
